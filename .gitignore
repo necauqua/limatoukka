@@ -1,1 +1,7 @@
 noita
+
+.direnv
+target
+
+*.log
+*.log.old
