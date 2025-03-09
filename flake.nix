@@ -62,17 +62,30 @@
           $@
       '';
     in
-    [
-      xdummy
-      pkgsi686Linux.virtualglLib
-      just
-      websocat
+    {
+      env.LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
+        pkgsi686Linux.pulseaudio # for audio to work
+        openssl
+        xorg.libX11
+        xdotool
+      ];
+      packages = [
+        xdummy
+        pkgsi686Linux.virtualglLib
+        just
+        websocat
+        hugo
+        go
 
-      rustup
-      rustfmt
-      clippy
-      gcc
-      pkg-config
-      openssl
-    ]);
+        rustup
+        rustfmt
+        clippy
+        gcc
+        pkg-config
+
+        openssl
+        xdotool
+        xorg.libX11
+      ];
+    });
 }

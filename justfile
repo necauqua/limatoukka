@@ -2,75 +2,114 @@ steam-common := "/storage/games/steam/steamapps/common"
 proton := "Proton - Experimental"
 
 display := ":17"
+noita-dir := "noita"
+compat-dir := "noita/steam-compat-data"
 
 export STEAM_COMPAT_CLIENT_INSTALL_PATH := x"~/.local/share/Steam"
-export STEAM_COMPAT_DATA_PATH := justfile_dir() + "/noita/steam-compat-data"
+export STEAM_COMPAT_DATA_PATH := justfile_dir() + "/" + compat-dir
 
 _default:
     @just -l
 
-# Start the Noita instance
-[working-directory: 'noita']
-launch:
-    # idempotently make sure things are in place
-    mkdir -p "noita/steam-compat-data"
-    # just link .exe, .dll and data into a new cwd ¯\_(ツ)_/¯
-    ln -sf "{{steam-common}}/Noita/"{*.dll,noita.exe,data} noita/
-    # stop release notes popup (config must have the same hash string)
-    echo none > noita/_version_hash.txt
+save-dir := compat-dir + "/pfx/drive_c/users/steamuser/AppData/LocalLow/Nolla_Games_Noita"
 
-    # and just run it lol
+# Start the Noita instance
+start:
+    # idempotently make sure things are in place:
+    mkdir -p "{{save-dir}}/"{save_shared,save00/persistent/flags}
+    ln -f config.xml "{{save-dir}}/save_shared/config.xml"
+    # just link .exe, .dll and data into a new cwd ¯\_(ツ)_/¯
+    ln -sf "{{steam-common}}/Noita/"{*.dll,noita.exe,data} noita
+    # stop release notes popup (config must have the same hash string)
+    echo -n static > {{noita-dir}}/_version_hash.txt
+    # just run it lol
     # so we wrap the noita.exe in proton to run it on linux,
     # wrap that in steam-run to run it on NixOS,
     # and wrap _that_ in vglrun to make it be able to use the gpu from another X instance
-    vglrun steam-run \
+    cd noita && steam-run \
         "{{steam-common}}/{{proton}}/proton" \
         waitforexitandrun \
         noita.exe \
         -- \
         -no_logo_splashes \
-        -gamemode
+        -gamemode >/dev/null 2>/dev/null
 
-save-dir := "noita/steam-compat-data/pfx/drive_c/users/steamuser/AppData/LocalLow/Nolla_Games_Noita"
-
-# Delete the save (but set "intro_has_played" tag)
+# Delete the save
 reset:
     rm -rf noita
-    mkdir -p "{{save-dir}}/"{save_shared,save00/persistent/flags}
-    touch "{{save-dir}}/save00/persistent/flags/intro_has_played"
-    ln config.xml "{{save-dir}}/save_shared/config.xml"
 
-# Force the XSH display capture input to reconnect to the X instance
-obs-reset:
-    (\
-    echo '{"op":1,"d":{"rpcVersion":1}}';\
-    sleep 0.1;\
-    echo '{"op":6,"d":{"requestType":"SetInputSettings","requestId":"1","requestData":{"inputName":"capture","inputSettings":{"server":":99"}}}}';\
-    echo '{"op":6,"d":{"requestType":"SetInputSettings","requestId":"1","requestData":{"inputName":"capture","inputSettings":{"server":"{{display}}"}}}}';\
-    ) | websocat ws://localhost:4455
+# Set an arbitrary persistent flag
+set-flag flag:
+    mkdir -p "{{save-dir}}/save00/persistent/flags"
+    touch "{{save-dir}}/save00/persistent/flags/{{flag}}"
+    
+# Set the intro_has_played flag
+no-intro:
+    just set-flag intro_has_played
 
 # Start the game in a separate X instance
 run:
     #!/usr/bin/env bash
     function cleanup() {
         # so that the last frame is not frozen
-        just obs-reset || true
+        just obs-reset-display
+        just stop
     }
-    trap cleanup SIGINT
+    trap cleanup INT TERM EXIT
 
-    xdummy {{display}} &
+    wpexec pipewire-obs-thing.lua '{"display":"{{display}}"}' &
+
+    xdummy {{display}} 2>/dev/null &
     sleep 0.1
 
+    export DISPLAY={{display}}
+
     # hide stupid X cursor when the game is not running
-    DISPLAY={{display}} xsetroot -cursor none.xbm none.xbm
+    xsetroot -cursor none.xbm none.xbm
+
+    # set root color to magenta to chromakey the nocapture thing below the thing
+    xsetroot -solid "#ff00ff"
 
     # make sure obs capture is connected to this instance
-    just obs-reset || true
+    just obs-reset-display
 
-    # and just start the game now
-    DISPLAY={{display}} just launch
+    # and just start the game now, in that instance
+    vglrun just --color=always start 2> >(grep -v "wrong ELF class: ELFCLASS32" >&2)
 
 stop:
-    # bit risky, lol
+    #!/usr/bin/env bash
+    ./obs-files/hide-nocap.fish &
+    sleep 0.2
+
+    DISPLAY={{display}} xdotool key Alt+F4
+    sleep 2 # maybe wait for game to end (check by pid)
+    pkill .exe
+    pkill wine
+    pkill -f pipewire-obs-thing.lua
+    # this will fail to kill the main X instance, pfew
     pgrep X | tail -1 | xargs kill
-    just obs-reset || true
+    just obs-reset-display
+    sleep 2
+
+# Force the XSH display capture input to reconnect to the X instance
+obs-reset-display:
+    @(\
+    echo '{"op":1,"d":{"rpcVersion":1}}'; \
+    sleep 0.1; \
+    echo '{"op":6,"d":{"requestType":"SetInputSettings","requestId":"1","requestData":{"inputName":"capture","inputSettings":{"server":":99"}}}}'; \
+    echo '{"op":6,"d":{"requestType":"SetInputSettings","requestId":"2","requestData":{"inputName":"capture","inputSettings":{"server":"{{display}}"}}}}';\
+    ) | websocat ws://localhost:4455 >/dev/null
+
+[working-directory("obs-files")]
+start-intro-timer seconds="900":
+    just stop-intro-timer 2>/dev/null || true
+    ./countdown.fish "{{seconds}}" & disown
+
+stop-intro-timer:
+    pkill -f ./countdown.fish
+
+start-funny-rotation:
+    ./obs-files/rotate-lol.fish & disown
+
+stop-funny-rotation:
+    pkill -f ./rotate-lol.fish

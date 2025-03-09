@@ -1,0 +1,9 @@
+{
+    "diagnostics.globals": [
+        "ObjectManager",
+        "Interest",
+        "Constraint",
+        "Link",
+        "Core"
+    ]
+}
