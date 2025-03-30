@@ -74,7 +74,12 @@ impl MessageSource {
                 *count += 1;
                 Message {
                     id: format!("mock-{}", count),
-                    sender: sender.clone(),
+                    sender: Sender {
+                        // meh
+                        id: format!("{}-{}", sender.id, count),
+                        login: format!("{}-{}", sender.login, count),
+                        name: format!("{}-{}", sender.name, count),
+                    },
                     text,
                 }
             }

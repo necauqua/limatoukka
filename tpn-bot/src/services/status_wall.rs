@@ -74,24 +74,19 @@ impl StatusWall {
         }
     }
 
-    pub async fn push_top(&self, entry: String) -> EntryKey {
-        let mut inner = self.inner.lock().await;
-        let id = inner.new_key();
-        inner.entries.shift_insert(0, id, entry);
-        inner.sync().await;
-        id
+    pub async fn allocate(&self) -> EntryKey {
+        self.inner.lock().await.new_key()
     }
 
-    pub async fn push(&self, entry: String) -> EntryKey {
+    pub fn guard(&self, key: EntryKey) -> EntryGuard {
+        EntryGuard(key, self.clone())
+    }
+
+    pub async fn push(&self, entry: String) -> EntryGuard {
         let mut inner = self.inner.lock().await;
         let id = inner.new_key();
         inner.entries.insert(id, entry);
         inner.sync().await;
-        id
-    }
-
-    pub async fn push_scoped(&self, entry: String) -> EntryGuard {
-        let id = self.push(entry).await;
         EntryGuard(id, self.clone())
     }
 
@@ -122,10 +117,11 @@ impl StatusWall {
                             div #text style="
                                 position: absolute;
                                 inset: 0;
-                                white-space: pre-wrap;
+                                white-space: pre;
                                 text-align: right;
                                 color: white;
                                 font-family: NoitaPixel;
+                                font-smooth: never;
                             " {
                                 (PreEscaped(inner.lock().await.get_text()))
                             };

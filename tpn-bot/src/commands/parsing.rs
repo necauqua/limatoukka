@@ -7,14 +7,14 @@ pub enum CommandType {
 }
 
 #[derive(Debug)]
-pub struct CommandToken {
+pub struct CommandExpr {
     pub name: String,
     pub args: VecDeque<String>,
     pub rest: Option<String>,
     pub tpe: CommandType,
 }
 
-impl CommandToken {
+impl CommandExpr {
     pub fn as_command(&self) -> String {
         match self.tpe {
             CommandType::Uwu => format!("{}~", self.name),
@@ -23,7 +23,7 @@ impl CommandToken {
     }
 }
 
-impl fmt::Display for CommandToken {
+impl fmt::Display for CommandExpr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.name)?;
         for arg in &self.args {
@@ -39,7 +39,7 @@ impl fmt::Display for CommandToken {
     }
 }
 
-impl CommandToken {
+impl CommandExpr {
     pub fn parse(word: &str) -> Option<Self> {
         let (word, tpe) = word
             .strip_suffix('~')
@@ -62,7 +62,7 @@ impl CommandToken {
 
 #[derive(Debug)]
 pub struct CommandMessage {
-    pub parallel: Vec<Vec<CommandToken>>,
+    pub parallel: Vec<Vec<CommandExpr>>,
 }
 
 impl fmt::Display for CommandMessage {
@@ -106,7 +106,7 @@ impl CommandMessage {
                     if single {
                         let mut words_iter = words.iter();
                         let word = words_iter.next().unwrap();
-                        if let Some(mut token) = CommandToken::parse(&word) {
+                        if let Some(mut token) = CommandExpr::parse(&word) {
                             if token.args.is_empty() && words_iter.next().is_some() {
                                 // ideally args will be a enum of args|rest, but that requires rewriting a lot of things, eh
                                 token.rest = Some(content[word.len() + 1..].trim().to_owned());
@@ -127,7 +127,7 @@ impl CommandMessage {
                             if !is_good_command_name(&name) {
                                 return None;
                             }
-                            let cmd = CommandToken {
+                            let cmd = CommandExpr {
                                 name,
                                 args: parts.map(|s| unwrap_string_literals(&s)).collect(),
                                 tpe,

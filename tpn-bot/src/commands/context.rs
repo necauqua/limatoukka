@@ -7,11 +7,12 @@ use std::{
 };
 
 use anyhow::Result;
+use maud::html;
 use rustis::{
     client::BatchPreparedCommand,
     commands::{GenericCommands, ListCommands, SetCondition, SetExpiration, StringCommands},
 };
-use tokio::{process::Command, time::sleep};
+use tokio::{process::Command, task::JoinHandle, time::sleep};
 use tracing::Instrument;
 
 use crate::{
@@ -46,7 +47,7 @@ pub struct MessageContext {
 
 #[derive(Debug, Clone)]
 pub struct CommandDescriptor {
-    pub name: String,
+    pub name: Arc<str>,
     pub tpe: CommandType,
     pub group: usize,
     pub idx: usize,
@@ -55,9 +56,13 @@ pub struct CommandDescriptor {
 impl Display for CommandDescriptor {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.tpe {
-            CommandType::Uwu => write!(f, "{}~", self.name),
-            CommandType::Crusade => write!(f, "+{}", self.name),
+            CommandType::Uwu => write!(f, "{}~", self.name)?,
+            CommandType::Crusade => write!(f, "+{}", self.name)?,
         }
+        if f.alternate() {
+            write!(f, "({},{}))", self.group, self.idx)?;
+        }
+        Ok(())
     }
 }
 
@@ -138,7 +143,11 @@ impl AppContext {
     }
 
     /// Schedules a future to run after the given timeout.
-    pub fn schedule<F>(&self, timeout: Duration, f: impl FnOnce(Self) -> F + Send + 'static)
+    pub fn schedule<F>(
+        &self,
+        timeout: Duration,
+        f: impl FnOnce(Self) -> F + Send + 'static,
+    ) -> JoinHandle<()>
     where
         F: Future<Output = Result<()>> + Send + 'static,
     {
@@ -151,7 +160,7 @@ impl AppContext {
                 }
             }
             .instrument(tracing::debug_span!("set_timeout", ?timeout)),
-        );
+        )
     }
 
     pub async fn next_run(&self) -> Result<()> {
@@ -159,14 +168,10 @@ impl AppContext {
 
         self.xdo.key("Enter").await?;
 
-        let entry = self.status_wall.push_top(String::new()).await;
+        let entry = self.status_wall.allocate().await;
         for i in (1..=10).rev() {
-            self.status_wall
-                .set(
-                    entry,
-                    format!("<span style=\"color:orange\">Starting new game in {i}</span>"),
-                )
-                .await;
+            let status = html! { span style="color:orange" { "Starting new game in " (i) } }.0;
+            self.status_wall.set(entry, status).await;
             sleep(Duration::from_secs(1)).await;
         }
         self.status_wall.pop(entry).await;

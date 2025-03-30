@@ -3,6 +3,8 @@ name = "tpn-bot"
 version = "0.1.0"
 edition = "2024"
 
+default-run = "tpn-bot"
+
 [dependencies]
 tpn-bot-macros = { path = "macros" }
 noita-engine-reader = { path = "../../noita-utility-box/noita-engine-reader" }

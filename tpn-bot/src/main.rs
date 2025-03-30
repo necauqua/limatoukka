@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use opentelemetry::trace::Status;
 use tpn_bot::{
     commands::{
         context::{AppContext, Valkey},
@@ -11,7 +12,8 @@ use tpn_bot::{
     services::{messaging, noita::NoitaHandle, status_wall::StatusWall, xdo::XDoClient},
 };
 
-use tracing::{Instrument, field::Empty};
+use tracing::{Instrument, Span, field::Empty};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 use twitch_irc::login::StaticLoginCredentials;
 
 async fn run(config: Config) -> Result<()> {
@@ -37,12 +39,10 @@ async fn run(config: Config) -> Result<()> {
     let status_wall = StatusWall::new();
     tokio::spawn(status_wall.start_server(&config.browser_source_bind));
 
-    _ = status_wall.push("hello".to_owned());
-
     let xdo = XDoClient::new(config.display.clone());
     let noita = NoitaHandle::new();
 
-    let state = AppContext {
+    let ctx = AppContext {
         config: config.into(),
         messaging,
         storage: Arc::new(valkey),
@@ -51,9 +51,9 @@ async fn run(config: Config) -> Result<()> {
         status_wall,
     };
 
-    // the main loop lol
+    // the main loop, lol
     tokio::spawn({
-        let state = state.clone();
+        let state = ctx.clone();
         async move {
             loop {
                 state.noita.wait_for_player_death().await;
@@ -64,9 +64,25 @@ async fn run(config: Config) -> Result<()> {
         }
     });
 
-    // the _other_ main loop lol²
-    while let Some(message) = incoming.recv().await {
-        tokio::spawn(runner::receive_message(state.clone(), message));
+    // the _other_ main loop, lol²
+    while let Some(msg) = incoming.recv().await {
+        let span = tracing::info_span!(
+            "message",
+            msg.id,
+            msg.text,
+            msg.sender = msg.sender.login,
+            msg.sender.id = msg.sender.id,
+        );
+        let ctx = ctx.clone();
+        tokio::spawn(
+            async move {
+                if let Err(error) = runner::receive_message(ctx, msg).await {
+                    tracing::error!(?error, "failed to handle message");
+                    Span::current().set_status(Status::error("error"));
+                }
+            }
+            .instrument(span),
+        );
     }
 
     Ok(())
