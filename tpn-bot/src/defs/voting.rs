@@ -391,6 +391,13 @@ async fn vote_restart(ctx: CommandContext) -> Result<()> {
     .await
 }
 
+/// (Re)start the game immediately. This is the same as a successful
+/// `vote-restart~`, but instant.
+#[command(permission = Verified, global_gate = 2m)]
+async fn restart() -> Result<()> {
+    AppContext::restart().await
+}
+
 /// This allows to start a vote to restart the game and ***delete the world***,
 /// in case you got soft-locked or the world is corrupted etc.
 ///
@@ -411,4 +418,11 @@ async fn vote_reset(ctx: CommandContext) -> Result<()> {
         move |_| AppContext::reset(),
     )
     .await
+}
+
+/// Reset the game (deleting the current world) immediately. This is the same
+/// as a successful `vote-reset~`, but instant.
+#[command(permission = Moderator, global_gate = 2m)]
+async fn reset() -> Result<()> {
+    AppContext::reset().await
 }

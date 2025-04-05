@@ -1,25 +1,38 @@
 use std::time::Duration;
 
-use crate::commands::{
-    args::AtMost,
-    command,
-    context::{AppContext, CommandContext},
-};
+use crate::commands::{args::AtMost, command, context::CommandContext};
 use anyhow::Result;
 use rustis::commands::{GenericCommands, StringCommands};
 
 /// Respond with "pong!".
-#[command(global_gate = 42s)]
+///
+/// I heard that scarcity creates value, so getting a pong is very _cool_ and
+/// _pog_, because only one person can get it in an hour.
+#[command(global_gate = 1h)]
 async fn ping(ctx: CommandContext) -> Result<()> {
     ctx.reply("pong!".into()).await
 }
 
-/// Respond with the last error message for user. Global cooldown 5s.
+/// Show the command instruction link.
+#[command(global_gate = 15s)]
+async fn info(ctx: CommandContext) -> Result<()> {
+    ctx.send("Command instructions are available at https://noit.ing/live".into())
+        .await
+}
+
+/// Show the discord server link.
+#[command(global_gate = 15s)]
+async fn discord(ctx: CommandContext) -> Result<()> {
+    ctx.send("Join the discord server at https://discord.gg/qZ926RvXjK".into())
+        .await
+}
+
+/// Respond with the last error message for user.
 ///
 /// Last error message is set when you run invalid commands, or if the command
 /// execution managed to crash somehow. In the latter case, you'll be given the
 /// message id - please send it to me to look at logs and fix the issue.
-#[command(global_gate = 15s)]
+#[command(sender_gate = 15s)]
 async fn last_error(ctx: CommandContext) -> Result<()> {
     let status: Option<String> = ctx.storage.get(ctx.sender_key("last-error")).await?;
     if let Some(status) = status {
@@ -75,18 +88,4 @@ async fn full_stop(ctx: CommandContext) -> Result<()> {
 async fn full_ahead(ctx: CommandContext) -> Result<()> {
     ctx.storage.del("full-stop").await?;
     Ok(())
-}
-
-/// (Re)start the game immediately. This is the same as a successful
-/// `vote-restart~`, but instant.
-#[command(permission = Verified, global_gate = 2m)]
-async fn restart() -> Result<()> {
-    AppContext::restart().await
-}
-
-/// Reset the game (deleting the current world) immediately. This is the same
-/// as a successful `vote-reset~`, but instant.
-#[command(permission = Moderator, global_gate = 2m)]
-async fn reset() -> Result<()> {
-    AppContext::reset().await
 }
