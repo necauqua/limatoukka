@@ -9,7 +9,7 @@ use tokio::task::JoinSet;
 use tracing::{Instrument, Span, debug_span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-use crate::services::messaging::Message;
+use crate::services::messaging::{Message, PermissionLevel};
 
 use super::{
     CommandContext, CommandFuture,
@@ -28,7 +28,11 @@ pub async fn receive_message(ctx: AppContext, message: Message) -> Result<()> {
         return Ok(());
     }
 
-    if ctx.storage.exists(format!("kick:begone:{}", s.id)).await? != 0 {
+    let stop_count = ctx
+        .storage
+        .exists(["full-stop", &format!("kick:begone:{}", s.id)])
+        .await?;
+    if stop_count != 0 && message.sender.level < PermissionLevel::Moderator {
         return Ok(());
     }
 

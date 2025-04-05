@@ -1,7 +1,7 @@
 # "$schema" = "../target/config-schema.json"
 
-env = "dev"
-target = "limatoukka"
+env = "prod"
+target = "necauqua"
 
 display = ":17"
 
@@ -12,3 +12,18 @@ otel = "http://localhost:4318/v1/traces"
 browser-source-bind = "localhost:7456"
 
 first-time-kick = "1h"
+
+vote-min-ratio = 0.7
+vote-trigger-people = 5
+
+[kick-votes]
+trigger-interval = "30s"
+vote-time = "1m"
+
+[restart-votes]
+trigger-interval = "30s"
+vote-time = "1m"
+
+[reset-votes]
+trigger-interval = "30s"
+vote-time = "2m"

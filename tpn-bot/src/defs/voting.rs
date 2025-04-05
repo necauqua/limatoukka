@@ -106,7 +106,7 @@ async fn no(ctx: CommandContext) -> Result<()> {
 }
 
 /// Check if there is an ongoing vote and what it is about.
-#[command(global_gate = 15s)]
+#[command(global_gate = 10s)]
 async fn is_vote(ctx: CommandContext) -> Result<()> {
     let vote = ctx.storage.get::<_, Option<String>>("vote").await?;
     if let Some(vote) = vote {
@@ -266,21 +266,13 @@ async fn do_banish(ctx: AppContext, id: String, login: String) -> Result<()> {
 /// for an hour, but if they get voted for the second time then _forever_,
 /// unless I personally clear them.
 ///
-/// This is obviously to deal with trolls and other problematic users.
+/// This is obviously to deal with trolls and other problematic users. Channel
+/// moderators and above are immune.
 ///
 /// Be aware that there can be only one vote at a time and this command has a
 /// large per-user cooldown, so dont waste it.
 #[command(sender_gate = 5m)]
 async fn votekick(ctx: CommandContext, login: String) -> Result<()> {
-    if ctx
-        .storage
-        .exists(format!("kick:protected:{login}"))
-        .await?
-        != 0
-    {
-        fail!("this user is protected")
-    }
-
     let Some(id) = get_id(&ctx, &login).await? else {
         fail!("target never typed in chat, lmao")
     };
@@ -376,6 +368,9 @@ async fn shadowbanned(ctx: CommandContext, login: String) -> Result<()> {
 
 /// This allows to start a vote to restart the game in case it crashed or got
 /// stuck or whatever, and I'm not there to fix it.
+///
+/// This command could fix a lot of issues as it is fully kills and restarts
+/// everything (like the OBS capture might get broken etc).
 ///
 /// Needs several(!) people to run this to start the vote, and the vote itself
 /// has to have >=70% yes votes.

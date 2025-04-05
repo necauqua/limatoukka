@@ -23,6 +23,7 @@ pub struct NoitaHandle {
 #[derive(Default)]
 struct Inner {
     noita: Mutex<Option<Noita>>,
+    seed: Mutex<Option<Seed>>,
     inventory_open: AtomicBool,
     player_dead: AtomicBool,
     on_inventory_open: Notify,
@@ -68,6 +69,10 @@ impl NoitaHandle {
 
     pub fn is_player_dead(&self) -> bool {
         self.inner.player_dead.load(Ordering::Relaxed)
+    }
+
+    pub async fn get_seed(&self) -> Option<Seed> {
+        self.inner.seed.lock().await.clone()
     }
 
     pub fn wait_for_inventory_open(&self) -> Notified {
@@ -124,6 +129,7 @@ impl NoitaHandle {
                 if let Some(seed) = seed {
                     Span::current().record("run.seed", &seed.to_string());
                 }
+                *self.inner.seed.lock().await = seed;
                 prev_seed = seed;
             }
 
