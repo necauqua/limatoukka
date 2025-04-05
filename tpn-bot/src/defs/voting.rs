@@ -1,11 +1,14 @@
-use std::{fmt::Display, time::Duration};
+use std::{borrow::Cow, fmt::Display, time::Duration};
 
 use anyhow::Result;
-use maud::html;
+use maud::{Markup, html};
 use rustis::{
     client::BatchPreparedCommand,
-    commands::{GenericCommands, SetCommands, SetCondition, SetExpiration, StringCommands},
+    commands::{
+        ExpireOption, GenericCommands, SetCommands, SetCondition, SetExpiration, StringCommands,
+    },
 };
+use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
 
 use crate::{
@@ -13,16 +16,10 @@ use crate::{
         command,
         context::{AppContext, CommandContext},
     },
+    config::Voting,
     fail,
     services::status_wall::EntryKey,
 };
-
-async fn sdel(ctx: &AppContext, key: &str) -> Result<usize> {
-    let mut tx = ctx.storage.create_transaction();
-    tx.scard(key).queue();
-    tx.del(key).forget();
-    Ok(tx.execute::<usize>().await?)
-}
 
 #[derive(Clone, Copy)]
 enum Vote {
@@ -55,32 +52,43 @@ impl Vote {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+struct VoteData<'s> {
+    key: Cow<'s, str>,
+    title: Cow<'s, str>,
+    chat_title: Cow<'s, str>,
+    wall: EntryKey,
+}
+
 async fn vote(ctx: CommandContext, vote: Vote) -> Result<()> {
     let Some(vote_data) = ctx.storage.get::<_, Option<String>>("vote").await? else {
         fail!("no ongoing vote");
     };
-    let (vote_key, rest) = vote_data.split_once("|").unwrap();
-    let (title, wall_key) = rest.split_once("|").unwrap();
-    let wall_key = EntryKey(wall_key.parse().unwrap());
+    let vote_data: VoteData = serde_json::from_str(&vote_data)?;
 
-    let key = format!("vote:{vote_key}:{vote}");
-    let key_inv = format!("vote:{vote_key}:{}", vote.inverse());
-    let (sadd, srem) = tokio::join!(
-        ctx.storage.sadd(&key, &ctx.message.sender.id),
-        ctx.storage.srem(&key_inv, &ctx.message.sender.id),
-    );
-    sadd?;
-    srem?;
+    let key = format!("vote:{}:{vote}", vote_data.key);
+    let key_inv = format!("vote:{}:{}", vote_data.key, vote.inverse());
 
-    let (count, inv_count) = tokio::join!(ctx.storage.scard(&key), ctx.storage.scard(&key_inv),);
-    let (yes, no) = vote.lambda(count?, inv_count?);
+    let mut tx = ctx.storage.create_transaction();
+    tx.sadd(&key, &ctx.message.sender.id).forget();
+    tx.srem(&key_inv, &ctx.message.sender.id).forget();
+    tx.scard(&key).queue();
+    tx.scard(&key_inv).queue();
+    tx.exists("vote").queue(); // re-check the vote status to avoid a race here ig
+
+    let (count, inv_count, exists): (usize, usize, usize) = tx.execute().await?;
+    if exists == 0 {
+        fail!("no ongoing vote");
+    }
+    let (yes, no) = vote.lambda(count, inv_count);
     let percentage = (yes as f64 / (yes + no) as f64) * 100.0;
 
     let status = format!(
-        "{title}:<br>{yes}/{no} ({percentage:.2}%, need {:.0}%)",
-        ctx.config.voting.vote_min_ratio * 100.0
+        "{}:<br>{yes}/{no} ({percentage:.2}%, need {:.0}%)",
+        vote_data.title,
+        ctx.config.vote_min_ratio * 100.0
     );
-    ctx.status_wall.set(wall_key, status).await;
+    ctx.status_wall.set(vote_data.wall, status).await;
 
     Ok(())
 }
@@ -97,23 +105,32 @@ async fn no(ctx: CommandContext) -> Result<()> {
     vote(ctx, Vote::No).await
 }
 
+/// Check if there is an ongoing vote and what it is about.
+#[command(global_gate = 15s)]
+async fn is_vote(ctx: CommandContext) -> Result<()> {
+    let vote = ctx.storage.get::<_, Option<String>>("vote").await?;
+    if let Some(vote) = vote {
+        let data: VoteData = serde_json::from_str(&vote)?;
+        ctx.reply(format!("Ongoing vote is: {}", data.chat_title))
+            .await?;
+    } else {
+        ctx.reply("No ongoing vote".into()).await?;
+    }
+    Ok(())
+}
+
 async fn vote_trigger<F, R>(
     ctx: CommandContext,
     key: String,
-    title: String,
-    vote_time: Duration,
+    wall_title: Markup,
+    chat_title: String,
+    vote_config: Voting,
     action: F,
 ) -> Result<()>
 where
     R: Future<Output = Result<()>> + Send + 'static,
     F: FnOnce(AppContext) -> R + Send + 'static,
 {
-    if !ctx
-        .sender_command_gate(Duration::from_secs(ctx.config.voting.trigger_gate_secs))
-        .await?
-    {
-        return Ok(());
-    }
     if ctx.storage.exists("vote").await? != 0 {
         fail!("a vote is ongoing already")
     }
@@ -124,74 +141,118 @@ where
     tx.sadd(&trig_key, &*ctx.message.sender.id).forget();
     tx.scard(&trig_key).queue();
 
-    if tx.execute::<usize>().await? > 1 {
-        // added to an ongoing trigger
+    let triggerers = tx.execute::<usize>().await?;
+    if triggerers == 1 {
+        // fresh trigger
+        tracing::info!(trig_key, "vote trigger started");
+        ctx.storage
+            .pexpire(
+                &trig_key,
+                vote_config.trigger_interval.as_millis() as _,
+                ExpireOption::Nx,
+            )
+            .await?;
         return Ok(());
     }
 
-    tracing::info!(trig_key, "vote trigger started");
+    if triggerers != ctx.config.vote_trigger_people {
+        return Ok(());
+    }
 
-    ctx.schedule(
-        Duration::from_secs(ctx.config.voting.trigger_interval_secs),
-        move |ctx| async move {
-            let triggerers = sdel(&ctx, &trig_key).await?;
-            if triggerers < ctx.config.voting.trigger_min_people as _ {
-                tracing::info!(key, "not enough people triggered, skip");
-                return Ok(());
-            }
+    let wall_entry = ctx.status_wall.allocate().await;
 
-            let wall_entry = ctx.status_wall.allocate().await;
+    let data = serde_json::to_string(&VoteData {
+        key: (&key).into(),
+        title: (&wall_title.0).into(),
+        chat_title: (&chat_title).into(),
+        wall: wall_entry,
+    })?;
+    let ongoing: Option<String> = ctx
+        .storage
+        .set_get_with_options("vote", data, SetCondition::NX, SetExpiration::None, false)
+        .await?;
 
-            let data = format!("{key}|{title}|{}", wall_entry.0);
-            let ongoing: Option<String> = ctx
-                .storage
-                .set_get_with_options("vote", data, SetCondition::NX, SetExpiration::None, false)
-                .await?;
-            if let Some(ongoing) = ongoing {
-                tracing::info!(key, ongoing, "already voting, skip");
-                return Ok(());
-            }
+    let yes_key = format!("vote:{}:yes", key);
+    let no_key = format!("vote:{}:no", key);
 
-            let status = html! {
-                "Vote started (type yes~/no~): " span style="text-decoration: underline dotted red" { (title) }
-            };
-            ctx.status_wall.set(wall_entry, status.0).await;
-            let _guard = ctx.status_wall.guard(wall_entry);
+    let mut tx = ctx.storage.create_transaction();
+    // only delete the trigger set after we tried to start the vote
+    tx.del(&trig_key).forget();
+    // cleanup any existing votes just in case idk
+    tx.del(&yes_key).forget();
+    tx.del(&no_key).forget();
+    tx.execute::<[(); 0]>().await?;
 
-            sleep(vote_time).await;
+    if let Some(ongoing) = ongoing {
+        tracing::info!(key, ongoing, "already voting, skip");
+        return Ok(());
+    }
 
-            let yes_key = format!("vote:{key}:yes");
-            let no_key = format!("vote:{key}:no");
-            let mut tx = ctx.storage.create_transaction();
-            tx.scard(&yes_key).queue();
-            tx.del(yes_key).forget();
-            tx.scard(&no_key).queue();
-            tx.del(no_key).forget();
-            tx.del("vote").forget();
+    let status = html! {
+        "Vote started (type yes~/no~):\n"(wall_title)
+    };
+    ctx.status_wall.set(wall_entry, status.0).await;
 
-            let (yes, no): (usize, usize) = tx.execute().await?;
-            let (yes, no) = (yes as f32, no as f32);
+    ctx.schedule(vote_config.vote_time, move |ctx| async move {
+        let _guard = ctx.status_wall.guard(wall_entry);
+        let mut tx = ctx.storage.create_transaction();
+        tx.scard(&yes_key).queue();
+        tx.scard(&no_key).queue();
+        tx.del(yes_key).forget();
+        tx.del(no_key).forget();
+        tx.del("vote").forget();
 
-            let sum = yes + no;
+        let (yes, no): (usize, usize) = tx.execute().await?;
+        let (yes, no) = (yes as f32, no as f32);
 
-            if yes / sum > ctx.config.voting.vote_min_ratio {
-                tracing::info!(key, "vote passed");
-                ctx.status_wall.set(wall_entry, "Vote passed!".into()).await;
-                ctx.send(format!("Vote '{title}' passed! :)")).await?;
-                action(ctx).await?;
-            } else {
-                tracing::info!(key, "vote failed");
-                ctx.status_wall.set(wall_entry, "Vote failed!".into()).await;
-                ctx.send(format!("Vote '{title}' failed! :(")).await?;
-            }
+        let sum = yes + no;
 
-            // leave the status wall entry there for a bit
-            sleep(Duration::from_secs(5)).await;
+        if yes / sum >= ctx.config.vote_min_ratio {
+            tracing::info!(key, "vote passed");
+            ctx.status_wall.set(wall_entry, "Vote passed!".into()).await;
+            ctx.send(format!("Vote '{chat_title}' passed! :)")).await?;
+            action(ctx).await?;
+        } else {
+            tracing::info!(key, "vote failed");
+            ctx.status_wall.set(wall_entry, "Vote failed!".into()).await;
+            ctx.send(format!("Vote '{chat_title}' failed! :(")).await?;
+        }
 
-            Ok(())
-        },
-    );
+        // leave the status wall entry there for a bit
+        sleep(Duration::from_secs(5)).await;
 
+        Ok(())
+    });
+    Ok(())
+}
+
+async fn get_id(ctx: &CommandContext, login: &str) -> Result<Option<String>> {
+    Ok(ctx
+        .storage
+        .get::<_, Option<String>>(format!("twitch-users:{login}"))
+        .await?)
+}
+
+async fn do_banish(ctx: AppContext, id: String, login: String) -> Result<()> {
+    let thin_ice = format!("kick:thin-ice:{id}");
+    if ctx.storage.del(&thin_ice).await? != 0 {
+        // yeet em
+        ctx.storage.set(format!("kick:begone:{id}"), "1").await?;
+        tracing::info!(id, login, "sent to shadow realm");
+        return Ok(());
+    }
+
+    ctx.storage.set(&thin_ice, "1").await?;
+    ctx.storage
+        .set_with_options(
+            format!("kick:begone:{id}"),
+            "1",
+            SetCondition::None,
+            SetExpiration::Px(ctx.config.first_time_kick.as_millis() as _),
+            false,
+        )
+        .await?;
+    tracing::info!(id, login, "temporarily sent to shadow realm");
     Ok(())
 }
 
@@ -199,83 +260,96 @@ where
 /// is important, use their login, not display name) as an argument - this will
 /// start a vote to send that user to the shadow realm.
 ///
+/// The vote has to have >=70% yes votes for them to get yeeted.
+///
 /// By "shadow realm" I mean that their commands will be ignored - initially
-/// for an hour, but if they get voted again then _forever_, unless I
-/// personally clear them.
+/// for an hour, but if they get voted for the second time then _forever_,
+/// unless I personally clear them.
 ///
 /// This is obviously to deal with trolls and other problematic users.
-#[command]
+///
+/// Be aware that there can be only one vote at a time and this command has a
+/// large per-user cooldown, so dont waste it.
+#[command(sender_gate = 5m)]
 async fn votekick(ctx: CommandContext, login: String) -> Result<()> {
     if ctx
         .storage
-        .get::<_, Option<String>>(format!("kick:protected:{login}"))
+        .exists(format!("kick:protected:{login}"))
         .await?
-        .is_some()
+        != 0
     {
         fail!("this user is protected")
     }
 
-    let Some(id) = ctx
-        .storage
-        .get::<_, Option<String>>(format!("twitch-users:{login}"))
-        .await?
-    else {
+    let Some(id) = get_id(&ctx, &login).await? else {
         fail!("target never typed in chat, lmao")
     };
+    if ctx.storage.exists(format!("kick:begone:{id}")).await? != 0 {
+        fail!("already banished")
+    }
 
-    let vote_time = Duration::from_secs(ctx.config.voting.kick_vote_time);
+    let config = ctx.config.kick_votes.clone();
+
     vote_trigger(
         ctx,
         format!("kick:{id}"),
+        html! { "Banish " span style="color: rebeccapurple" { (login) } },
         format!("Banish {login}"),
-        vote_time,
-        move |ctx| async move {
-            let thin_ice = format!("kick:thin-ice:{id}");
-            if ctx.storage.del(&thin_ice).await? != 0 {
-                // yeet em
-                ctx.storage.set(format!("kick:begone:{id}"), "1").await?;
-                tracing::info!(id, login, "sent to shadow realm");
-                return Ok(());
-            }
-
-            ctx.storage.set(&thin_ice, "1").await?;
-            ctx.storage
-                .set_with_options(
-                    format!("kick:begone:{id}"),
-                    "1",
-                    SetCondition::None,
-                    SetExpiration::Ex(ctx.config.first_time_kick_secs),
-                    false,
-                )
-                .await?;
-            tracing::info!(id, login, "temporarily sent to shadow realm");
-
-            Ok(())
-        },
+        config,
+        move |ctx| do_banish(ctx, id, login),
     )
     .await
 }
 
-/// Check if a user was yeeted into the shadow realm. Per-user 15s cooldown.
-///
-/// They will or will not return depending on if it was their first offence,
-/// and if they dipped their toes in the shadow realm they're on thin ice.
-///
-/// If _you_ are yeeted, the bot ignores you utterly, so this won't work
-/// ¯\\\_(ツ)_/¯.
-#[command]
-async fn shadowbanned(ctx: CommandContext, login: String) -> Result<()> {
-    if !ctx.sender_command_gate(Duration::from_secs(15)).await? {
+/// Instantly banish a user to the shadow realm. Thin ice rule applies.
+#[command(permission = TwitchStaff)]
+async fn banish(ctx: CommandContext, login: String) -> Result<()> {
+    let Some(id) = get_id(&ctx, &login).await? else {
+        ctx.reply("target never typed in chat, lmao".into()).await?;
+        return Ok(());
+    };
+    if ctx.storage.exists(format!("kick:begone:{id}")).await? != 0 {
+        ctx.reply("already banished".into()).await?;
         return Ok(());
     }
+    do_banish((**ctx).clone(), id, login).await?;
+    ctx.reply("whoosh!".to_owned()).await?;
+    Ok(())
+}
+
+/// Restore users ability to use the bot, bringing them back from the shadow
+/// realm regardless of their crimes.
+#[command(permission = Moderator)]
+async fn pull_out(ctx: CommandContext, login: String) -> Result<()> {
+    let Some(id) = get_id(&ctx, &login).await? else {
+        ctx.reply("target never typed in chat".into()).await?;
+        return Ok(());
+    };
+    if ctx.storage.del(format!("kick:begone:{id}")).await? == 0 {
+        ctx.reply("was not banished lmao".into()).await?;
+    } else {
+        ctx.reply("the deed is done".to_owned()).await?;
+    }
+    Ok(())
+}
+
+/// Check if a user was yeeted into the shadow realm. Per-user 15 second
+/// cooldown.
+///
+/// The user will or will not return depending on if it was their first
+/// offence, and if they dipped their toes in the shadow realm previously then
+/// they're on thin ice.
+///
+/// If _you_ are yeeted currently (or forever), the bot ignores you utterly, so
+/// this won't work ¯\\\_(ツ)_/¯.
+#[command(sender_gate = 15s)]
+async fn shadowbanned(ctx: CommandContext, login: String) -> Result<()> {
     let Some(id) = ctx
         .storage
         .get::<_, Option<String>>(format!("twitch-users:{login}"))
         .await?
     else {
-        return ctx
-            .reply("They never even typed in chat. Or don't exist, who knows 🤷".into())
-            .await;
+        return ctx.reply("They never even typed in chat lmao".into()).await;
     };
 
     let (thin_ice, begone) = tokio::join!(
@@ -288,7 +362,7 @@ async fn shadowbanned(ctx: CommandContext, login: String) -> Result<()> {
             ctx.reply("In the shadow realm, but they will return..".into())
                 .await?;
         } else {
-            ctx.reply("In the shadow realm, not coming back lmao".into())
+            ctx.reply("In the shadow realm, not coming back xdd".into())
                 .await?;
         }
     } else if thin_ice != 0 {
@@ -298,4 +372,48 @@ async fn shadowbanned(ctx: CommandContext, login: String) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// This allows to start a vote to restart the game in case it crashed or got
+/// stuck or whatever, and I'm not there to fix it.
+///
+/// Needs several(!) people to run this to start the vote, and the vote itself
+/// has to have >=70% yes votes.
+///
+/// Be aware that there can be only one vote at a time and this command has a
+/// large per-user cooldown, so dont waste it.
+#[command(sender_gate = 5m)]
+async fn vote_restart(ctx: CommandContext) -> Result<()> {
+    let config = ctx.config.restart_votes.clone();
+    vote_trigger(
+        ctx,
+        "restart".into(),
+        html! { span style="color: orange" { "Restart the game" } },
+        format!("Restart the game"),
+        config,
+        move |_| AppContext::restart(),
+    )
+    .await
+}
+
+/// This allows to start a vote to restart the game and ***delete the world***,
+/// in case you got soft-locked or the world is corrupted etc.
+///
+/// Needs several(!) people to run this to start the vote, and the vote itself
+/// has to have >=70% yes votes.
+///
+/// Be aware that there can be only one vote at a time and this command has a
+/// large per-user cooldown, so dont waste it.
+#[command(sender_gate = 5m)]
+async fn vote_reset(ctx: CommandContext) -> Result<()> {
+    let config = ctx.config.reset_votes.clone();
+    vote_trigger(
+        ctx,
+        "reset".into(),
+        html! { span style="color: red" { "Reset the game" } },
+        format!("Reset the game"),
+        config,
+        move |_| AppContext::reset(),
+    )
+    .await
 }

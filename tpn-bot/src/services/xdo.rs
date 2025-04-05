@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{Result, bail};
+use futures::TryFutureExt;
 use tokio::process::Command;
 
 #[derive(Clone)]
@@ -13,9 +14,8 @@ macro_rules! xdotool_calls {
     (__tostring $arg:ident $tpe:ty) => { &$arg.to_string() };
     ($($name:ident($($arg:ident: $tpe:ty),*);)*) => {
         $(
-            // #[must_use]
-            pub async fn $name(&self, $($arg: $tpe),*) -> Result<()> {
-                self.cmd(&[stringify!($name), $( xdotool_calls!(__tostring $arg $tpe) ),* ]).await
+            pub fn $name(&self, $($arg: $tpe),*) -> impl Future<Output = Result<()>> + use<> {
+                self.cmd(stringify!($name), &[$( xdotool_calls!(__tostring $arg $tpe) ),* ])
             }
         )*
     }
@@ -24,7 +24,7 @@ macro_rules! xdotool_calls {
 impl XDoClient {
     pub fn new(display: Option<String>) -> Self {
         Self {
-            display: display.map(Arc::from),
+            display: display.map(|d| d.into()),
         }
     }
 
@@ -35,17 +35,21 @@ impl XDoClient {
     //
     // at least it's way simpler than managing mpsc channels feeding a single
     // xdo instance or whatever (I totally did not have all that implemented)
-    async fn cmd(&self, args: &[&str]) -> Result<()> {
+    fn cmd(&self, name: &str, args: &[&str]) -> impl Future<Output = Result<()>> + use<> {
         tracing::debug!(?args, "running xdotool");
-        let result = Command::new("xdotool")
+        Command::new("xdotool")
             .env("DISPLAY", self.display.as_deref().unwrap_or(":0"))
+            .arg(name)
+            .arg("--")
             .args(args)
             .output()
-            .await?;
-        if !result.status.success() {
-            bail!("{}", String::from_utf8_lossy(&result.stderr))
-        }
-        Ok(())
+            .map_err(|e| e.into())
+            .and_then(|result| async move {
+                if !result.status.success() {
+                    bail!("{}", String::from_utf8_lossy(&result.stderr))
+                }
+                Ok(())
+            })
     }
 
     xdotool_calls! {

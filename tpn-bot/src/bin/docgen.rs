@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
+use humantime_serde::re::humantime;
 use serde::Serialize;
-use tpn_bot::commands::CommandRegistration;
+use strum::{EnumMessage, IntoEnumIterator};
+use tpn_bot::{commands::CommandRegistration, services::messaging::PermissionLevel};
 
 fn capitalise(s: &str) -> String {
     let mut c = s.chars();
@@ -25,6 +27,12 @@ struct CommandOut {
     doc: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     args: Option<Vec<CommandArgOut>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    permission: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    global_gate: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sender_gate: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -33,15 +41,26 @@ struct CategoryOut {
     commands: Vec<CommandOut>,
 }
 
+#[derive(Serialize)]
+struct PermissionOut {
+    name: &'static str,
+    description: &'static str,
+    level: u8,
+}
+
 #[derive(Default, Serialize)]
 struct DocOut {
     categories: Vec<CategoryOut>,
+    permissions: Vec<PermissionOut>,
 }
 
 fn main() -> Result<()> {
     let mut categories = HashMap::new();
 
     for cmd in inventory::iter::<CommandRegistration> {
+        if cmd.hidden {
+            continue;
+        }
         let category = cmd.module_path.rsplit_once("::").unwrap().1.to_owned();
         categories
             .entry(category)
@@ -75,8 +94,26 @@ fn main() -> Result<()> {
                             .collect::<Vec<_>>(),
                     )
                     .filter(|args| !args.is_empty()),
+                    permission: match cmd.permission {
+                        PermissionLevel::Viewer => None,
+                        _ => Some(<&'static str>::from(cmd.permission).into()),
+                    },
+                    global_gate: cmd
+                        .global_gate
+                        .map(|d| format!("{}", humantime::format_duration(d))),
+                    sender_gate: cmd
+                        .sender_gate
+                        .map(|d| format!("{}", humantime::format_duration(d))),
                 })
                 .collect(),
+        });
+    }
+
+    for perm in PermissionLevel::iter() {
+        result.permissions.push(PermissionOut {
+            name: perm.into(),
+            description: perm.get_documentation().unwrap_or_default(),
+            level: perm as _,
         });
     }
 

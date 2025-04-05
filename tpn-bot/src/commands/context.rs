@@ -25,7 +25,7 @@ use crate::{
     },
 };
 
-use super::parsing::CommandType;
+use super::{CommandRegistration, parsing::CommandType};
 
 pub type Valkey = rustis::client::Client;
 
@@ -46,14 +46,26 @@ pub struct MessageContext {
 }
 
 #[derive(Debug, Clone)]
-pub struct CommandDescriptor {
+pub struct CommandToken {
     pub name: Arc<str>,
     pub tpe: CommandType,
     pub group: usize,
     pub idx: usize,
 }
 
+#[derive(Debug, Clone)]
+pub struct CommandDescriptor {
+    pub registration: &'static CommandRegistration,
+    pub token: CommandToken,
+}
+
 impl Display for CommandDescriptor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.token.fmt(f)
+    }
+}
+
+impl Display for CommandToken {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.tpe {
             CommandType::Uwu => write!(f, "{}~", self.name)?,
@@ -163,6 +175,26 @@ impl AppContext {
         )
     }
 
+    // eh I couldnt be bothered lol
+    async fn just(args: impl IntoIterator<Item = &str>) -> Result<()> {
+        Command::new("setsid")
+            .arg("just")
+            .args(args)
+            .env_remove("RUST_LOG")
+            .stderr(Stdio::null())
+            .stdout(Stdio::null())
+            .spawn()?;
+        Ok(())
+    }
+
+    pub async fn restart() -> Result<()> {
+        Self::just(["restart"]).await
+    }
+
+    pub async fn reset() -> Result<()> {
+        Self::just(["reset-restart"]).await
+    }
+
     pub async fn next_run(&self) -> Result<()> {
         sleep(Duration::from_millis(500)).await;
 
@@ -175,15 +207,7 @@ impl AppContext {
             sleep(Duration::from_secs(1)).await;
         }
         self.status_wall.pop(entry).await;
-
-        // eh I couldnt be bothered lol
-        Command::new("setsid")
-            .args(["just", "stop", "run"])
-            .env_remove("RUST_LOG")
-            .stderr(Stdio::null())
-            .stdout(Stdio::null())
-            .spawn()?;
-
+        Self::restart().await?;
         Ok(())
     }
 }
@@ -218,15 +242,5 @@ impl CommandContext {
             msg_ctx,
             command: desc,
         }
-    }
-
-    /// Returns true once (atomically) in the given period - per key and per command.
-    pub async fn command_gate(&self, period: Duration) -> Result<bool> {
-        self.gate(&self.command.name, period).await
-    }
-
-    /// Returns true once (atomically) in the given period - per sender and per command.
-    pub async fn sender_command_gate(&self, period: Duration) -> Result<bool> {
-        self.sender_gate(&self.command.name, period).await
     }
 }

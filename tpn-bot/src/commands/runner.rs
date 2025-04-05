@@ -14,7 +14,7 @@ use crate::services::messaging::Message;
 use super::{
     CommandContext, CommandFuture,
     args::{Args, ExtractorError},
-    context::{AppContext, CommandDescriptor, MessageContext},
+    context::{AppContext, CommandDescriptor, CommandToken, MessageContext},
     parsing::CommandMessage,
 };
 
@@ -86,22 +86,31 @@ fn prepare_commands(context: &MessageContext) -> Result<PreparedCommands, Vec<Co
     for (group_idx, group) in command_msg.parallel.into_iter().enumerate() {
         let mut prepared = vec![];
         for (cmd_idx, cmd_expr) in group.into_iter().enumerate() {
-            let cmd_desc = CommandDescriptor {
+            let token = CommandToken {
                 name: cmd_expr.name.into(),
                 tpe: cmd_expr.tpe,
                 group: group_idx,
                 idx: cmd_idx,
             };
-            let Some(handler) = super::find_command(&cmd_desc.name) else {
-                errors.push(CommandError::UnknownCommand(cmd_desc));
+            let Some(reg) = super::find(&token.name) else {
+                errors.push(CommandError::UnknownCommand(token));
                 continue;
             };
-            let cmd_ctx = CommandContext::new(context.clone(), cmd_desc.clone());
+            let desc = CommandDescriptor {
+                registration: reg,
+                token,
+            };
+            if reg.permission > context.message.sender.level {
+                errors.push(CommandError::PermissionError(desc));
+                continue;
+            }
 
-            match handler(cmd_ctx, Args::new(cmd_expr.args.into(), cmd_expr.rest)) {
-                Ok(fut) => prepared.push((cmd_desc, fut)),
+            let cmd_ctx = CommandContext::new(context.clone(), desc.clone());
+
+            match (reg.handler)(cmd_ctx, Args::new(cmd_expr.args.into(), cmd_expr.rest)) {
+                Ok(fut) => prepared.push((desc, fut)),
                 Err(error) => {
-                    let err = CommandError::BadArgs(cmd_desc, error);
+                    let err = CommandError::BadArgs(desc, error);
                     errors.push(err);
                 }
             }
@@ -145,27 +154,28 @@ async fn run_command_sequence(
     let mut result = Vec::new();
     for (cmd, fut) in sequence {
         // spawn a task for each command to catch panics
-        let cmd_span = debug_span!("command", %cmd.name, ?cmd.tpe, cmd.group, cmd.idx);
+        let tok = &cmd.token;
+        let cmd_span = debug_span!("command", %tok.name, ?tok.tpe, tok.group, tok.idx);
         let cmd_span_inner = cmd_span.clone();
         let ctx = ctx.clone();
-        let cmd2 = cmd.clone();
+        let cmd_inner = cmd.clone();
         let handle = tokio::spawn(
             async move {
-                match run_command(ctx, cmd2, fut).await {
+                match run_command(ctx, &cmd_inner, fut).await {
                     Ok(()) => {
                         cmd_span_inner.set_status(Status::Ok);
                         Ok(())
                     }
-                    Err((cmd, error)) => match error.downcast::<CommandFailure>() {
+                    Err(error) => match error.downcast::<CommandFailure>() {
                         Ok(CommandFailure(failure)) => {
                             tracing::debug!(failure);
                             cmd_span_inner.set_status(Status::error("failure"));
-                            Err(CommandError::Failure(cmd, failure))
+                            Err(CommandError::Failure(cmd_inner, failure))
                         }
                         Err(error) => {
                             tracing::error!(?error);
                             cmd_span_inner.set_status(Status::error("error"));
-                            Err(CommandError::Internal(cmd, error))
+                            Err(CommandError::Internal(cmd_inner, error))
                         }
                     },
                 }
@@ -196,15 +206,34 @@ fn panic_string(payload: &Box<dyn Any + Send>) -> Option<&str> {
 
 async fn run_command(
     ctx: MessageContext,
-    cmd: CommandDescriptor,
+    cmd: &CommandDescriptor,
     fut: CommandFuture,
-) -> Result<(), (CommandDescriptor, anyhow::Error)> {
-    let status = html! {
-        span style="color: rebeccapurple" { (ctx.message.sender.name) } ": "(cmd)
+) -> Result<()> {
+    if let Some(global_gate) = &cmd.registration.global_gate {
+        if !ctx.gate(&cmd.registration.name, *global_gate).await? {
+            return Ok(());
+        }
+    }
+    if let Some(sender_gate) = &cmd.registration.sender_gate {
+        if !ctx
+            .sender_gate(&cmd.registration.name, *sender_gate)
+            .await?
+        {
+            return Ok(());
+        }
+    }
+
+    let _guard = if cmd.registration.long {
+        let status = html! {
+            span style="color: rebeccapurple" { (ctx.message.sender.name) } ": "(cmd)
+        };
+        Some(ctx.status_wall.push(status.0).await)
+    } else {
+        None
     };
-    let _guard = ctx.status_wall.push(status.0).await;
+
     tracing::trace!("running command");
-    fut.await.map_err(|e| (cmd, e))
+    fut.await
 }
 
 #[derive(Debug, Error)]
@@ -227,7 +256,9 @@ macro_rules! fail {
 #[derive(Debug, Error)]
 pub enum CommandError {
     #[error("{0:#}: command does not exist")]
-    UnknownCommand(CommandDescriptor),
+    UnknownCommand(CommandToken),
+    #[error("{0:#}: no permission")]
+    PermissionError(CommandDescriptor),
     #[error("{0:#}: {1}")]
     BadArgs(CommandDescriptor, ExtractorError),
     #[error("{0:#}: {1}")]
@@ -243,7 +274,10 @@ pub enum CommandError {
 impl CommandError {
     pub fn internal(&self) -> bool {
         match self {
-            Self::UnknownCommand(_) | Self::BadArgs(_, _) | Self::Failure(_, _) => false,
+            Self::UnknownCommand(_)
+            | Self::PermissionError(_)
+            | Self::BadArgs(_, _)
+            | Self::Failure(_, _) => false,
             Self::Internal(_, _) | Self::Panic(_, _) | Self::SequencePanic(_) => true,
         }
     }

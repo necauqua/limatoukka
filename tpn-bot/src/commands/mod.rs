@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, pin::Pin, sync::LazyLock};
+use std::{borrow::Cow, collections::HashMap, pin::Pin, sync::LazyLock, time::Duration};
 
 use anyhow::Result;
 use args::{Args, ExtractorResult};
@@ -11,15 +11,19 @@ pub mod runner;
 
 pub use tpn_bot_macros::command;
 
+use crate::services::messaging::PermissionLevel;
+
 pub type CommandFuture = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
 pub type CommandPtr = fn(CommandContext, Args) -> ExtractorResult<CommandFuture>;
 
+#[derive(Debug)]
 pub struct CommandArgDesc {
     pub name: &'static str,
     pub optional: bool,
     pub desc: fn() -> Cow<'static, str>,
 }
 
+#[derive(Debug)]
 pub struct CommandRegistration {
     pub name: &'static str,
     pub doc: &'static str,
@@ -27,15 +31,25 @@ pub struct CommandRegistration {
     pub module_path: &'static str,
     pub line_number: u32,
     pub handler: CommandPtr,
+    /// Which minimum permission level is needed to use this command
+    pub permission: PermissionLevel,
+    /// A global timeout before the command can be used again
+    pub global_gate: Option<Duration>,
+    /// A timeout before the command can be used again by the same user
+    pub sender_gate: Option<Duration>,
+    /// Whether the command should be shown on the status wall
+    pub long: bool,
+    /// Whether the command should not be shown in documentation
+    pub hidden: bool,
 }
 
 inventory::collect!(CommandRegistration);
 
-pub fn find_command(name: &str) -> Option<CommandPtr> {
-    static MAP: LazyLock<HashMap<&str, CommandPtr>> = LazyLock::new(|| {
+pub fn find(name: &str) -> Option<&'static CommandRegistration> {
+    static MAP: LazyLock<HashMap<&str, &'static CommandRegistration>> = LazyLock::new(|| {
         inventory::iter::<CommandRegistration>
             .into_iter()
-            .map(|reg| (reg.name, reg.handler))
+            .map(|reg| (reg.name, reg))
             .collect()
     });
 

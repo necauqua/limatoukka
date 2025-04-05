@@ -26,18 +26,11 @@ async fn run(config: Config) -> Result<()> {
                 StaticLoginCredentials::new(bot.login.to_owned(), Some(bot.token.to_owned()));
             messaging::connect_to_twitch(creds, bot.target.to_owned())
         }
-        _ => {
-            messaging::connect_to_mock(messaging::Sender {
-                id: "mock".into(),
-                login: "mock".into(),
-                name: "mock".into(),
-            })
-            .await?
-        }
+        _ => messaging::connect_to_mock().await?,
     };
 
     let status_wall = StatusWall::new();
-    tokio::spawn(status_wall.start_server(&config.browser_source_bind));
+    tokio::spawn(status_wall.start(&config.browser_source_bind));
 
     let xdo = XDoClient::new(config.display.clone());
     let noita = NoitaHandle::new();

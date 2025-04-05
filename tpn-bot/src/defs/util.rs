@@ -1,17 +1,17 @@
 use std::time::Duration;
 
-use crate::commands::{args::AtMost, command, context::CommandContext};
+use crate::commands::{
+    args::AtMost,
+    command,
+    context::{AppContext, CommandContext},
+};
 use anyhow::Result;
 use rustis::commands::StringCommands;
 
-/// Respond with "pong!". Global cooldown 42s.
-#[command]
+/// Respond with "pong!".
+#[command(global_gate = 42s)]
 async fn ping(ctx: CommandContext) -> Result<()> {
-    if !ctx.command_gate(Duration::from_secs(42)).await? {
-        return Ok(());
-    }
-    ctx.reply("pong!".into()).await?;
-    Ok(())
+    ctx.reply("pong!".into()).await
 }
 
 /// Respond with the last error message for user. Global cooldown 5s.
@@ -19,12 +19,8 @@ async fn ping(ctx: CommandContext) -> Result<()> {
 /// Last error message is set when you run invalid commands, or if the command
 /// execution managed to crash somehow. In the latter case, you'll be given the
 /// message id - please send it to me to look at logs and fix the issue.
-#[command]
+#[command(global_gate = 5s)]
 async fn last_error(ctx: CommandContext) -> Result<()> {
-    if !ctx.command_gate(Duration::from_secs(5)).await? {
-        return Ok(());
-    }
-
     let status: Option<String> = ctx.storage.get(ctx.sender_key("last-error")).await?;
     if let Some(status) = status {
         ctx.reply(status).await?;
@@ -44,4 +40,16 @@ async fn wait(_ctx: CommandContext, millis: Option<AtMost<500>>) -> Result<()> {
     tracing::debug!(?duration, "waiting");
     tokio::time::sleep(duration).await;
     Ok(())
+}
+
+/// (Re)start the game immediately.
+#[command(permission = Verified, global_gate = 2m)]
+async fn restart() -> Result<()> {
+    AppContext::restart().await
+}
+
+/// Reset the game immediately.
+#[command(permission = TwitchStaff, global_gate = 2m)]
+async fn reset() -> Result<()> {
+    AppContext::reset().await
 }

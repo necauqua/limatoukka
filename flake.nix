@@ -76,6 +76,7 @@
         websocat
         hugo
         go
+        valkey
 
         rustup
         rustfmt

@@ -3,7 +3,11 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use tokio::time::sleep;
 
-use crate::commands::{args::InRange, command, context::CommandContext};
+use crate::commands::{
+    args::{AtMost, InRange},
+    command,
+    context::CommandContext,
+};
 
 /// Position the mouse relative to the player on the screen.
 ///
@@ -76,7 +80,7 @@ async fn mouse_move(ctx: CommandContext, dx: i32, dy: i32) -> Result<()> {
 
 /// Click the left mouse button.
 #[command]
-async fn fire(ctx: CommandContext) -> Result<()> {
+async fn click(ctx: CommandContext) -> Result<()> {
     ctx.xdo.click(1).await
 }
 
@@ -86,21 +90,24 @@ async fn throw(ctx: CommandContext) -> Result<()> {
     ctx.xdo.click(3).await
 }
 
-/// Start holding left mouse button down.
-#[command]
-async fn hold(ctx: CommandContext) -> Result<()> {
-    ctx.xdo.mousedown(1).await?;
-
-    // wait for a bit to allow the game to register the mouse down
-    sleep(Duration::from_millis(50)).await;
-
-    Ok(())
-}
-
-/// Stop holding left mouse button down.
-#[command]
-async fn drop(ctx: CommandContext) -> Result<()> {
-    ctx.xdo.mouseup(1).await
+/// Hold left mouse button down for a duration of 1-500ms, defaulting to 500.
+///
+/// An example of consistently dragging an item in your inventory:
+/// ```tpn
+/// open-inventory~ hotbar:5~ hold~ close-inventory~ | wait:250~ hotbar:8~
+/// ```
+/// You can replace `hotbar:8~` with something like `mouse:0:0~` if you want a
+/// little tomfoolery, but that will get you voted into the shadow realm.
+#[command(long)]
+async fn hold(ctx: CommandContext, millis: Option<AtMost<500>>) -> Result<()> {
+    super::hold(
+        ctx,
+        millis,
+        "lmb",
+        |ctx| ctx.xdo.mousedown(1),
+        |ctx| ctx.xdo.mouseup(1),
+    )
+    .await
 }
 
 static HOTBAR_XS: [i32; 24] = [
@@ -139,4 +146,13 @@ async fn wand(ctx: CommandContext, wand: InRange<1, 4>, slot: InRange<1, 26>) ->
     sleep(Duration::from_millis(50)).await;
 
     Ok(())
+}
+
+/// A shortcut for `mouse:-100:85~`.
+///
+/// Moves the mouse to the position of the 'Restore' button on the autosave
+/// screen. You can type `restore-autosave~ click~` to click it real fast.
+#[command]
+async fn restore_autosave(ctx: CommandContext) -> Result<()> {
+    ctx.xdo.mousemove(860, 625).await
 }

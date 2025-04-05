@@ -1,7 +1,4 @@
-use std::time::Duration;
-
 use anyhow::Result;
-use tokio::time::sleep;
 
 use crate::commands::{
     args::{AtMost, InRange},
@@ -10,31 +7,36 @@ use crate::commands::{
 };
 
 async fn mv(ctx: CommandContext, millis: Option<AtMost<500>>, key: &'static str) -> Result<()> {
-    ctx.xdo.keydown(key).await?;
-    sleep(Duration::from_millis(millis.map_or(500, |a| a.get()) as u64)).await;
-    ctx.xdo.keyup(key).await
+    super::hold(
+        ctx,
+        millis,
+        key,
+        |ctx| ctx.xdo.keydown(key),
+        |ctx| ctx.xdo.keyup(key),
+    )
+    .await
 }
 
 /// Hold <kbd>W</kbd> for a duration of 1-500ms, defaulting to 500.
-#[command]
+#[command(long)]
 async fn up(ctx: CommandContext, millis: Option<AtMost<500>>) -> Result<()> {
     mv(ctx, millis, "w").await
 }
 
 /// Hold <kbd>A</kbd> for a duration of 1-500ms, defaulting to 500.
-#[command]
+#[command(long)]
 async fn left(ctx: CommandContext, millis: Option<AtMost<500>>) -> Result<()> {
     mv(ctx, millis, "a").await
 }
 
 /// Hold <kbd>S</kbd> for a duration of 1-500ms, defaulting to 500.
-#[command]
+#[command(long)]
 async fn down(ctx: CommandContext, millis: Option<AtMost<500>>) -> Result<()> {
     mv(ctx, millis, "s").await
 }
 
 /// Hold <kbd>D</kbd> for a duration of 1-500ms, defaulting to 500.
-#[command]
+#[command(long)]
 async fn right(ctx: CommandContext, millis: Option<AtMost<500>>) -> Result<()> {
     mv(ctx, millis, "d").await
 }

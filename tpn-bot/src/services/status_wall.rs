@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use anyhow::{Ok, Result};
 use axum::{
@@ -13,7 +16,8 @@ use futures::{
 use futures_util::StreamExt;
 use indexmap::IndexMap;
 use maud::{PreEscaped, html};
-use tokio::sync::Mutex;
+use serde::{Deserialize, Serialize};
+use tokio::{sync::Mutex, time::sleep};
 
 #[derive(Clone)]
 pub struct StatusWall {
@@ -22,7 +26,7 @@ pub struct StatusWall {
 
 #[derive(Default)]
 struct StatusWallInner {
-    entries: IndexMap<EntryKey, String>,
+    entries: IndexMap<EntryKey, (Instant, String)>,
     counter: usize,
     senders: Vec<UnboundedSender<Event>>,
 }
@@ -36,7 +40,12 @@ impl StatusWallInner {
     fn get_text(&self) -> String {
         self.entries
             .iter()
-            .fold(String::new(), |acc, (_, entry)| acc + entry + "\n")
+            .fold(String::new(), |acc, (_, (_, entry))| acc + entry + "\n")
+    }
+
+    async fn cleanup(&mut self, age: Duration) {
+        self.entries.retain(|_, (time, _)| time.elapsed() < age);
+        self.sync().await;
     }
 
     async fn sync(&mut self) {
@@ -53,7 +62,7 @@ impl StatusWallInner {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct EntryKey(pub usize);
 
@@ -85,16 +94,16 @@ impl StatusWall {
     pub async fn push(&self, entry: String) -> EntryGuard {
         let mut inner = self.inner.lock().await;
         let id = inner.new_key();
-        inner.entries.insert(id, entry);
+        inner.entries.insert(id, (Instant::now(), entry));
         inner.sync().await;
         EntryGuard(id, self.clone())
     }
 
     pub async fn set(&self, id: EntryKey, new_entry: String) -> Option<String> {
         let mut inner = self.inner.lock().await;
-        let old_entry = inner.entries.insert(id, new_entry);
+        let old_entry = inner.entries.insert(id, (Instant::now(), new_entry));
         inner.sync().await;
-        old_entry
+        old_entry.map(|(_, entry)| entry)
     }
 
     pub async fn pop(&self, id: EntryKey) {
@@ -103,7 +112,7 @@ impl StatusWall {
         inner.sync().await;
     }
 
-    pub fn start_server(&self, bind_addr: &str) -> impl Future<Output = Result<()>> + use<> {
+    pub fn start(&self, bind_addr: &str) -> impl Future<Output = Result<()>> + use<> {
         let app = Router::new()
             .route(
                 "/",
@@ -140,6 +149,17 @@ impl StatusWall {
                     }
                 }),
             );
+
+        // if an entry is on the wall for more than 60 seconds without being
+        // updates, it's very likely stuck, so we clean those up
+        let cleanup_period = Duration::from_secs(60);
+        let inner = self.inner.clone();
+        tokio::spawn(async move {
+            loop {
+                sleep(cleanup_period).await;
+                inner.lock().await.cleanup(cleanup_period).await;
+            }
+        });
 
         let bind_addr = bind_addr.to_owned(); // meh
         async move {

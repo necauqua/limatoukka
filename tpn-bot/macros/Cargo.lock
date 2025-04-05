@@ -3,6 +3,12 @@
 version = 4
 
 [[package]]
+name = "humantime"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b112acc8b3adf4b107a8ec20977da0273a8c386765a3ec0229bd500a1443f9f"
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.94"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -35,6 +41,7 @@ dependencies = [
 name = "tpn-bot-macros"
 version = "0.1.0"
 dependencies = [
+ "humantime",
  "proc-macro2",
  "quote",
  "syn",

@@ -34,15 +34,19 @@ start:
         -no_logo_splashes \
         -gamemode >/dev/null 2>/dev/null
 
-# Delete the save
-reset:
+# Completely delete the instance, including stats, unlocks etc.
+full-reset:
     rm -rf noita
+
+# Deletes the world data
+reset:
+    rm -rf {{save-dir}}/save00/{world,player.xml,world_state.xml,session_numbers.salakieli}
 
 # Set an arbitrary persistent flag
 set-flag flag:
     mkdir -p "{{save-dir}}/save00/persistent/flags"
     touch "{{save-dir}}/save00/persistent/flags/{{flag}}"
-    
+
 # Set the intro_has_played flag
 no-intro:
     just set-flag intro_has_played
@@ -53,11 +57,11 @@ run:
     function cleanup() {
         # so that the last frame is not frozen
         just obs-reset-display
-        just stop
+        # just stop
     }
     trap cleanup INT TERM EXIT
 
-    wpexec pipewire-obs-thing.lua '{"display":"{{display}}"}' &
+    just sound-setup &
 
     xdummy {{display}} 2>/dev/null &
     sleep 0.1
@@ -78,9 +82,6 @@ run:
 
 stop:
     #!/usr/bin/env bash
-    ./obs-files/hide-nocap.fish &
-    sleep 0.2
-
     DISPLAY={{display}} xdotool key Alt+F4
     sleep 2 # maybe wait for game to end (check by pid)
     pkill .exe
@@ -89,7 +90,25 @@ stop:
     # this will fail to kill the main X instance, pfew
     pgrep X | tail -1 | xargs kill
     just obs-reset-display
+
+restart:
+    #!/usr/bin/env bash
+    ./obs-files/hide-nocap.fish &
+    sleep 0.2
+    just stop
     sleep 2
+    just run
+
+reset-restart:
+    #!/usr/bin/env bash
+    ./obs-files/hide-nocap.fish &
+    sleep 0.2
+    just stop reset
+    sleep 2
+    just run
+
+sound-setup:
+    wpexec pipewire-obs-thing.lua '{"display":"{{display}}"}'
 
 # Force the XSH display capture input to reconnect to the X instance
 obs-reset-display:

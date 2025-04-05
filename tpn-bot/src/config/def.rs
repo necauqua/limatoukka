@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -21,25 +23,19 @@ pub struct Bot {
     pub target: String,
 }
 
-#[derive(Deserialize, JsonSchema, Default)]
+#[derive(Deserialize /*, JsonSchema*/, Default, Clone)]
+#[serde(rename_all = "kebab-case")]
 pub struct Voting {
-    /// Minimum time between being able to try starting a vote for a person
-    pub trigger_gate_secs: u64,
-    /// The amount of time to wait for enough people to trigger a vote
-    pub trigger_interval_secs: u64,
-    /// Minimum number of people required to trigger a vote
-    pub trigger_min_people: u32,
-    /// Minimum ratio of yes votes to total votes required to pass a vote
-    pub vote_min_ratio: f32,
-    /// The amount of time for a kick vote
-    pub kick_vote_time: u64,
-    /// The amount of time for a restart vote
-    pub restart_vote_time: u64,
-    /// The amount of time for a reset vote
-    pub reset_vote_time: u64,
+    /// The amount of time to wait for enough people to trigger the vote
+    #[serde(with = "humantime_serde")]
+    pub trigger_interval: Duration,
+    /// The amount of time for the vote itself
+    #[serde(with = "humantime_serde")]
+    pub vote_time: Duration,
 }
 
-#[derive(Deserialize, JsonSchema, Default)]
+#[derive(Deserialize /*, JsonSchema*/, Default)]
+#[serde(rename_all = "kebab-case")]
 pub struct Config {
     /// The environment in which the bot is running
     pub env: Env,
@@ -56,6 +52,15 @@ pub struct Config {
 
     pub browser_source_bind: String,
 
-    pub voting: Voting,
-    pub first_time_kick_secs: u64,
+    pub kick_votes: Voting,
+    #[serde(with = "humantime_serde")]
+    pub first_time_kick: Duration,
+
+    pub restart_votes: Voting,
+    pub reset_votes: Voting,
+
+    /// Minimum number of people required to trigger the vote
+    pub vote_trigger_people: usize,
+    /// Minimum ratio of yes votes to total votes required to pass the vote
+    pub vote_min_ratio: f32,
 }

@@ -43,6 +43,9 @@ futures-util = "0.3.31"
 futures = "0.3.31"
 indexmap = "2.8.0"
 serde_yml = "0.0.12"
+humantime-serde = "1.1.1"
+serde_json = "1.0.140"
+strum = { version = "0.27.1", features = ["derive"] }
 
 [build-dependencies]
 anyhow = "1.0.97"
