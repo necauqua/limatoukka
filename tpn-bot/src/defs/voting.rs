@@ -264,7 +264,7 @@ async fn do_banish(ctx: AppContext, id: String, login: String) -> Result<()> {
 ///
 /// By "shadow realm" I mean that their commands will be ignored - initially
 /// for an hour, but if they get voted for the second time then _forever_,
-/// unless I personally clear them.
+/// unless a moderator clears them.
 ///
 /// This is obviously to deal with trolls and other problematic users. Channel
 /// moderators and above are immune.
