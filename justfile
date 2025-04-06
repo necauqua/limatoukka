@@ -54,12 +54,12 @@ no-intro:
 # Start the game in a separate X instance
 run:
     #!/usr/bin/env bash
-    function cleanup() {
-        # so that the last frame is not frozen
-        just obs-reset-display
-        # just stop
-    }
-    trap cleanup INT TERM EXIT
+    # function cleanup() {
+    #     # so that the last frame is not frozen
+    #     just obs-reset-display
+    #     # just stop
+    # }
+    # trap cleanup INT TERM EXIT
 
     just sound-setup &
 

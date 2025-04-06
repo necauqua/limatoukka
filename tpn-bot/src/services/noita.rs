@@ -39,6 +39,11 @@ fn is_dead(noita: &Noita) -> Result<bool> {
         .as_bool())
 }
 
+// quick jank idk
+fn read_death_count(noita: &Noita) -> Result<u32> {
+    Ok(RawPtr::of(0x1208AF8).read(noita.proc())?)
+}
+
 fn is_inventory_open(noita: &Noita) -> Result<bool> {
     // -> IS_INVENTORY_OPEN (from GameIsInventoryOpen lua fn)
     Ok(RawPtr::of(0x01222510)
@@ -71,8 +76,17 @@ impl NoitaHandle {
         self.inner.player_dead.load(Ordering::Relaxed)
     }
 
+    pub async fn get_death_count(&self) -> Option<u32> {
+        self.inner
+            .noita
+            .lock()
+            .await
+            .as_ref()
+            .and_then(|noita| read_death_count(noita).ok())
+    }
+
     pub async fn get_seed(&self) -> Option<Seed> {
-        self.inner.seed.lock().await.clone()
+        *self.inner.seed.lock().await
     }
 
     pub fn wait_for_inventory_open(&self) -> Notified {

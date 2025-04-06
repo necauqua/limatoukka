@@ -54,10 +54,20 @@ async fn seed(ctx: CommandContext) -> Result<()> {
     .await
 }
 
+/// Get the current death count
+#[command(global_gate = 15s)]
+async fn death_count(ctx: CommandContext) -> Result<()> {
+    ctx.reply(match ctx.noita.get_death_count().await {
+        Some(count) => count.to_string(),
+        None => "Can't read the death count - is it dead?".into(),
+    })
+    .await
+}
+
 /// Wait for a duration of 1-5000ms, defaulting to 500.
 ///
 /// Very useful for multi-command messages.
-#[command]
+#[command(long)]
 async fn wait(_ctx: CommandContext, millis: Option<AtMost<5000>>) -> Result<()> {
     let duration = Duration::from_millis(millis.map_or(500, |m| m.get() as _));
     tracing::debug!(?duration, "waiting");

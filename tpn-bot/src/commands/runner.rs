@@ -1,4 +1,4 @@
-use std::{any::Any, sync::Arc, time::Duration};
+use std::{any::Any, sync::Arc};
 
 use anyhow::Result;
 use maud::html;
@@ -21,12 +21,12 @@ use super::{
 pub async fn receive_message(ctx: AppContext, message: Message) -> Result<()> {
     let s = &message.sender;
 
-    if !ctx
-        .gate(&format!("message:{}", s.id), Duration::from_millis(500))
-        .await?
-    {
-        return Ok(());
-    }
+    // if !ctx
+    //     .gate(&format!("message:{}", s.id), Duration::from_millis(500))
+    //     .await?
+    // {
+    //     return Ok(());
+    // }
 
     let stop_count = ctx
         .storage
@@ -36,7 +36,7 @@ pub async fn receive_message(ctx: AppContext, message: Message) -> Result<()> {
         return Ok(());
     }
 
-    // ughh, just keep a login -> mapping to avoid having to hook up twitch
+    // ughh, just keep a login -> id mapping to avoid having to hook up twitch
     // api just to make votekick work with usernames *and* prevent them from
     // changing the username to avoid the shadow realm once
     //
