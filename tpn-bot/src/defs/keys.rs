@@ -6,7 +6,7 @@ use crate::commands::{
     context::CommandContext,
 };
 
-async fn mv(ctx: CommandContext, millis: Option<AtMost<500>>, key: &'static str) -> Result<()> {
+async fn mv(ctx: CommandContext, millis: Option<AtMost<5000>>, key: &'static str) -> Result<()> {
     super::hold(
         ctx,
         millis,
@@ -17,27 +17,27 @@ async fn mv(ctx: CommandContext, millis: Option<AtMost<500>>, key: &'static str)
     .await
 }
 
-/// Hold <kbd>W</kbd> for a duration of 1-500ms, defaulting to 500.
+/// Hold <kbd>W</kbd> for a duration of 1-5000ms, defaulting to 500.
 #[command(long)]
-async fn up(ctx: CommandContext, millis: Option<AtMost<500>>) -> Result<()> {
+async fn up(ctx: CommandContext, millis: Option<AtMost<5000>>) -> Result<()> {
     mv(ctx, millis, "w").await
 }
 
-/// Hold <kbd>A</kbd> for a duration of 1-500ms, defaulting to 500.
+/// Hold <kbd>A</kbd> for a duration of 1-5000ms, defaulting to 500.
 #[command(long)]
-async fn left(ctx: CommandContext, millis: Option<AtMost<500>>) -> Result<()> {
+async fn left(ctx: CommandContext, millis: Option<AtMost<5000>>) -> Result<()> {
     mv(ctx, millis, "a").await
 }
 
-/// Hold <kbd>S</kbd> for a duration of 1-500ms, defaulting to 500.
+/// Hold <kbd>S</kbd> for a duration of 1-5000ms, defaulting to 500.
 #[command(long)]
-async fn down(ctx: CommandContext, millis: Option<AtMost<500>>) -> Result<()> {
+async fn down(ctx: CommandContext, millis: Option<AtMost<5000>>) -> Result<()> {
     mv(ctx, millis, "s").await
 }
 
-/// Hold <kbd>D</kbd> for a duration of 1-500ms, defaulting to 500.
+/// Hold <kbd>D</kbd> for a duration of 1-5000ms, defaulting to 500.
 #[command(long)]
-async fn right(ctx: CommandContext, millis: Option<AtMost<500>>) -> Result<()> {
+async fn right(ctx: CommandContext, millis: Option<AtMost<5000>>) -> Result<()> {
     mv(ctx, millis, "d").await
 }
 
@@ -45,6 +45,12 @@ async fn right(ctx: CommandContext, millis: Option<AtMost<500>>) -> Result<()> {
 #[command]
 async fn interact(ctx: CommandContext) -> Result<()> {
     ctx.xdo.key("e").await
+}
+
+/// Press <kbd>F</kbd>.
+#[command]
+async fn kick(ctx: CommandContext) -> Result<()> {
+    ctx.xdo.key("f").await
 }
 
 /// Press <kbd>1</kbd> through <kbd>8</kbd>.

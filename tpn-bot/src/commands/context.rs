@@ -72,7 +72,7 @@ impl Display for CommandToken {
             CommandType::Crusade => write!(f, "+{}", self.name)?,
         }
         if f.alternate() {
-            write!(f, "({},{}))", self.group, self.idx)?;
+            write!(f, "({},{})", self.group, self.idx)?;
         }
         Ok(())
     }

@@ -39,28 +39,52 @@ async fn look(ctx: CommandContext, dx: i32, dy: i32) -> Result<()> {
     ctx.xdo.mousemove(mx, my).await
 }
 
-/// A shortcut for `look:0:500~`.
+/// A shortcut for `look:500:0~`.
 #[command]
 async fn look_right(ctx: CommandContext) -> Result<()> {
     look(ctx, 500, 0).await
 }
 
-/// A shortcut for `look:0:-500~`.
+/// A shortcut for `look:-500:0~`.
 #[command]
 async fn look_left(ctx: CommandContext) -> Result<()> {
     look(ctx, -500, 0).await
 }
 
-/// A shortcut for `look:500:0~`.
+/// A shortcut for `look:0:500~`.
 #[command]
 async fn look_down(ctx: CommandContext) -> Result<()> {
     look(ctx, 0, 500).await
 }
 
-/// A shortcut for `look:-500:0~`.
+/// A shortcut for `look:0:-500~`.
 #[command]
 async fn look_up(ctx: CommandContext) -> Result<()> {
     look(ctx, 0, -500).await
+}
+
+/// A shortcut for `look:500:-500~`.
+#[command]
+async fn look_up_right(ctx: CommandContext) -> Result<()> {
+    look(ctx, 500, -500).await
+}
+
+/// A shortcut for `look:-500:-500~`.
+#[command]
+async fn look_up_left(ctx: CommandContext) -> Result<()> {
+    look(ctx, -500, -500).await
+}
+
+/// A shortcut for `look:500:500~`.
+#[command]
+async fn look_down_right(ctx: CommandContext) -> Result<()> {
+    look(ctx, 500, 500).await
+}
+
+/// A shortcut for `look:-500:500~`.
+#[command]
+async fn look_down_left(ctx: CommandContext) -> Result<()> {
+    look(ctx, -500, 500).await
 }
 
 /// Move the mouse to the absolute position on the screen.
@@ -90,7 +114,7 @@ async fn throw(ctx: CommandContext) -> Result<()> {
     ctx.xdo.click(3).await
 }
 
-/// Hold left mouse button down for a duration of 1-500ms, defaulting to 500.
+/// Hold left mouse button down for a duration of 1-5000ms, defaulting to 500.
 ///
 /// An example of consistently dragging an item in your inventory:
 /// ```tpn
@@ -99,7 +123,7 @@ async fn throw(ctx: CommandContext) -> Result<()> {
 /// You can replace `hotbar:8~` with something like `mouse:0:0~` if you want a
 /// little tomfoolery, but that will get you voted into the shadow realm.
 #[command(long)]
-async fn hold(ctx: CommandContext, millis: Option<AtMost<500>>) -> Result<()> {
+async fn hold(ctx: CommandContext, millis: Option<AtMost<5000>>) -> Result<()> {
     super::hold(
         ctx,
         millis,

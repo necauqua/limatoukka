@@ -38,7 +38,7 @@ async fn last_error(ctx: CommandContext) -> Result<()> {
     if let Some(status) = status {
         ctx.reply(status).await?;
     } else {
-        ctx.reply("No errors yet".into()).await?;
+        ctx.reply("No errors in your last message".into()).await?;
     }
 
     Ok(())
@@ -54,11 +54,11 @@ async fn seed(ctx: CommandContext) -> Result<()> {
     .await
 }
 
-/// Wait for a duration of 1-500ms, defaulting to 500.
+/// Wait for a duration of 1-5000ms, defaulting to 500.
 ///
 /// Very useful for multi-command messages.
 #[command]
-async fn wait(_ctx: CommandContext, millis: Option<AtMost<500>>) -> Result<()> {
+async fn wait(_ctx: CommandContext, millis: Option<AtMost<5000>>) -> Result<()> {
     let duration = Duration::from_millis(millis.map_or(500, |m| m.get() as _));
     tracing::debug!(?duration, "waiting");
     tokio::time::sleep(duration).await;

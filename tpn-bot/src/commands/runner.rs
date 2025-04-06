@@ -72,7 +72,7 @@ pub async fn receive_message(ctx: AppContext, message: Message) -> Result<()> {
     if errors.iter().any(|e| e.internal()) {
         err.push_str("\n(msg-id: ");
         err.push_str(&ctx.message.id);
-        err.push_str(")");
+        err.push(')');
     }
     ctx.storage.set(error_key, &err).await?;
 
@@ -91,7 +91,7 @@ fn prepare_commands(context: &MessageContext) -> Result<PreparedCommands, Vec<Co
         let mut prepared = vec![];
         for (cmd_idx, cmd_expr) in group.into_iter().enumerate() {
             let token = CommandToken {
-                name: cmd_expr.name.into(),
+                name: cmd_expr.name.to_ascii_lowercase().into(),
                 tpe: cmd_expr.tpe,
                 group: group_idx,
                 idx: cmd_idx,
@@ -111,7 +111,7 @@ fn prepare_commands(context: &MessageContext) -> Result<PreparedCommands, Vec<Co
 
             let cmd_ctx = CommandContext::new(context.clone(), desc.clone());
 
-            match (reg.handler)(cmd_ctx, Args::new(cmd_expr.args.into(), cmd_expr.rest)) {
+            match (reg.handler)(cmd_ctx, Args::new(cmd_expr.args, cmd_expr.rest)) {
                 Ok(fut) => prepared.push((desc, fut)),
                 Err(error) => {
                     let err = CommandError::BadArgs(desc, error);

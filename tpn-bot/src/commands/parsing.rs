@@ -86,14 +86,14 @@ pub fn is_good_command_name(name: &str) -> bool {
     !name.is_empty()
         && !name.starts_with('-')
         && !name.ends_with('-')
-        && name.chars().all(|ch| ch.is_ascii_lowercase() || ch == '-')
+        && name.chars().all(|ch| ch.is_ascii_alphabetic() || ch == '-')
 }
 
 impl CommandMessage {
     pub fn parse(content: &str) -> Self {
         let content = content.trim();
 
-        let parallel = split_balanced(&content, '|');
+        let parallel = split_balanced(content, '|');
         let single = parallel.len() == 1;
 
         Self {
@@ -106,7 +106,7 @@ impl CommandMessage {
                     if single {
                         let mut words_iter = words.iter();
                         let word = words_iter.next().unwrap();
-                        if let Some(mut token) = CommandExpr::parse(&word) {
+                        if let Some(mut token) = CommandExpr::parse(word) {
                             if token.args.is_empty() && words_iter.next().is_some() {
                                 // ideally args will be a enum of args|rest, but that requires rewriting a lot of things, eh
                                 token.rest = Some(content[word.len() + 1..].trim().to_owned());

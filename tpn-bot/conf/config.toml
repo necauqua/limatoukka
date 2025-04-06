@@ -14,7 +14,7 @@ browser-source-bind = "localhost:7456"
 first-time-kick = "1h"
 
 vote-min-ratio = 0.7
-vote-trigger-people = 5
+vote-trigger-people = 2
 
 [kick-votes]
 trigger-interval = "30s"

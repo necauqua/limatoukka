@@ -16,7 +16,7 @@ mod voting;
 
 pub(self) async fn hold<D, U, RD, RU>(
     ctx: CommandContext,
-    millis: Option<AtMost<500>>,
+    millis: Option<AtMost<5000>>,
     key: &str,
     down: D,
     up: U,
