@@ -208,6 +208,13 @@ fn panic_string(payload: &Box<dyn Any + Send>) -> Option<&str> {
     None
 }
 
+#[macro_export]
+macro_rules! fail {
+    ($($args:tt)*) => {
+        ::anyhow::bail!($crate::commands::runner::CommandFailure::new(format!($($args)*)))
+    };
+}
+
 async fn run_command(
     ctx: MessageContext,
     cmd: &CommandDescriptor,
@@ -215,7 +222,7 @@ async fn run_command(
 ) -> Result<()> {
     if let Some(global_gate) = &cmd.registration.global_gate {
         if !ctx.gate(&cmd.registration.name, *global_gate).await? {
-            return Ok(());
+            fail!("global timeout {global_gate:?}");
         }
     }
     if let Some(sender_gate) = &cmd.registration.sender_gate {
@@ -223,7 +230,7 @@ async fn run_command(
             .sender_gate(&cmd.registration.name, *sender_gate)
             .await?
         {
-            return Ok(());
+            fail!("sender timeout {sender_gate:?}");
         }
     }
 
@@ -248,13 +255,6 @@ impl CommandFailure {
     pub fn new(message: String) -> Self {
         Self(message)
     }
-}
-
-#[macro_export]
-macro_rules! fail {
-    ($($args:tt)*) => {
-        ::anyhow::bail!($crate::commands::runner::CommandFailure::new(format!($($args)*)))
-    };
 }
 
 #[derive(Debug, Error)]
