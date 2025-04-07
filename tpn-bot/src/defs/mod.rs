@@ -5,7 +5,6 @@ use rustis::{
     client::BatchPreparedCommand,
     commands::{ExpireOption, GenericCommands, StringCommands},
 };
-use tokio::time::sleep;
 
 use crate::commands::{args::AtMost, context::CommandContext};
 
@@ -14,7 +13,7 @@ mod mouse;
 mod util;
 mod voting;
 
-pub(self) type HoldTime = Option<AtMost<5000>>;
+pub(self) type HoldTime = Option<AtMost<15_000>>;
 
 pub(self) async fn hold<D, U, RD, RU>(
     ctx: CommandContext,
@@ -34,9 +33,14 @@ where
     tx.incr(&key).queue();
     tx.pexpire(&key, 60_000, ExpireOption::Nx).forget(); // just in case
     if tx.execute::<i64>().await? == 1 {
-        down(ctx.clone()).await?;
+        if let Err(e) = down(ctx.clone()).await {
+            _ = ctx.storage.decr(&key).await;
+            return Err(e);
+        }
     }
-    sleep(Duration::from_millis(millis.map_or(500, |a| a.get()) as u64)).await;
+
+    let duration = Duration::from_millis(millis.map_or(500, |a| a.get()) as u64);
+    ctx.holds.sleep(duration).await;
 
     let counter = ctx.storage.decr(&key).await?;
     if counter == 0 {

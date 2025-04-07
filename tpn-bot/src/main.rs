@@ -42,6 +42,7 @@ async fn run(config: Config) -> Result<()> {
         xdo,
         noita,
         status_wall,
+        holds: Default::default(),
     };
 
     // the main loop, lol

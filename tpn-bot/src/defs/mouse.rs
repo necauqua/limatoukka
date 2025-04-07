@@ -110,7 +110,7 @@ async fn throw(ctx: CommandContext) -> Result<()> {
     ctx.xdo.click(3).await
 }
 
-/// Hold left mouse button down for a duration of 1-5000ms, defaulting to 500.
+/// Hold left mouse button down for the specified duration of milliseconds (defaulting to 500).
 ///
 /// An example of consistently dragging an item in your inventory:
 /// ```tpn

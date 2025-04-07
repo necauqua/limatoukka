@@ -18,6 +18,7 @@ use tracing::Instrument;
 use crate::{
     config::Config,
     services::{
+        holds::Holds,
         messaging::{Message, MessagingClient},
         noita::NoitaHandle,
         status_wall::StatusWall,
@@ -37,6 +38,7 @@ pub struct AppContext {
     pub xdo: XDoClient,
     pub noita: NoitaHandle,
     pub status_wall: StatusWall,
+    pub holds: Holds,
 }
 
 #[derive(Clone)]

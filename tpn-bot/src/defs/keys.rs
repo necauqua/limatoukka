@@ -14,32 +14,32 @@ async fn mv(ctx: CommandContext, millis: HoldTime, key: &'static str) -> Result<
     .await
 }
 
-/// Hold <kbd>W</kbd> for a duration of 1-5000ms, defaulting to 500.
+/// Hold <kbd>W</kbd> for the specified duration of milliseconds (defaulting to 500).
 #[command(long, shortcode=u)]
 async fn up(ctx: CommandContext, millis: HoldTime) -> Result<()> {
     mv(ctx, millis, "w").await
 }
 
-/// Hold <kbd>A</kbd> for a duration of 1-5000ms, defaulting to 500.
+/// Hold <kbd>A</kbd> for the specified duration of milliseconds (defaulting to 500).
 #[command(long, shortcode=l)]
 async fn left(ctx: CommandContext, millis: HoldTime) -> Result<()> {
     mv(ctx, millis, "a").await
 }
 
-/// Hold <kbd>S</kbd> for a duration of 1-5000ms, defaulting to 500.
+/// Hold <kbd>S</kbd> for the specified duration of milliseconds (defaulting to 500).
 #[command(long, shortcode=d)]
 async fn down(ctx: CommandContext, millis: HoldTime) -> Result<()> {
     mv(ctx, millis, "s").await
 }
 
-/// Hold <kbd>D</kbd> for a duration of 1-5000ms, defaulting to 500.
+/// Hold <kbd>D</kbd> for the specified duration of milliseconds (defaulting to 500).
 #[command(long, shortcode=r)]
 async fn right(ctx: CommandContext, millis: HoldTime) -> Result<()> {
     mv(ctx, millis, "d").await
 }
 
 /// Press <kbd>E</kbd>.
-#[command]
+#[command(shortcode=i)]
 async fn interact(ctx: CommandContext) -> Result<()> {
     ctx.xdo.key("e").await
 }
@@ -62,7 +62,7 @@ async fn slot(ctx: CommandContext, slot: InRange<1, 8>) -> Result<()> {
 /// Also this command moves the mouse to the top left corner of the screen to
 /// force mouse movement after opening the inventory, since if you don't move
 /// it the game does not register hovering over slots lol.
-#[command(shortcode=i)]
+#[command(shortcode=o)]
 async fn open_inventory(ctx: CommandContext) -> Result<()> {
     if !ctx.noita.is_inventory_open() {
         let f = ctx.noita.wait_for_inventory_open();

@@ -76,14 +76,24 @@ async fn fix_obs_capture() -> Result<()> {
     AppContext::fix_obs_capture().await
 }
 
-/// Wait for a duration of 1-5000ms, defaulting to 500.
+/// Wait for a specified duration milliseconds.
 ///
 /// Very useful for multi-command messages.
 #[command(long, shortcode=w)]
-async fn wait(_ctx: CommandContext, millis: Option<AtMost<5000>>) -> Result<()> {
+async fn wait(ctx: CommandContext, millis: Option<AtMost<15_000>>) -> Result<()> {
     let duration = Duration::from_millis(millis.map_or(500, |m| m.get() as _));
     tracing::debug!(?duration, "waiting");
-    tokio::time::sleep(duration).await;
+    ctx.holds.sleep(duration).await;
+    Ok(())
+}
+
+/// Complete all current holds immediately.
+///
+/// "Holds" here are referring to all "non-instantaneous" commands that are
+/// currently being executed **right now** - so movement, `hold~` and `wait~`.
+#[command]
+async fn interrupt(ctx: CommandContext) -> Result<()> {
+    ctx.holds.cancel_all().await;
     Ok(())
 }
 
