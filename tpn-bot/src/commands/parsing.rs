@@ -46,7 +46,7 @@ impl CommandExpr {
             .map(|w| (w, CommandType::Uwu))
             .or(word.strip_prefix('+').map(|w| (w, CommandType::Crusade)))?;
 
-        let mut parts = split_balanced(word, ':').into_iter();
+        let mut parts = split_balanced(word, &[':']).into_iter();
         let name = parts.next().unwrap();
         if !is_good_command_name(&name) {
             return None;
@@ -91,14 +91,14 @@ impl CommandMessage {
     pub fn parse(content: &str) -> Self {
         let content = content.trim();
 
-        let parallel = split_balanced(content, '|');
+        let parallel = split_balanced(content, &['|', '/']); // allow / for mobile
         let single = parallel.len() == 1;
 
         Self {
             parallel: parallel
                 .into_iter()
                 .map(|group| {
-                    let words = split_balanced(&group, ' ');
+                    let words = split_balanced(&group, &[' ']);
 
                     // meh
                     if single {
@@ -120,7 +120,7 @@ impl CommandMessage {
                                 .or(word.strip_prefix('+').map(|w| (w, CommandType::Crusade)))
                         })
                         .filter_map(|(word, tpe)| {
-                            let mut parts = split_balanced(word, ':').into_iter();
+                            let mut parts = split_balanced(word, &[':']).into_iter();
                             let mut name = parts.next().unwrap();
                             if !is_good_command_name(&name) {
                                 return None;
@@ -180,7 +180,7 @@ fn unwrap_string_literals(input: &str) -> String {
 }
 
 // split that considers "string literals"
-fn split_balanced(input: &str, sep: char) -> Vec<String> {
+fn split_balanced(input: &str, seps: &[char]) -> Vec<String> {
     let mut result = Vec::new();
     let mut current = String::new();
     let mut in_string = false;
@@ -196,7 +196,7 @@ fn split_balanced(input: &str, sep: char) -> Vec<String> {
         if ch == '"' {
             in_string = !in_string;
         }
-        if !in_string && ch == sep {
+        if !in_string && seps.contains(&ch) {
             result.push(std::mem::take(&mut current));
         } else {
             current.push(ch);

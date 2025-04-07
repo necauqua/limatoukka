@@ -1,6 +1,10 @@
 use std::time::Duration;
 
-use crate::commands::{args::AtMost, command, context::CommandContext};
+use crate::commands::{
+    args::AtMost,
+    command,
+    context::{AppContext, CommandContext},
+};
 use anyhow::Result;
 use rustis::commands::{GenericCommands, StringCommands};
 
@@ -62,6 +66,14 @@ async fn death_count(ctx: CommandContext) -> Result<()> {
         None => "Can't read the death count - is it dead?".into(),
     })
     .await
+}
+
+/// Sometimes the capture dies (but the game is fine) because of my brittle scripts.
+///
+/// Try running this first before doing a full restart etc etc.
+#[command(global_gate = 30s)]
+async fn fix_obs_capture() -> Result<()> {
+    AppContext::fix_obs_capture().await
 }
 
 /// Wait for a duration of 1-5000ms, defaulting to 500.

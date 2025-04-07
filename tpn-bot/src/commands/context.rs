@@ -183,10 +183,9 @@ impl AppContext {
     }
 
     // eh I couldnt be bothered lol
-    async fn just(args: impl IntoIterator<Item = &str>) -> Result<()> {
+    async fn just(script: &str) -> Result<()> {
         Command::new("setsid")
-            .arg("just")
-            .args(args)
+            .args(["just", script])
             .env_remove("RUST_LOG")
             .stderr(Stdio::null())
             .stdout(Stdio::null())
@@ -195,11 +194,15 @@ impl AppContext {
     }
 
     pub async fn restart() -> Result<()> {
-        Self::just(["restart"]).await
+        Self::just("restart").await
+    }
+
+    pub async fn fix_obs_capture() -> Result<()> {
+        Self::just("obs-reset-display").await
     }
 
     pub async fn reset() -> Result<()> {
-        Self::just(["reset-restart"]).await
+        Self::just("reset-restart").await
     }
 
     pub async fn next_run(&self) -> Result<()> {
