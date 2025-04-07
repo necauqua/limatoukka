@@ -76,7 +76,7 @@ async fn open_inventory(ctx: CommandContext) -> Result<()> {
 /// Press <kbd>Tab</kbd> _only if_ the inventory is opened.
 ///
 /// This command also waits for the game inventory state to actually change.
-#[command(shortcode=c)]
+#[command(shortcode=x)]
 async fn close_inventory(ctx: CommandContext) -> Result<()> {
     if ctx.noita.is_inventory_open() {
         let f = ctx.noita.wait_for_inventory_close();
