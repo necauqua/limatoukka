@@ -1,12 +1,9 @@
 use anyhow::Result;
 
-use crate::commands::{
-    args::{AtMost, InRange},
-    command,
-    context::CommandContext,
-};
+use super::HoldTime;
+use crate::commands::{args::InRange, command, context::CommandContext};
 
-async fn mv(ctx: CommandContext, millis: Option<AtMost<5000>>, key: &'static str) -> Result<()> {
+async fn mv(ctx: CommandContext, millis: HoldTime, key: &'static str) -> Result<()> {
     super::hold(
         ctx,
         millis,
@@ -18,26 +15,26 @@ async fn mv(ctx: CommandContext, millis: Option<AtMost<5000>>, key: &'static str
 }
 
 /// Hold <kbd>W</kbd> for a duration of 1-5000ms, defaulting to 500.
-#[command(long)]
-async fn up(ctx: CommandContext, millis: Option<AtMost<5000>>) -> Result<()> {
+#[command(long, shortcode=u)]
+async fn up(ctx: CommandContext, millis: HoldTime) -> Result<()> {
     mv(ctx, millis, "w").await
 }
 
 /// Hold <kbd>A</kbd> for a duration of 1-5000ms, defaulting to 500.
-#[command(long)]
-async fn left(ctx: CommandContext, millis: Option<AtMost<5000>>) -> Result<()> {
+#[command(long, shortcode=l)]
+async fn left(ctx: CommandContext, millis: HoldTime) -> Result<()> {
     mv(ctx, millis, "a").await
 }
 
 /// Hold <kbd>S</kbd> for a duration of 1-5000ms, defaulting to 500.
-#[command(long)]
-async fn down(ctx: CommandContext, millis: Option<AtMost<5000>>) -> Result<()> {
+#[command(long, shortcode=d)]
+async fn down(ctx: CommandContext, millis: HoldTime) -> Result<()> {
     mv(ctx, millis, "s").await
 }
 
 /// Hold <kbd>D</kbd> for a duration of 1-5000ms, defaulting to 500.
-#[command(long)]
-async fn right(ctx: CommandContext, millis: Option<AtMost<5000>>) -> Result<()> {
+#[command(long, shortcode=r)]
+async fn right(ctx: CommandContext, millis: HoldTime) -> Result<()> {
     mv(ctx, millis, "d").await
 }
 
@@ -48,13 +45,13 @@ async fn interact(ctx: CommandContext) -> Result<()> {
 }
 
 /// Press <kbd>F</kbd>.
-#[command]
+#[command(shortcode=k)]
 async fn kick(ctx: CommandContext) -> Result<()> {
     ctx.xdo.key("f").await
 }
 
 /// Press <kbd>1</kbd> through <kbd>8</kbd>.
-#[command]
+#[command(shortcode=s)]
 async fn slot(ctx: CommandContext, slot: InRange<1, 8>) -> Result<()> {
     ctx.xdo.key(&slot.get().to_string()).await
 }
@@ -65,7 +62,7 @@ async fn slot(ctx: CommandContext, slot: InRange<1, 8>) -> Result<()> {
 /// Also this command moves the mouse to the top left corner of the screen to
 /// force mouse movement after opening the inventory, since if you don't move
 /// it the game does not register hovering over slots lol.
-#[command]
+#[command(shortcode=i)]
 async fn open_inventory(ctx: CommandContext) -> Result<()> {
     if !ctx.noita.is_inventory_open() {
         let f = ctx.noita.wait_for_inventory_open();
@@ -79,7 +76,7 @@ async fn open_inventory(ctx: CommandContext) -> Result<()> {
 /// Press <kbd>Tab</kbd> _only if_ the inventory is opened.
 ///
 /// This command also waits for the game inventory state to actually change.
-#[command]
+#[command(shortcode=c)]
 async fn close_inventory(ctx: CommandContext) -> Result<()> {
     if ctx.noita.is_inventory_open() {
         let f = ctx.noita.wait_for_inventory_close();

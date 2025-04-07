@@ -35,6 +35,7 @@ struct CommandMacroAttrs {
     sender_gate: Option<MacroArg>,
     long: Option<MacroArg>,
     hidden: Option<MacroArg>,
+    shortcode: Option<MacroArg>,
 }
 
 impl Parse for CommandMacroAttrs {
@@ -48,6 +49,7 @@ impl Parse for CommandMacroAttrs {
                 "sender_gate" => args.sender_gate.replace(arg),
                 "long" => args.long.replace(arg),
                 "hidden" => args.hidden.replace(arg),
+                "shortcode" => args.shortcode.replace(arg),
                 _ => return Err(syn::Error::new(arg.name.span(), "Unknown argument")),
             };
             if let Some(prev) = prev {
@@ -182,6 +184,18 @@ pub fn command(attrs: TokenStream, input: TokenStream) -> TokenStream {
         }
         None => quote!(hidden: false),
     };
+    let shortcode = match attrs.shortcode {
+        Some(shortcode) => {
+            let name = shortcode.name;
+            if let Some(value) = shortcode.value {
+                let value = value.to_token_stream().to_string();
+                quote!(#name: Some(#value))
+            } else {
+                quote_spanned!(name.span() => #name: compile_error!("missing shortcode value"))
+            }
+        }
+        None => quote!(shortcode: None),
+    };
 
     quote! {
         #input
@@ -204,6 +218,7 @@ pub fn command(attrs: TokenStream, input: TokenStream) -> TokenStream {
             #sender_gate,
             #long,
             #hidden,
+            #shortcode,
         });
     }
     .into()

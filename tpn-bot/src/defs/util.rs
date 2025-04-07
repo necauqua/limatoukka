@@ -67,7 +67,7 @@ async fn death_count(ctx: CommandContext) -> Result<()> {
 /// Wait for a duration of 1-5000ms, defaulting to 500.
 ///
 /// Very useful for multi-command messages.
-#[command(long)]
+#[command(long, shortcode=w)]
 async fn wait(_ctx: CommandContext, millis: Option<AtMost<5000>>) -> Result<()> {
     let duration = Duration::from_millis(millis.map_or(500, |m| m.get() as _));
     tracing::debug!(?duration, "waiting");

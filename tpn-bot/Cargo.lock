@@ -2572,6 +2572,7 @@ dependencies = [
  "indexmap",
  "insta",
  "inventory",
+ "lazy-regex",
  "libc",
  "libxdo",
  "maud",

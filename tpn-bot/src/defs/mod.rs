@@ -14,9 +14,11 @@ mod mouse;
 mod util;
 mod voting;
 
+pub(self) type HoldTime = Option<AtMost<5000>>;
+
 pub(self) async fn hold<D, U, RD, RU>(
     ctx: CommandContext,
-    millis: Option<AtMost<5000>>,
+    millis: HoldTime,
     key: &str,
     down: D,
     up: U,

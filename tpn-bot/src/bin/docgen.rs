@@ -33,6 +33,8 @@ struct CommandOut {
     global_gate: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     sender_gate: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    shortcode: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -104,6 +106,7 @@ fn main() -> Result<()> {
                     sender_gate: cmd
                         .sender_gate
                         .map(|d| format!("{}", humantime::format_duration(d))),
+                    shortcode: cmd.shortcode.map(|s| s.into()),
                 })
                 .collect(),
         });

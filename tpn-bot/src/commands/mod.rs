@@ -41,6 +41,8 @@ pub struct CommandRegistration {
     pub long: bool,
     /// Whether the command should not be shown in documentation
     pub hidden: bool,
+    /// An ultra-short version of the command
+    pub shortcode: Option<&'static str>,
 }
 
 inventory::collect!(CommandRegistration);
@@ -49,7 +51,10 @@ pub fn find(name: &str) -> Option<&'static CommandRegistration> {
     static MAP: LazyLock<HashMap<&str, &'static CommandRegistration>> = LazyLock::new(|| {
         inventory::iter::<CommandRegistration>
             .into_iter()
-            .map(|reg| (reg.name, reg))
+            .flat_map(|reg| match reg.shortcode {
+                Some(shortcode) => vec![(reg.name, reg), (shortcode, reg)],
+                None => vec![(reg.name, reg)],
+            })
             .collect()
     });
 

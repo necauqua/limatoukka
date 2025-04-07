@@ -83,10 +83,8 @@ impl fmt::Display for CommandMessage {
 }
 
 pub fn is_good_command_name(name: &str) -> bool {
-    !name.is_empty()
-        && !name.starts_with('-')
-        && !name.ends_with('-')
-        && name.chars().all(|ch| ch.is_ascii_alphabetic() || ch == '-')
+    !name.is_empty() && !name.starts_with('-') && !name.ends_with('-')
+    // && name.chars().all(|ch| ch.is_ascii_alphabetic() || ch == '-')
 }
 
 impl CommandMessage {
@@ -123,13 +121,23 @@ impl CommandMessage {
                         })
                         .filter_map(|(word, tpe)| {
                             let mut parts = split_balanced(word, ':').into_iter();
-                            let name = parts.next().unwrap();
+                            let mut name = parts.next().unwrap();
                             if !is_good_command_name(&name) {
                                 return None;
                             }
+                            let mut args: VecDeque<_> =
+                                parts.map(|s| unwrap_string_literals(&s)).collect();
+
+                            if let Some((_, prefix, number)) =
+                                lazy_regex::regex_captures!(r"^(.*?)(\d+)$", &name)
+                            {
+                                args.push_front(number.to_owned());
+                                name = prefix.to_owned();
+                            }
+
                             let cmd = CommandExpr {
                                 name,
-                                args: parts.map(|s| unwrap_string_literals(&s)).collect(),
+                                args,
                                 tpe,
                                 rest: None,
                             };
