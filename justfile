@@ -61,8 +61,6 @@ run:
     # }
     # trap cleanup INT TERM EXIT
 
-    just sound-setup &
-
     xdummy {{display}} 2>/dev/null &
     sleep 0.1
 
@@ -76,6 +74,8 @@ run:
 
     # make sure obs capture is connected to this instance
     just obs-reset-display
+
+    just sound-setup &
 
     # and just start the game now, in that instance
     vglrun just --color=always start 2> >(grep -v "wrong ELF class: ELFCLASS32" >&2)
