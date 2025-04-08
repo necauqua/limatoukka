@@ -83,7 +83,7 @@ impl PermissionLevel {
     pub fn from_badges(badges: &[Badge]) -> Self {
         if badges.iter().any(|b| b.name == "broadcaster") {
             PermissionLevel::Caster
-        } else if badges.iter().any(|b| "moderator".contains(&&*b.name)) {
+        } else if badges.iter().any(|b| "moderator".contains(&*b.name)) {
             PermissionLevel::Moderator
         } else if badges.iter().any(|b| b.name == "admin") {
             PermissionLevel::TwitchAdmin
@@ -155,16 +155,17 @@ pub enum MessagingClient {
 
 impl MessagingClient {
     pub async fn send(&self, message: String) -> Result<()> {
-        Ok(match self {
+        match self {
             MessagingClient::Twitch {
                 client, channel, ..
             } => client.say(channel.to_owned(), message.to_owned()).await?,
             MessagingClient::Mock => tracing::info!(message, "mock send"),
-        })
+        }
+        Ok(())
     }
 
     pub async fn reply(&self, message_id: &str, message: String) -> Result<()> {
-        Ok(match self {
+        match self {
             MessagingClient::Twitch {
                 client, channel, ..
             } => {
@@ -173,6 +174,7 @@ impl MessagingClient {
                     .await?
             }
             MessagingClient::Mock => tracing::info!(message, "mock reply"),
-        })
+        }
+        Ok(())
     }
 }

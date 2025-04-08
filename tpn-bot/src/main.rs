@@ -29,7 +29,7 @@ async fn run(config: Config) -> Result<()> {
         _ => messaging::connect_to_mock().await?,
     };
 
-    let status_wall = StatusWall::new();
+    let status_wall = StatusWall::default();
     tokio::spawn(status_wall.start(&config.browser_source_bind));
 
     let xdo = XDoClient::new(config.display.clone());

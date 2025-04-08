@@ -221,15 +221,12 @@ async fn run_command(
     fut: CommandFuture,
 ) -> Result<()> {
     if let Some(global_gate) = &cmd.registration.global_gate {
-        if !ctx.gate(&cmd.registration.name, *global_gate).await? {
+        if !ctx.gate(cmd.registration.name, *global_gate).await? {
             fail!("global timeout {global_gate:?}");
         }
     }
     if let Some(sender_gate) = &cmd.registration.sender_gate {
-        if !ctx
-            .sender_gate(&cmd.registration.name, *sender_gate)
-            .await?
-        {
+        if !ctx.sender_gate(cmd.registration.name, *sender_gate).await? {
             fail!("sender timeout {sender_gate:?}");
         }
     }

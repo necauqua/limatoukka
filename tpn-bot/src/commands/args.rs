@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::VecDeque, fmt::Debug};
+use std::{borrow::Cow, collections::VecDeque, fmt::Debug, time::Duration};
 
 use thiserror::Error;
 
@@ -43,6 +43,10 @@ impl Args {
 
     pub const fn len(&self) -> usize {
         self.len
+    }
+
+    pub const fn is_empty(&self) -> bool {
+        self.len == 0
     }
 
     pub fn pop(&mut self) -> Option<(usize, String)> {
@@ -162,27 +166,40 @@ impl CommandArg for u32 {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct AtMost<const N: u32>(u32);
+pub struct HoldTime(Duration);
 
-impl<const N: u32> AtMost<N> {
-    pub fn get(self) -> u32 {
+impl HoldTime {
+    pub fn get(self) -> Duration {
         self.0
     }
 }
 
-impl<const N: u32> CommandArg for AtMost<N> {
-    fn parse(input: String) -> ArgResult<Self> {
-        let n = u32::parse(input)?;
-        if n <= N {
-            Ok(Self(n))
+impl ArgExtractor for HoldTime {
+    fn extract(args: &mut Args) -> ExtractorResult<Self> {
+        let Some((pos, input)) = args.pop() else {
+            return Ok(Self(Duration::from_millis(500)));
+        };
+        let millis = match input.strip_suffix("s") {
+            Some(seconds) => {
+                u32::parse(seconds.into()).map_err(|e| ExtractorError::BadArgument(pos, e))? * 1000
+            }
+            None => u32::parse(input).map_err(|e| ExtractorError::BadArgument(pos, e))?,
+        };
+        if millis > 15_000 {
+            Err(ExtractorError::BadArgument(
+                pos,
+                ArgError::Precondition("duration must be at most 15 seconds".into()),
+            ))
         } else {
-            Err(ArgError::Precondition(format!("can be at most {N}")))
+            Ok(Self(Duration::from_millis(millis as _)))
         }
     }
 
     fn type_desc() -> Cow<'static, str> {
-        format!("non-negative number, at most {N}").into()
+        "duration in milliseconds, at most 15000, defaults to 500. You can also specify whole seconds by appending 's'".into()
     }
+
+    const OPTIONAL: bool = true;
 }
 
 #[derive(Debug, Clone, Copy)]

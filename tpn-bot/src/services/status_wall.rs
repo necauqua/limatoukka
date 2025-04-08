@@ -19,7 +19,7 @@ use maud::{PreEscaped, html};
 use serde::{Deserialize, Serialize};
 use tokio::{sync::Mutex, time::sleep};
 
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct StatusWall {
     inner: Arc<Mutex<StatusWallInner>>,
 }
@@ -77,12 +77,6 @@ impl Drop for EntryGuard {
 }
 
 impl StatusWall {
-    pub fn new() -> Self {
-        Self {
-            inner: Default::default(),
-        }
-    }
-
     pub async fn allocate(&self) -> EntryKey {
         self.inner.lock().await.new_key()
     }

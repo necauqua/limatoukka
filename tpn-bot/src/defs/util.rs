@@ -1,7 +1,5 @@
-use std::time::Duration;
-
 use crate::commands::{
-    args::AtMost,
+    args::HoldTime,
     command,
     context::{AppContext, CommandContext},
 };
@@ -63,7 +61,7 @@ async fn seed(ctx: CommandContext) -> Result<()> {
 async fn death_count(ctx: CommandContext) -> Result<()> {
     ctx.reply(match ctx.noita.get_death_count().await {
         Some(count) => count.to_string(),
-        None => "Can't read the death count - is it dead?".into(),
+        None => "Couldn't read the death count - is the game running?".into(),
     })
     .await
 }
@@ -80,8 +78,8 @@ async fn fix_obs_capture() -> Result<()> {
 ///
 /// Very useful for multi-command messages.
 #[command(long, shortcode=w)]
-async fn wait(ctx: CommandContext, millis: Option<AtMost<15_000>>) -> Result<()> {
-    let duration = Duration::from_millis(millis.map_or(500, |m| m.get() as _));
+async fn wait(ctx: CommandContext, duration: HoldTime) -> Result<()> {
+    let duration = duration.get();
     tracing::debug!(?duration, "waiting");
     ctx.holds.sleep(duration).await;
     Ok(())

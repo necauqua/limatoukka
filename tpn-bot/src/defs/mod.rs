@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::cmp::Ordering;
 
 use anyhow::Result;
 use rustis::{
@@ -6,18 +6,16 @@ use rustis::{
     commands::{ExpireOption, GenericCommands, StringCommands},
 };
 
-use crate::commands::{args::AtMost, context::CommandContext};
+use crate::commands::{args::HoldTime, context::CommandContext};
 
 mod keys;
 mod mouse;
 mod util;
 mod voting;
 
-pub(self) type HoldTime = Option<AtMost<15_000>>;
-
-pub(self) async fn hold<D, U, RD, RU>(
+async fn hold<D, U, RD, RU>(
     ctx: CommandContext,
-    millis: HoldTime,
+    duration: HoldTime,
     key: &str,
     down: D,
     up: U,
@@ -39,16 +37,18 @@ where
         }
     }
 
-    let duration = Duration::from_millis(millis.map_or(500, |a| a.get()) as u64);
-    ctx.holds.sleep(duration).await;
+    ctx.holds.sleep(duration.get()).await;
 
     let counter = ctx.storage.decr(&key).await?;
-    if counter == 0 {
-        up(ctx).await?;
-    } else if counter < 0 {
-        // oopsie
-        ctx.storage.del(&key).await?;
-        up(ctx).await?;
+
+    match counter.cmp(&0) {
+        Ordering::Equal => up(ctx).await?,
+        Ordering::Less => {
+            // oopsie
+            ctx.storage.del(&key).await?;
+            up(ctx).await?;
+        }
+        _ => {}
     }
     Ok(())
 }

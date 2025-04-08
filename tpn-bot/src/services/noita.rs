@@ -39,9 +39,8 @@ fn is_dead(noita: &Noita) -> Result<bool> {
         .as_bool())
 }
 
-// quick jank idk
 fn read_death_count(noita: &Noita) -> Result<u32> {
-    Ok(RawPtr::of(0x1208AF8).read(noita.proc())?)
+    Ok(noita.read_stats().map(|stats| stats.global.death_count)?)
 }
 
 fn is_inventory_open(noita: &Noita) -> Result<bool> {
@@ -141,7 +140,7 @@ impl NoitaHandle {
             let seed = state.and_then(|(_, _, s)| s);
             if seed != prev_seed {
                 if let Some(seed) = seed {
-                    Span::current().record("run.seed", &seed.to_string());
+                    Span::current().record("run.seed", seed.to_string());
                 }
                 *self.inner.seed.lock().await = seed;
                 prev_seed = seed;

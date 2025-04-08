@@ -3,10 +3,10 @@ use anyhow::Result;
 use super::HoldTime;
 use crate::commands::{args::InRange, command, context::CommandContext};
 
-async fn mv(ctx: CommandContext, millis: HoldTime, key: &'static str) -> Result<()> {
+async fn mv(ctx: CommandContext, duration: HoldTime, key: &'static str) -> Result<()> {
     super::hold(
         ctx,
-        millis,
+        duration,
         key,
         |ctx| ctx.xdo.keydown(key),
         |ctx| ctx.xdo.keyup(key),
@@ -14,28 +14,28 @@ async fn mv(ctx: CommandContext, millis: HoldTime, key: &'static str) -> Result<
     .await
 }
 
-/// Hold <kbd>W</kbd> for the specified duration of milliseconds (defaulting to 500).
+/// Hold <kbd>W</kbd> for the specified duration.
 #[command(long, shortcode=u)]
-async fn up(ctx: CommandContext, millis: HoldTime) -> Result<()> {
-    mv(ctx, millis, "w").await
+async fn up(ctx: CommandContext, duration: HoldTime) -> Result<()> {
+    mv(ctx, duration, "w").await
 }
 
-/// Hold <kbd>A</kbd> for the specified duration of milliseconds (defaulting to 500).
+/// Hold <kbd>A</kbd> for the specified duration.
 #[command(long, shortcode=l)]
-async fn left(ctx: CommandContext, millis: HoldTime) -> Result<()> {
-    mv(ctx, millis, "a").await
+async fn left(ctx: CommandContext, duration: HoldTime) -> Result<()> {
+    mv(ctx, duration, "a").await
 }
 
-/// Hold <kbd>S</kbd> for the specified duration of milliseconds (defaulting to 500).
+/// Hold <kbd>S</kbd> for the specified duration.
 #[command(long, shortcode=d)]
-async fn down(ctx: CommandContext, millis: HoldTime) -> Result<()> {
-    mv(ctx, millis, "s").await
+async fn down(ctx: CommandContext, duration: HoldTime) -> Result<()> {
+    mv(ctx, duration, "s").await
 }
 
-/// Hold <kbd>D</kbd> for the specified duration of milliseconds (defaulting to 500).
+/// Hold <kbd>D</kbd> for the specified duration.
 #[command(long, shortcode=r)]
-async fn right(ctx: CommandContext, millis: HoldTime) -> Result<()> {
-    mv(ctx, millis, "d").await
+async fn right(ctx: CommandContext, duration: HoldTime) -> Result<()> {
+    mv(ctx, duration, "d").await
 }
 
 /// Press <kbd>E</kbd>.

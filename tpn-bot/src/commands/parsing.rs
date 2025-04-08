@@ -129,7 +129,7 @@ impl CommandMessage {
                                 parts.map(|s| unwrap_string_literals(&s)).collect();
 
                             if let Some((_, prefix, number)) =
-                                lazy_regex::regex_captures!(r"^(.*?)(\d+)$", &name)
+                                lazy_regex::regex_captures!(r"^(.*?)(\d+s?)$", &name)
                             {
                                 args.push_front(number.to_owned());
                                 name = prefix.to_owned();

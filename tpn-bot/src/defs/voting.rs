@@ -384,7 +384,7 @@ async fn vote_restart(ctx: CommandContext) -> Result<()> {
         ctx,
         "restart".into(),
         html! { span style="color: orange" { "Restart the game" } },
-        format!("Restart the game"),
+        "Restart the game".into(),
         config,
         move |_| AppContext::restart(),
     )
@@ -413,7 +413,7 @@ async fn vote_reset(ctx: CommandContext) -> Result<()> {
         ctx,
         "reset".into(),
         html! { span style="color: red" { "Reset the game" } },
-        format!("Reset the game"),
+        "Reset the game".into(),
         config,
         move |_| AppContext::reset(),
     )
