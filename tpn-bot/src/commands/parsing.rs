@@ -6,7 +6,7 @@ pub enum CommandType {
     Crusade,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CommandExpr {
     pub name: String,
     pub args: VecDeque<String>,
@@ -60,7 +60,7 @@ impl CommandExpr {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CommandMessage {
     pub parallel: Vec<Vec<CommandExpr>>,
 }

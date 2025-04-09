@@ -72,6 +72,7 @@ pub fn command(attrs: TokenStream, input: TokenStream) -> TokenStream {
 
     let ident = &input.sig.ident;
     let name = ident.to_string().replace('_', "-");
+    let name = name.strip_prefix("r#").unwrap_or(&name);
     let doc = input
         .attrs
         .iter()

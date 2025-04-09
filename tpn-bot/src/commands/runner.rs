@@ -15,18 +15,15 @@ use super::{
     CommandContext, CommandFuture,
     args::{Args, ExtractorError},
     context::{AppContext, CommandDescriptor, CommandToken, MessageContext},
-    parsing::CommandMessage,
+    parsing::{CommandExpr, CommandMessage},
 };
 
 pub async fn receive_message(ctx: AppContext, message: Message) -> Result<()> {
     let s = &message.sender;
 
-    // if !ctx
-    //     .gate(&format!("message:{}", s.id), Duration::from_millis(500))
-    //     .await?
-    // {
-    //     return Ok(());
-    // }
+    if ctx.config.bot.as_ref().is_some_and(|b| s.login == b.login) {
+        return Ok(());
+    }
 
     let stop_count = ctx
         .storage
@@ -48,11 +45,10 @@ pub async fn receive_message(ctx: AppContext, message: Message) -> Result<()> {
 
     tracing::debug!("processing message");
 
+    let command_msg = CommandMessage::parse(&message.text);
     let ctx = MessageContext::new(ctx.clone(), Arc::new(message));
-    let errors = match prepare_commands(&ctx) {
-        Ok(prepared) => run_commands(&ctx, prepared).await,
-        Err(errors) => errors,
-    };
+
+    let errors = eval(&ctx, command_msg).await;
 
     let error_key = format!("last-error:{}", ctx.message.sender.id);
 
@@ -81,42 +77,19 @@ pub async fn receive_message(ctx: AppContext, message: Message) -> Result<()> {
 
 type PreparedCommands = Vec<Vec<(CommandDescriptor, CommandFuture)>>;
 
-fn prepare_commands(context: &MessageContext) -> Result<PreparedCommands, Vec<CommandError>> {
-    let command_msg = CommandMessage::parse(&context.message.text);
-
+async fn prepare_commands(
+    context: &MessageContext,
+    command_msg: CommandMessage,
+) -> Result<PreparedCommands, Vec<CommandError>> {
     let mut errors = vec![];
     let mut groups = vec![];
 
     for (group_idx, group) in command_msg.parallel.into_iter().enumerate() {
         let mut prepared = vec![];
         for (cmd_idx, cmd_expr) in group.into_iter().enumerate() {
-            let token = CommandToken {
-                name: cmd_expr.name.to_ascii_lowercase().into(),
-                tpe: cmd_expr.tpe,
-                group: group_idx,
-                idx: cmd_idx,
-            };
-            let Some(reg) = super::find(&token.name) else {
-                errors.push(CommandError::UnknownCommand(token));
-                continue;
-            };
-            let desc = CommandDescriptor {
-                registration: reg,
-                token,
-            };
-            if reg.permission > context.message.sender.level {
-                errors.push(CommandError::PermissionError(desc));
-                continue;
-            }
-
-            let cmd_ctx = CommandContext::new(context.clone(), desc.clone());
-
-            match (reg.handler)(cmd_ctx, Args::new(cmd_expr.args, cmd_expr.rest)) {
-                Ok(fut) => prepared.push((desc, fut)),
-                Err(error) => {
-                    let err = CommandError::BadArgs(desc, error);
-                    errors.push(err);
-                }
+            match prepare_commad(context, cmd_expr, group_idx, cmd_idx).await {
+                Ok(p) => prepared.push(p),
+                Err(e) => errors.push(e),
             }
         }
         groups.push(prepared);
@@ -129,7 +102,57 @@ fn prepare_commands(context: &MessageContext) -> Result<PreparedCommands, Vec<Co
     Ok(groups)
 }
 
-async fn run_commands(ctx: &MessageContext, commands: PreparedCommands) -> Vec<CommandError> {
+async fn prepare_commad(
+    ctx: &MessageContext,
+    cmd_expr: CommandExpr,
+    group_idx: usize,
+    cmd_idx: usize,
+) -> Result<(CommandDescriptor, CommandFuture), CommandError> {
+    let token = CommandToken {
+        name: cmd_expr.name.to_ascii_lowercase().into(),
+        tpe: cmd_expr.tpe,
+        group: group_idx,
+        idx: cmd_idx,
+    };
+    let registration = match super::find(&token.name) {
+        Some(r) => r,
+        None => {
+            // let mut p = ctx.storage.create_pipeline();
+            // p.hexists(format!("macros:{}", ctx.message.sender.id), &*token.name)
+            //     .queue();
+            // p.hexists("macros:global", &*token.name).queue();
+
+            // if let Ok(r) = p.execute().await {
+            //     let (personal, global): (bool, bool) = r;
+            //     if personal || global {
+            //         *super::MACRO
+            //     }
+            // }
+            return Err(CommandError::UnknownCommand(token));
+        }
+    };
+    let desc = CommandDescriptor {
+        registration,
+        token,
+    };
+    if registration.permission > ctx.message.sender.level {
+        return Err(CommandError::PermissionError(desc));
+    }
+
+    let cmd_ctx = CommandContext::new(ctx.clone(), desc.clone());
+
+    match (registration.handler)(cmd_ctx, Args::new(cmd_expr.args, cmd_expr.rest)) {
+        Ok(fut) => Ok((desc, fut)),
+        Err(error) => Err(CommandError::BadArgs(desc, error)),
+    }
+}
+
+pub async fn eval(ctx: &MessageContext, command_msg: CommandMessage) -> Vec<CommandError> {
+    let commands = match prepare_commands(&ctx, command_msg).await {
+        Ok(prepared) => prepared,
+        Err(errors) => return errors,
+    };
+
     if commands.is_empty() {
         return Vec::new();
     }

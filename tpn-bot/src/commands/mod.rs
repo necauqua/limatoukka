@@ -6,6 +6,7 @@ use context::CommandContext;
 
 pub mod args;
 pub mod context;
+pub mod macros;
 pub mod parsing;
 pub mod runner;
 
@@ -60,3 +61,5 @@ pub fn find(name: &str) -> Option<&'static CommandRegistration> {
 
     MAP.get(name).copied()
 }
+
+pub static MACRO: LazyLock<&'static CommandRegistration> = LazyLock::new(|| find("macro").unwrap());
