@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use rustis::commands::GenericCommands;
+use rustis::commands::StringCommands;
 use tokio::time::sleep;
 
 use crate::{
@@ -105,7 +105,13 @@ async fn mouse_move(ctx: CommandContext, dx: i32, dy: i32) -> Result<()> {
 /// Click the left mouse button.
 #[command(shortcode=c)]
 async fn click(ctx: CommandContext) -> Result<()> {
-    if ctx.storage.exists("holds:lmb").await? != 0 {
+    if ctx
+        .storage
+        .get::<_, Option<i64>>("holds:lmb")
+        .await?
+        .unwrap_or_default()
+        != 0
+    {
         fail!("click during hold")
     }
     ctx.xdo.click(1).await
