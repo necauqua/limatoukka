@@ -26,15 +26,17 @@ use super::{args::InRange, command, context::CommandContext, parsing::CommandMes
 async fn macro_record(ctx: CommandContext, name: String, script: String) -> Result<()> {
     let mut tx = ctx.storage.create_transaction();
     let key = format!("macros:{}", ctx.message.sender.id);
-    tx.hset(&key, (&name, script)).forget();
+    tx.hset(&key, (&name, &script)).forget();
     tx.hlen(&key).queue();
     let len: usize = tx.execute().await?;
     if len == 1000 {
         ctx.storage.hdel(key, name).await?;
         ctx.reply("too many macros brother, this incident will be investigated Stare".into())
-            .await?;
+            .await
+    } else {
+        ctx.reply(format!("Recorded macro `{name}` as: {script}"))
+            .await
     }
-    Ok(())
 }
 
 /// Deletes a macro created with `macro-record~`.
@@ -43,6 +45,8 @@ async fn macro_delete(ctx: CommandContext, name: String) -> Result<()> {
     let key = format!("macros:{}", ctx.message.sender.id);
     if ctx.storage.hdel(key, &name).await? == 0 {
         fail!("no macro named `{name}`");
+    } else {
+        ctx.reply(format!("Deleted macro `{name}`")).await?;
     }
     Ok(())
 }
@@ -50,7 +54,9 @@ async fn macro_delete(ctx: CommandContext, name: String) -> Result<()> {
 /// Stores a string as a global macro, meaning it can be used by everyone.
 #[command(permission=Moderator, shortcode=gmr)]
 async fn global_macro_record(ctx: CommandContext, name: String, script: String) -> Result<()> {
-    ctx.storage.hset("macros:global", (&name, script)).await?;
+    ctx.storage.hset("macros:global", (&name, &script)).await?;
+    ctx.reply(format!("Recorded global macro `{name}` as: {script}"))
+        .await?;
     Ok(())
 }
 
@@ -60,6 +66,7 @@ async fn global_macro_delete(ctx: CommandContext, name: String) -> Result<()> {
     if ctx.storage.hdel("macros:global", &name).await? == 0 {
         fail!("no macro named `{name}`");
     }
+    ctx.reply(format!("Deleted global macro {name}")).await?;
     Ok(())
 }
 
