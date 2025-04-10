@@ -124,14 +124,24 @@ async fn prepare_command(
     let registration = match super::find(&token.name) {
         Some(r) => r,
         None => {
+            let mut name = (*token.name).to_owned();
+
+            // very cringe lmao
+            if let Some(arg) = cmd_expr.args.get(0) {
+                if lazy_regex::regex_is_match!(r"\d+s?", arg) {
+                    name.push_str(arg);
+                    cmd_expr.args.pop_front();
+                }
+            }
+
             let mut p = ctx.storage.create_pipeline();
-            p.hexists(format!("macros:{}", ctx.message.sender.id), &*token.name)
+            p.hexists(format!("macros:{}", ctx.message.sender.id), &name)
                 .queue();
-            p.hexists("macros:global", &*token.name).queue();
+            p.hexists("macros:global", &name).queue();
 
             match p.execute().await {
                 Ok((true, _)) | Ok((_, true)) => {
-                    cmd_expr.args.push_front((*token.name).to_owned());
+                    cmd_expr.args.push_front(name);
                     *super::MACRO
                 }
                 _ => return Err(CommandError::UnknownCommand(token)),
