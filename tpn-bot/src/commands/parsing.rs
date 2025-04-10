@@ -155,10 +155,13 @@ impl CommandMessage {
 }
 
 fn unwrap_string_literals(input: &str) -> String {
-    let Some(input) = input
-        .strip_prefix('"')
-        .and_then(|input| input.strip_suffix('"'))
-    else {
+    let stripped = match input.strip_prefix('"') {
+        Some(tail) => tail.strip_suffix('"'),
+        None => input
+            .strip_prefix('{')
+            .and_then(|tail| tail.strip_suffix('}')),
+    };
+    let Some(input) = stripped else {
         return input.to_owned();
     };
 
@@ -184,19 +187,23 @@ fn split_balanced(input: &str, seps: &[char]) -> Vec<String> {
     let mut result = Vec::new();
     let mut current = String::new();
     let mut in_string = false;
+    let mut brace_depth = 0;
     let mut chars = input.chars();
     while let Some(ch) = chars.next() {
-        if in_string && ch == '\\' {
+        if (in_string || brace_depth != 0) && ch == '\\' {
             if let Some(ch) = chars.next() {
                 current.push('\\');
                 current.push(ch);
             }
             continue;
         }
-        if ch == '"' {
-            in_string = !in_string;
+        match ch {
+            '"' if brace_depth == 0 => in_string = !in_string,
+            '{' if !in_string => brace_depth += 1,
+            '}' if !in_string => brace_depth -= 1,
+            _ => {}
         }
-        if !in_string && seps.contains(&ch) {
+        if !in_string && brace_depth == 0 && seps.contains(&ch) {
             result.push(std::mem::take(&mut current));
         } else {
             current.push(ch);

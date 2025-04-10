@@ -2,7 +2,10 @@ use std::{
     fmt::{self, Display},
     ops::Deref,
     process::Stdio,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU32, Ordering},
+    },
     time::Duration,
 };
 
@@ -18,7 +21,7 @@ use tracing::Instrument;
 use crate::{
     config::Config,
     services::{
-        holds::Holds,
+        holds::HoldState,
         messaging::{Message, MessagingClient},
         noita::NoitaHandle,
         status_wall::StatusWall,
@@ -38,12 +41,13 @@ pub struct AppContext {
     pub xdo: XDoClient,
     pub noita: NoitaHandle,
     pub status_wall: StatusWall,
-    pub holds: Holds,
+    pub holds: HoldState,
 }
 
 #[derive(Clone)]
 pub struct MessageContext {
     app_ctx: AppContext,
+    repeats: Arc<AtomicU32>,
     pub message: Arc<Message>,
 }
 
@@ -91,6 +95,7 @@ impl Display for CommandToken {
 pub struct CommandContext {
     msg_ctx: MessageContext,
     pub command: CommandDescriptor,
+    pub recursion_depth: u32,
 }
 
 // deref hack lol
@@ -203,6 +208,10 @@ impl AppContext {
         Self::just("obs-reset-display").await
     }
 
+    pub async fn fix_obs_sound() -> Result<()> {
+        Self::just("sound-setup").await
+    }
+
     pub async fn reset() -> Result<()> {
         Self::just("reset-restart").await
     }
@@ -228,8 +237,13 @@ impl MessageContext {
     pub fn new(state: AppContext, message: Arc<Message>) -> Self {
         Self {
             app_ctx: state,
+            repeats: Default::default(),
             message,
         }
+    }
+
+    pub fn inc_repeats(&self) -> u32 {
+        self.repeats.fetch_add(1, Ordering::Relaxed)
     }
 
     pub fn sender_key(&self, key: &str) -> String {
@@ -249,10 +263,11 @@ impl MessageContext {
 }
 
 impl CommandContext {
-    pub fn new(msg_ctx: MessageContext, desc: CommandDescriptor) -> Self {
+    pub fn new(msg_ctx: MessageContext, desc: CommandDescriptor, depth: u32) -> Self {
         Self {
             msg_ctx,
             command: desc,
+            recursion_depth: depth,
         }
     }
 }

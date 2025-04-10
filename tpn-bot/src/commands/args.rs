@@ -145,23 +145,23 @@ impl CommandArg for String {
 
 impl CommandArg for i32 {
     fn parse(input: String) -> ArgResult<Self> {
-        input
-            .parse()
-            .map_err(|_| ArgError::WrongType("non-negative number"))
+        input.parse().map_err(|_| ArgError::WrongType("a number"))
     }
 
     fn type_desc() -> Cow<'static, str> {
-        "number".into()
+        "a number".into()
     }
 }
 
 impl CommandArg for u32 {
     fn parse(input: String) -> ArgResult<Self> {
-        input.parse().map_err(|_| ArgError::WrongType("number"))
+        input
+            .parse()
+            .map_err(|_| ArgError::WrongType("a non-negative number"))
     }
 
     fn type_desc() -> Cow<'static, str> {
-        "non-negative number".into()
+        "a non-negative number".into()
     }
 }
 

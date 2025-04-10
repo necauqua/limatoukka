@@ -85,3 +85,15 @@ async fn close_inventory(ctx: CommandContext) -> Result<()> {
     }
     Ok(())
 }
+
+/// Pause the game.
+///
+/// This actually just presses the <kbd>Esc</kbd> key.
+///
+/// And yes, chatters will be able to move the mouse around and click stuff, so
+/// this command is kinda annoying without `full-stop~` as they could mess up
+/// the settings or start a different gamemode.
+#[command(permission = Moderator)]
+async fn pause(ctx: CommandContext) -> Result<()> {
+    ctx.xdo.key("Escape").await
+}

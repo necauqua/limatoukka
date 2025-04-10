@@ -36,8 +36,7 @@ where
             return Err(e);
         }
     }
-
-    ctx.holds.sleep(duration.get()).await;
+    let sleep = ctx.holds.sleep(duration.get()).await;
 
     let counter = ctx.storage.decr(&key).await?;
 
@@ -50,5 +49,5 @@ where
         }
         _ => {}
     }
-    Ok(())
+    sleep
 }

@@ -1,52 +1,78 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
+use anyhow::{Result, bail};
 use tokio::sync::{Mutex, oneshot::Sender};
 
+use crate::commands::runner::CommandInterrupt;
+
 #[derive(Default)]
-struct HoldsInner {
+struct Inner {
     next_idx: usize,
     current: HashMap<usize, Sender<()>>,
+    last_interrupt: Option<Instant>,
 }
 
-impl HoldsInner {
-    fn cancel_all(&mut self) {
+impl Inner {
+    fn send_break(&mut self) {
         for (_, tx) in self.current.drain() {
             _ = tx.send(());
         }
     }
 
-    fn sleep(&mut self, duration: Duration) -> impl Future<Output = ()> + use<> {
+    fn send_interrupt(&mut self) {
+        self.current.clear();
+        self.last_interrupt = Some(Instant::now());
+    }
+
+    fn sleep(&mut self, duration: Duration) -> impl Future<Output = Result<(), ()>> + use<> {
+        let skip = self
+            .last_interrupt
+            .is_some_and(|i| i.elapsed() < Duration::from_millis(50));
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
         let idx = self.next_idx;
         self.next_idx += 1;
         self.current.insert(idx, tx);
         async move {
+            if skip {
+                return Err(());
+            }
             tokio::select! { biased;
-                _ = rx => {}
-                _ = tokio::time::sleep(duration) => {}
+                res = rx => res.map_err(|_| ()),
+                _ = tokio::time::sleep(duration) => Ok(())
             }
         }
     }
 }
 
-impl Drop for HoldsInner {
+impl Drop for Inner {
     fn drop(&mut self) {
-        self.cancel_all();
+        self.send_interrupt();
     }
 }
 
 #[derive(Clone, Default)]
-pub struct Holds {
-    inner: Arc<Mutex<HoldsInner>>,
+pub struct HoldState {
+    inner: Arc<Mutex<Inner>>,
 }
 
-impl Holds {
-    pub async fn cancel_all(&self) {
-        self.inner.lock().await.cancel_all();
+impl HoldState {
+    pub async fn send_break(&self) {
+        self.inner.lock().await.send_break();
     }
 
-    pub async fn sleep(&self, duration: Duration) {
+    pub async fn send_interrupt(&self) {
+        self.inner.lock().await.send_interrupt();
+    }
+
+    pub async fn sleep(&self, duration: Duration) -> Result<()> {
         let fut = { self.inner.lock().await.sleep(duration) };
-        fut.await;
+        if fut.await.is_err() {
+            bail!(CommandInterrupt);
+        }
+        Ok(())
     }
 }

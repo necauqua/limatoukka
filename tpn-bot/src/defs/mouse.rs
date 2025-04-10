@@ -1,9 +1,13 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use rustis::commands::GenericCommands;
 use tokio::time::sleep;
 
-use crate::commands::{args::InRange, command, context::CommandContext};
+use crate::{
+    commands::{args::InRange, command, context::CommandContext},
+    fail,
+};
 
 /// Position the mouse relative to the player on the screen.
 ///
@@ -101,6 +105,9 @@ async fn mouse_move(ctx: CommandContext, dx: i32, dy: i32) -> Result<()> {
 /// Click the left mouse button.
 #[command(shortcode=c)]
 async fn click(ctx: CommandContext) -> Result<()> {
+    if ctx.storage.exists("holds:lmb").await? != 0 {
+        fail!("click during hold")
+    }
     ctx.xdo.click(1).await
 }
 

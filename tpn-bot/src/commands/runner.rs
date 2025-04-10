@@ -48,7 +48,7 @@ pub async fn receive_message(ctx: AppContext, message: Message) -> Result<()> {
     let command_msg = CommandMessage::parse(&message.text);
     let ctx = MessageContext::new(ctx.clone(), Arc::new(message));
 
-    let errors = eval(&ctx, command_msg).await;
+    let errors = eval(&ctx, command_msg, 0).await;
 
     let error_key = format!("last-error:{}", ctx.message.sender.id);
 
@@ -80,6 +80,7 @@ type PreparedCommands = Vec<Vec<(CommandDescriptor, CommandFuture)>>;
 async fn prepare_commands(
     context: &MessageContext,
     command_msg: CommandMessage,
+    depth: u32,
 ) -> Result<PreparedCommands, Vec<CommandError>> {
     let mut errors = vec![];
     let mut groups = vec![];
@@ -87,7 +88,7 @@ async fn prepare_commands(
     for (group_idx, group) in command_msg.parallel.into_iter().enumerate() {
         let mut prepared = vec![];
         for (cmd_idx, cmd_expr) in group.into_iter().enumerate() {
-            match prepare_commad(context, cmd_expr, group_idx, cmd_idx).await {
+            match prepare_command(context, cmd_expr, group_idx, cmd_idx, depth).await {
                 Ok(p) => prepared.push(p),
                 Err(e) => errors.push(e),
             }
@@ -102,11 +103,14 @@ async fn prepare_commands(
     Ok(groups)
 }
 
-async fn prepare_commad(
+const RECURSION_LIMIT: u32 = 3;
+
+async fn prepare_command(
     ctx: &MessageContext,
     cmd_expr: CommandExpr,
     group_idx: usize,
     cmd_idx: usize,
+    depth: u32,
 ) -> Result<(CommandDescriptor, CommandFuture), CommandError> {
     let token = CommandToken {
         name: cmd_expr.name.to_ascii_lowercase().into(),
@@ -135,11 +139,14 @@ async fn prepare_commad(
         registration,
         token,
     };
+    if depth > RECURSION_LIMIT {
+        return Err(CommandError::RecursionLimit(desc));
+    }
     if registration.permission > ctx.message.sender.level {
         return Err(CommandError::PermissionError(desc));
     }
 
-    let cmd_ctx = CommandContext::new(ctx.clone(), desc.clone());
+    let cmd_ctx = CommandContext::new(ctx.clone(), desc.clone(), depth);
 
     match (registration.handler)(cmd_ctx, Args::new(cmd_expr.args, cmd_expr.rest)) {
         Ok(fut) => Ok((desc, fut)),
@@ -147,8 +154,12 @@ async fn prepare_commad(
     }
 }
 
-pub async fn eval(ctx: &MessageContext, command_msg: CommandMessage) -> Vec<CommandError> {
-    let commands = match prepare_commands(&ctx, command_msg).await {
+pub async fn eval(
+    ctx: &MessageContext,
+    command_msg: CommandMessage,
+    depth: u32,
+) -> Vec<CommandError> {
+    let commands = match prepare_commands(ctx, command_msg, depth).await {
         Ok(prepared) => prepared,
         Err(errors) => return errors,
     };
@@ -199,11 +210,17 @@ async fn run_command_sequence(
                             cmd_span_inner.set_status(Status::error("failure"));
                             Err(CommandError::Failure(cmd_inner, failure))
                         }
-                        Err(error) => {
-                            tracing::error!(?error);
-                            cmd_span_inner.set_status(Status::error("error"));
-                            Err(CommandError::Internal(cmd_inner, error))
-                        }
+                        Err(error) => match error.downcast::<CommandInterrupt>() {
+                            Ok(_) => {
+                                tracing::debug!("interrupted");
+                                Err(CommandError::Interrupt)
+                            }
+                            Err(error) => {
+                                tracing::error!(?error);
+                                cmd_span_inner.set_status(Status::error("error"));
+                                Err(CommandError::Internal(cmd_inner, error))
+                            }
+                        },
                     },
                 }
             }
@@ -212,7 +229,11 @@ async fn run_command_sequence(
         match handle.await {
             Ok(Ok(())) => {}
             Ok(Err(e)) => {
+                let interrupt = matches!(e, CommandError::Interrupt);
                 result.push(e);
+                if interrupt {
+                    break;
+                }
             }
             Err(e) => {
                 cmd_span.set_status(Status::error("panic"));
@@ -271,6 +292,10 @@ async fn run_command(
 #[error("{0}")]
 pub struct CommandFailure(String);
 
+#[derive(Debug, Error)]
+#[error("interrupt")]
+pub struct CommandInterrupt;
+
 impl CommandFailure {
     pub fn new(message: String) -> Self {
         Self(message)
@@ -285,8 +310,12 @@ pub enum CommandError {
     PermissionError(CommandDescriptor),
     #[error("{0:#}: {1}")]
     BadArgs(CommandDescriptor, ExtractorError),
+    #[error("{0:#}: recursion limit")]
+    RecursionLimit(CommandDescriptor),
     #[error("{0:#}: {1}")]
     Failure(CommandDescriptor, String),
+    #[error("interrupted")]
+    Interrupt,
     #[error("{0:#}: internal error")]
     Internal(CommandDescriptor, anyhow::Error),
     #[error("{0:#}: internal error")]
@@ -297,12 +326,9 @@ pub enum CommandError {
 
 impl CommandError {
     pub fn internal(&self) -> bool {
-        match self {
-            Self::UnknownCommand(_)
-            | Self::PermissionError(_)
-            | Self::BadArgs(_, _)
-            | Self::Failure(_, _) => false,
-            Self::Internal(_, _) | Self::Panic(_, _) | Self::SequencePanic(_) => true,
-        }
+        matches!(
+            self,
+            Self::Internal(_, _) | Self::Panic(_, _) | Self::SequencePanic(_)
+        )
     }
 }

@@ -95,7 +95,9 @@ impl StatusWall {
 
     pub async fn set(&self, id: EntryKey, new_entry: String) -> Option<String> {
         let mut inner = self.inner.lock().await;
-        let old_entry = inner.entries.insert(id, (Instant::now(), new_entry));
+        let old_entry = inner
+            .entries
+            .shift_insert(0, id, (Instant::now(), new_entry));
         inner.sync().await;
         old_entry.map(|(_, entry)| entry)
     }

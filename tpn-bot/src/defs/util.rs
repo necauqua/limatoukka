@@ -34,7 +34,7 @@ async fn discord(ctx: CommandContext) -> Result<()> {
 /// Last error message is set when you run invalid commands, or if the command
 /// execution managed to crash somehow. In the latter case, you'll be given the
 /// message id - please send it to me to look at logs and fix the issue.
-#[command(sender_gate = 15s)]
+#[command(sender_gate = 3s)]
 async fn last_error(ctx: CommandContext) -> Result<()> {
     let status: Option<String> = ctx.storage.get(ctx.sender_key("last-error")).await?;
     if let Some(status) = status {
@@ -74,6 +74,14 @@ async fn fix_obs_capture() -> Result<()> {
     AppContext::fix_obs_capture().await
 }
 
+/// The sound setup is the most brittle jank thing actually, and dies most often.
+///
+/// Try running this first before doing a full restart etc etc.
+#[command(global_gate = 30s)]
+async fn fix_obs_sound() -> Result<()> {
+    AppContext::fix_obs_sound().await
+}
+
 /// Wait for a specified duration milliseconds.
 ///
 /// Very useful for multi-command messages.
@@ -81,7 +89,7 @@ async fn fix_obs_capture() -> Result<()> {
 async fn wait(ctx: CommandContext, duration: HoldTime) -> Result<()> {
     let duration = duration.get();
     tracing::debug!(?duration, "waiting");
-    ctx.holds.sleep(duration).await;
+    ctx.holds.sleep(duration).await?;
     Ok(())
 }
 
@@ -89,22 +97,21 @@ async fn wait(ctx: CommandContext, duration: HoldTime) -> Result<()> {
 ///
 /// "Holds" here are referring to all "non-instantaneous" commands that are
 /// currently being executed **right now** - so movement, `hold~` and `wait~`.
+///
+/// This is kind of a niche thing, most likely you need `interrupt~`.
 #[command]
-async fn interrupt(ctx: CommandContext) -> Result<()> {
-    ctx.holds.cancel_all().await;
+async fn r#break(ctx: CommandContext) -> Result<()> {
+    ctx.holds.send_break().await;
     Ok(())
 }
 
-/// Pause the game.
-///
-/// This actually just presses the <kbd>Esc</kbd> key.
-///
-/// And yes, chatters will be able to move the mouse around and click stuff, so
-/// this command is kinda annoying without `full-stop~` as they could mess up
-/// the settings or start a different gamemode.
-#[command(permission = Moderator)]
-async fn pause(ctx: CommandContext) -> Result<()> {
-    ctx.xdo.key("Escape").await
+/// Stop running all current commands.
+/// This is similar to `break~`, except the commands following the holds that
+/// get completed do not run.
+#[command]
+async fn interrupt(ctx: CommandContext) -> Result<()> {
+    ctx.holds.send_interrupt().await;
+    Ok(())
 }
 
 /// Stop processing commands from everyone below the moderator level.
