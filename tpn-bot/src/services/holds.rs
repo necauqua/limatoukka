@@ -4,7 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use tokio::sync::{Mutex, oneshot::Sender};
 
 use crate::commands::runner::CommandInterrupt;
@@ -28,7 +28,10 @@ impl Inner {
         self.last_interrupt = Some(Instant::now());
     }
 
-    fn sleep(&mut self, duration: Duration) -> impl Future<Output = Result<(), ()>> + use<> {
+    fn sleep(
+        &mut self,
+        duration: Duration,
+    ) -> impl Future<Output = Result<(), CommandInterrupt>> + use<> {
         let skip = self
             .last_interrupt
             .is_some_and(|i| i.elapsed() < Duration::from_millis(50));
@@ -38,10 +41,10 @@ impl Inner {
         self.current.insert(idx, tx);
         async move {
             if skip {
-                return Err(());
+                return Err(CommandInterrupt);
             }
             tokio::select! { biased;
-                res = rx => res.map_err(|_| ()),
+                res = rx => res.map_err(|_| CommandInterrupt),
                 _ = tokio::time::sleep(duration) => Ok(())
             }
         }
@@ -68,11 +71,8 @@ impl HoldState {
         self.inner.lock().await.send_interrupt();
     }
 
-    pub async fn sleep(&self, duration: Duration) -> Result<()> {
+    pub async fn sleep(&self, duration: Duration) -> Result<(), CommandInterrupt> {
         let fut = { self.inner.lock().await.sleep(duration) };
-        if fut.await.is_err() {
-            bail!(CommandInterrupt);
-        }
-        Ok(())
+        fut.await
     }
 }

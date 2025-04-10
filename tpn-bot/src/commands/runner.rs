@@ -3,7 +3,10 @@ use std::{any::Any, sync::Arc};
 use anyhow::Result;
 use maud::html;
 use opentelemetry::trace::Status;
-use rustis::commands::{GenericCommands, StringCommands};
+use rustis::{
+    client::BatchPreparedCommand,
+    commands::{GenericCommands, HashCommands, StringCommands},
+};
 use thiserror::Error;
 use tokio::task::JoinSet;
 use tracing::{Instrument, Span, debug_span};
@@ -107,7 +110,7 @@ const RECURSION_LIMIT: u32 = 3;
 
 async fn prepare_command(
     ctx: &MessageContext,
-    cmd_expr: CommandExpr,
+    mut cmd_expr: CommandExpr,
     group_idx: usize,
     cmd_idx: usize,
     depth: u32,
@@ -121,18 +124,18 @@ async fn prepare_command(
     let registration = match super::find(&token.name) {
         Some(r) => r,
         None => {
-            // let mut p = ctx.storage.create_pipeline();
-            // p.hexists(format!("macros:{}", ctx.message.sender.id), &*token.name)
-            //     .queue();
-            // p.hexists("macros:global", &*token.name).queue();
+            let mut p = ctx.storage.create_pipeline();
+            p.hexists(format!("macros:{}", ctx.message.sender.id), &*token.name)
+                .queue();
+            p.hexists("macros:global", &*token.name).queue();
 
-            // if let Ok(r) = p.execute().await {
-            //     let (personal, global): (bool, bool) = r;
-            //     if personal || global {
-            //         *super::MACRO
-            //     }
-            // }
-            return Err(CommandError::UnknownCommand(token));
+            match p.execute().await {
+                Ok((true, _)) | Ok((_, true)) => {
+                    cmd_expr.args.push_front((*token.name).to_owned());
+                    *super::MACRO
+                }
+                _ => return Err(CommandError::UnknownCommand(token)),
+            }
         }
     };
     let desc = CommandDescriptor {
@@ -148,7 +151,7 @@ async fn prepare_command(
 
     let cmd_ctx = CommandContext::new(ctx.clone(), desc.clone(), depth);
 
-    match (registration.handler)(cmd_ctx, Args::new(cmd_expr.args, cmd_expr.rest)) {
+    match (registration.handler)(cmd_ctx, Args::new(cmd_expr.args)) {
         Ok(fut) => Ok((desc, fut)),
         Err(error) => Err(CommandError::BadArgs(desc, error)),
     }
@@ -310,12 +313,14 @@ pub enum CommandError {
     PermissionError(CommandDescriptor),
     #[error("{0:#}: {1}")]
     BadArgs(CommandDescriptor, ExtractorError),
+
     #[error("{0:#}: recursion limit")]
     RecursionLimit(CommandDescriptor),
     #[error("{0:#}: {1}")]
     Failure(CommandDescriptor, String),
     #[error("interrupted")]
     Interrupt,
+
     #[error("{0:#}: internal error")]
     Internal(CommandDescriptor, anyhow::Error),
     #[error("{0:#}: internal error")]

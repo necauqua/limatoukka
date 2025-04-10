@@ -26,18 +26,14 @@ pub trait ArgExtractor: Sized {
 
 pub struct Args {
     args: VecDeque<String>,
-    rest: Option<String>,
     len: usize,
-    rest_taken: bool,
 }
 
 impl Args {
-    pub fn new(args: VecDeque<String>, rest: Option<String>) -> Self {
+    pub fn new(args: VecDeque<String>) -> Self {
         Self {
             len: args.len(),
             args,
-            rest,
-            rest_taken: false,
         }
     }
 
@@ -88,33 +84,6 @@ impl<T: ArgExtractor> ArgExtractor for Option<T> {
     }
 
     const OPTIONAL: bool = true;
-}
-
-#[derive(Debug, Clone)]
-pub struct RestArg(String);
-
-impl RestArg {
-    pub fn get(self) -> String {
-        self.0
-    }
-}
-
-impl ArgExtractor for RestArg {
-    fn extract(args: &mut Args) -> ExtractorResult<Self> {
-        if args.rest_taken {
-            panic!("double RestArg")
-        }
-        args.rest_taken = true; // a separate bool cuz we allow using last arg as rest
-        args.rest
-            .take()
-            .or_else(|| args.args.pop_back())
-            .map(Self)
-            .ok_or(ExtractorError::MissingRestArgument)
-    }
-
-    fn type_desc() -> Cow<'static, str> {
-        "string or rest of message".into()
-    }
 }
 
 #[derive(Debug, Error)]

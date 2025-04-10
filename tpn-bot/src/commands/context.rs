@@ -67,10 +67,7 @@ pub struct CommandDescriptor {
 
 impl Display for CommandDescriptor {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.token.tpe {
-            CommandType::Uwu => write!(f, "{}~", self.registration.name)?,
-            CommandType::Crusade => write!(f, "+{}", self.registration.name)?,
-        }
+        self.token.tpe.write_command(f, &self.registration.name)?;
         if f.alternate() {
             write!(f, "({},{})", self.token.group, self.token.idx)?;
         }
@@ -80,10 +77,7 @@ impl Display for CommandDescriptor {
 
 impl Display for CommandToken {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.tpe {
-            CommandType::Uwu => write!(f, "{}~", self.name)?,
-            CommandType::Crusade => write!(f, "+{}", self.name)?,
-        }
+        self.tpe.write_command(f, &self.name)?;
         if f.alternate() {
             write!(f, "({},{})", self.group, self.idx)?;
         }

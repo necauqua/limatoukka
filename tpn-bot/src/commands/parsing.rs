@@ -1,26 +1,46 @@
-use std::{collections::VecDeque, fmt};
+use std::{
+    collections::VecDeque,
+    fmt::{self, Write},
+};
 
 #[derive(Debug, Clone, Copy)]
 pub enum CommandType {
     Uwu,
+    UwuMeh,
     Crusade,
+    Normie,
+    Neither,
+}
+
+impl CommandType {
+    pub fn write_command(&self, f: &mut fmt::Formatter<'_>, command: &str) -> fmt::Result {
+        match self {
+            Self::Uwu => {
+                f.write_str(command)?;
+                f.write_char('~')
+            }
+            Self::UwuMeh => {
+                f.write_char('~')?;
+                f.write_str(command)
+            }
+            Self::Crusade => {
+                f.write_char('+')?;
+                f.write_str(command)
+            }
+            Self::Normie => {
+                f.write_char('!')?;
+                f.write_str(command)
+            }
+            Self::Neither => f.write_str(command),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct CommandExpr {
     pub name: String,
     pub args: VecDeque<String>,
-    pub rest: Option<String>,
     pub tpe: CommandType,
-}
-
-impl CommandExpr {
-    pub fn as_command(&self) -> String {
-        match self.tpe {
-            CommandType::Uwu => format!("{}~", self.name),
-            CommandType::Crusade => format!("+{}", self.name),
-        }
-    }
 }
 
 impl fmt::Display for CommandExpr {
@@ -41,22 +61,33 @@ impl fmt::Display for CommandExpr {
 
 impl CommandExpr {
     pub fn parse(word: &str) -> Option<Self> {
-        let (word, tpe) = word
-            .strip_suffix('~')
-            .map(|w| (w, CommandType::Uwu))
-            .or(word.strip_prefix('+').map(|w| (w, CommandType::Crusade)))?;
+        let (word, tpe) = (word.strip_suffix('~').map(|w| (w, CommandType::Uwu)))
+            .or(word.strip_prefix('~').map(|w| (w, CommandType::UwuMeh)))
+            .or(word.strip_prefix('+').map(|w| (w, CommandType::Crusade)))
+            .or(word.strip_prefix('!').map(|w| (w, CommandType::Normie)))
+            .unwrap_or_else(|| (word, CommandType::Neither));
 
         let mut parts = split_balanced(word, &[':']).into_iter();
-        let name = parts.next().unwrap();
-        if !is_good_command_name(&name) {
+        let mut name = parts.next().unwrap();
+
+        if name.is_empty() || name.starts_with('-') || name.ends_with('-') {
             return None;
         }
-        Some(Self {
-            name,
-            args: parts.map(|s| unwrap_string_literals(&s)).collect(),
-            tpe,
-            rest: None,
-        })
+
+        let mut args: VecDeque<_> = parts.map(|s| unwrap_string_literals(&s)).collect();
+
+        if (matches!(tpe, CommandType::Neither) && args.is_empty())
+            || args.iter().any(|arg| arg.is_empty())
+        {
+            return None;
+        }
+
+        if let Some((_, prefix, number)) = lazy_regex::regex_captures!(r"^(.*?)(\d+s?)$", &name) {
+            args.push_front(number.to_owned());
+            name = prefix.to_owned();
+        }
+
+        Some(Self { name, args, tpe })
     }
 }
 
@@ -82,70 +113,15 @@ impl fmt::Display for CommandMessage {
     }
 }
 
-pub fn is_good_command_name(name: &str) -> bool {
-    !name.is_empty() && !name.starts_with('-') && !name.ends_with('-')
-    // && name.chars().all(|ch| ch.is_ascii_alphabetic() || ch == '-')
-}
-
 impl CommandMessage {
     pub fn parse(content: &str) -> Self {
-        let content = content.trim();
-
-        let parallel = split_balanced(content, &['|', '/']); // allow / for mobile
-        let single = parallel.len() == 1;
-
         Self {
-            parallel: parallel
+            parallel: split_balanced(content.trim(), &['|', '/']) // allow / for mobile
                 .into_iter()
                 .map(|group| {
-                    let words = split_balanced(&group, &[' ']);
-
-                    // meh
-                    if single {
-                        let mut words_iter = words.iter();
-                        let word = words_iter.next().unwrap();
-                        if let Some(mut token) = CommandExpr::parse(word) {
-                            if token.args.is_empty() && words_iter.next().is_some() {
-                                // ideally args will be a enum of args|rest, but that requires rewriting a lot of things, eh
-                                token.rest = Some(content[word.len() + 1..].trim().to_owned());
-                            }
-                        }
-                    }
-
-                    words
+                    split_balanced(&group, &[' '])
                         .iter()
-                        .filter_map(|word| {
-                            word.strip_suffix('~')
-                                .map(|w| (w, CommandType::Uwu))
-                                .or(word.strip_prefix('+').map(|w| (w, CommandType::Crusade)))
-                        })
-                        .filter_map(|(word, tpe)| {
-                            let mut parts = split_balanced(word, &[':']).into_iter();
-                            let mut name = parts.next().unwrap();
-                            if !is_good_command_name(&name) {
-                                return None;
-                            }
-                            let mut args: VecDeque<_> =
-                                parts.map(|s| unwrap_string_literals(&s)).collect();
-
-                            if let Some((_, prefix, number)) =
-                                lazy_regex::regex_captures!(r"^(.*?)(\d+s?)$", &name)
-                            {
-                                args.push_front(number.to_owned());
-                                name = prefix.to_owned();
-                            }
-
-                            let cmd = CommandExpr {
-                                name,
-                                args,
-                                tpe,
-                                rest: None,
-                            };
-                            if cmd.args.iter().any(|arg| arg.is_empty()) {
-                                return None;
-                            }
-                            Some(cmd)
-                        })
+                        .filter_map(|s| CommandExpr::parse(s))
                         .collect()
                 })
                 .filter(|g: &Vec<_>| !g.is_empty())
@@ -159,7 +135,8 @@ fn unwrap_string_literals(input: &str) -> String {
         Some(tail) => tail.strip_suffix('"'),
         None => input
             .strip_prefix('{')
-            .and_then(|tail| tail.strip_suffix('}')),
+            .and_then(|tail| tail.strip_suffix('}'))
+            .map(|s| s.trim()),
     };
     let Some(input) = stripped else {
         return input.to_owned();
@@ -222,7 +199,7 @@ mod tests {
         let message = "Hello, this is left~ and right:.3~ and mouse:123:321~ | and then test~ test2~ and ~nope";
         let parsed = CommandMessage::parse(message);
 
-        insta::assert_snapshot!(parsed, @r#"left~ right:".3"~ mouse:123:321~ | test~"#); // no test2 hah
+        insta::assert_snapshot!(parsed, @r#"left~ right:".3"~ mouse:123:321~ | test~ test:2~ nope~"#); // no test2 hah
     }
 
     #[test]
@@ -230,7 +207,24 @@ mod tests {
         let message = "Hello, this is +left and +right:.3 and +mouse:123:321 | and then +test +test2 and +wut~";
         let parsed = CommandMessage::parse(message);
 
-        insta::assert_snapshot!(parsed, @r#"left~ right:".3"~ mouse:123:321~ | test~"#);
+        insta::assert_snapshot!(parsed, @r#"left~ right:".3"~ mouse:123:321~ | test~ test:2~ +wut~"#);
+    }
+
+    #[test]
+    fn normieing() {
+        let message = "Hello, this is !left and !right:.3 and !mouse:123:321 | and then !test !test2 and !wut~";
+        let parsed = CommandMessage::parse(message);
+
+        insta::assert_snapshot!(parsed, @r#"left~ right:".3"~ mouse:123:321~ | test~ test:2~ !wut~"#);
+    }
+
+    #[test]
+    fn neithering() {
+        let message =
+            "Hello, this is left and right:.3 and mouse:123:321 | and then test test2 and wut";
+        let parsed = CommandMessage::parse(message);
+
+        insta::assert_snapshot!(parsed, @r#"right:".3"~ mouse:123:321~"#);
     }
 
     #[test]
@@ -239,6 +233,24 @@ mod tests {
 
         let parsed = CommandMessage::parse(message);
 
-        insta::assert_snapshot!(parsed, @r#"print:"hello space"~ hah:"and | pipe"~ | and-also-escapes:" \"incredible\", lol"~"#);
+        insta::assert_snapshot!(parsed, @r#"print:"hello space"~ hah:"and | pipe"~ | nope:123~ | and-also-escapes:" \"incredible\", lol"~"#);
+    }
+
+    #[test]
+    fn braces() {
+        let message = r#"print:{ hello space }~ +hah:{ and | pipe } | ~nope:123 | and-also-escapes:{  { incredible }, lol }~ "#;
+
+        let parsed = CommandMessage::parse(message);
+
+        insta::assert_snapshot!(parsed, @r#"print:"hello space"~ hah:"and | pipe"~ | nope:123~ | and-also-escapes:"{ incredible }, lol"~"#);
+    }
+
+    #[test]
+    fn number_arg() {
+        let message = r#"test123~ wait123s~ nope432h~"#;
+
+        let parsed = CommandMessage::parse(message);
+
+        insta::assert_snapshot!(parsed, @"test:123~ wait:123s~ nope432h~");
     }
 }
