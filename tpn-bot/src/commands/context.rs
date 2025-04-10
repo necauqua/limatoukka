@@ -217,6 +217,8 @@ impl AppContext {
     }
 
     pub async fn next_run(&self) -> Result<()> {
+        self.holds.send_interrupt().await;
+
         sleep(Duration::from_millis(500)).await;
 
         self.xdo.key("Enter").await?;
