@@ -288,14 +288,10 @@ async fn run_command(
         }
     }
 
-    let _guard = if cmd.registration.long {
-        let status = html! {
-            span style="color: rebeccapurple" { (ctx.message.sender.name) } ": "(cmd)
-        };
-        Some(ctx.status_wall.push(status.0).await)
-    } else {
-        None
+    let status = html! {
+        span style="color: #E38AF0" { (ctx.message.sender.name) } ": "(cmd)
     };
+    let _guard = ctx.status_wall.push(status.0).await;
 
     tracing::trace!("running command");
     fut.await

@@ -37,8 +37,6 @@ pub struct CommandRegistration {
     pub global_gate: Option<Duration>,
     /// A timeout before the command can be used again by the same user
     pub sender_gate: Option<Duration>,
-    /// Whether the command should be shown on the status wall
-    pub long: bool,
     /// Whether the command should not be shown in documentation
     pub hidden: bool,
     /// An ultra-short version of the command

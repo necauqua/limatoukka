@@ -145,6 +145,8 @@ const REPEAT_LIMIT: u32 = 150;
 ///
 /// Note that errors in the macro string are lost, `last-error~`
 /// will only know that an error happened.
+///
+/// Macros can call other macros, but there is a recursion limit!
 #[command(shortcode=q)]
 async fn r#macro(ctx: CommandContext, name: String) -> Result<()> {
     let script = macro_get(&ctx, &name, None, true).await?;
@@ -164,8 +166,6 @@ async fn r#macro(ctx: CommandContext, name: String) -> Result<()> {
 /// ```tpn
 /// jump five times: repeat:5:" wait~ up~ "~
 /// ```
-///
-/// Repeats do count towards the recursion limit.
 ///
 /// The total limit of repetitions in a given message is 15!
 /// So you can do something like
@@ -197,17 +197,33 @@ async fn repeat(ctx: CommandContext, times: InRange<2, 15>, script: String) -> R
 /// Executes a given string, identical to what `repeat:1:"script"` could've
 /// been if a singular repeat was allowed.
 ///
-/// Does not count towards recursion or repeat limits.
-///
 /// This is useful to group together parallel actions, for example:
 /// ```tpn
 /// wait:5s~ group:" up~ | left~ "~
 /// ```
 ///
 /// Like with macros, errors in the evaluated string are lost.
+///
+/// Additionally, there is an optional name that you can attach to the group to
+/// have it shown on the status wall.
 #[command(shortcode=g)]
-async fn group(ctx: CommandContext, script: String) -> Result<()> {
+async fn group(
+    ctx: CommandContext,
+    script: String,
+    custom_status_name: Option<String>,
+) -> Result<()> {
     let command_msg = CommandMessage::parse(&script);
+
+    let _guard = match custom_status_name {
+        Some(text) => {
+            let status = html! {
+                span style="color: #E38AF0" { (ctx.message.sender.name) } ":" span style="color: #CCCCFF" { (text) }
+            };
+            Some(ctx.status_wall.push(status.0).await)
+        }
+        None => None,
+    };
+
     let errors = runner::eval(&ctx, command_msg, ctx.recursion_depth).await;
     if !errors.is_empty() {
         if errors.iter().any(|e| matches!(e, CommandError::Interrupt)) {
@@ -240,7 +256,7 @@ async fn lock(ctx: CommandContext, script: String) -> Result<()> {
     }
 
     let status = html! {
-        "current lock: " span style="color: rebeccapurple" { (ctx.message.sender.name) }
+        "current lock: " span style="color: #E38AF0" { (ctx.message.sender.name) }
     };
     let _guard = ctx.status_wall.push(status.0).await;
 

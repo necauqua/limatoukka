@@ -15,25 +15,25 @@ async fn mv(ctx: CommandContext, duration: HoldTime, key: &'static str) -> Resul
 }
 
 /// Hold <kbd>W</kbd> for the specified duration.
-#[command(long, shortcode=u)]
+#[command(shortcode=u)]
 async fn up(ctx: CommandContext, duration: HoldTime) -> Result<()> {
     mv(ctx, duration, "w").await
 }
 
 /// Hold <kbd>A</kbd> for the specified duration.
-#[command(long, shortcode=l)]
+#[command(shortcode=l)]
 async fn left(ctx: CommandContext, duration: HoldTime) -> Result<()> {
     mv(ctx, duration, "a").await
 }
 
 /// Hold <kbd>S</kbd> for the specified duration.
-#[command(long, shortcode=d)]
+#[command(shortcode=d)]
 async fn down(ctx: CommandContext, duration: HoldTime) -> Result<()> {
     mv(ctx, duration, "s").await
 }
 
 /// Hold <kbd>D</kbd> for the specified duration.
-#[command(long, shortcode=r)]
+#[command(shortcode=r)]
 async fn right(ctx: CommandContext, duration: HoldTime) -> Result<()> {
     mv(ctx, duration, "d").await
 }

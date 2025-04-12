@@ -87,7 +87,7 @@ async fn fix_obs_sound() -> Result<()> {
 /// Wait for a specified duration milliseconds.
 ///
 /// Very useful for multi-command messages.
-#[command(long, shortcode=w)]
+#[command(shortcode=w)]
 async fn wait(ctx: CommandContext, duration: HoldTime) -> Result<()> {
     let duration = duration.get();
     tracing::debug!(?duration, "waiting");

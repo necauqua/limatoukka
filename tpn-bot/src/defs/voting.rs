@@ -285,7 +285,7 @@ async fn votekick(ctx: CommandContext, login: String) -> Result<()> {
     vote_trigger(
         ctx,
         format!("kick:{id}"),
-        html! { "Banish " span style="color: rebeccapurple" { (login) } },
+        html! { "Banish " span style="color: #E38AF0" { (login) } },
         format!("Banish {login}"),
         config,
         move |ctx| do_banish(ctx, id, login),

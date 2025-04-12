@@ -33,7 +33,6 @@ struct CommandMacroAttrs {
     permission: Option<MacroArg>,
     global_gate: Option<MacroArg>,
     sender_gate: Option<MacroArg>,
-    long: Option<MacroArg>,
     hidden: Option<MacroArg>,
     shortcode: Option<MacroArg>,
 }
@@ -47,7 +46,6 @@ impl Parse for CommandMacroAttrs {
                 "permission" => args.permission.replace(arg),
                 "global_gate" => args.global_gate.replace(arg),
                 "sender_gate" => args.sender_gate.replace(arg),
-                "long" => args.long.replace(arg),
                 "hidden" => args.hidden.replace(arg),
                 "shortcode" => args.shortcode.replace(arg),
                 _ => return Err(syn::Error::new(arg.name.span(), "Unknown argument")),
@@ -163,17 +161,6 @@ pub fn command(attrs: TokenStream, input: TokenStream) -> TokenStream {
             }
         }
     };
-    let long = match attrs.long {
-        Some(long) => {
-            let name = long.name;
-            if let Some(value) = long.value {
-                quote_spanned!(value.span() => #name: compile_error!("`long` attribute does not take a value"))
-            } else {
-                quote!(#name: true)
-            }
-        }
-        None => quote!(long: false),
-    };
     let hidden = match attrs.hidden {
         Some(hidden) => {
             let name = hidden.name;
@@ -217,7 +204,6 @@ pub fn command(attrs: TokenStream, input: TokenStream) -> TokenStream {
             #permission,
             #global_gate,
             #sender_gate,
-            #long,
             #hidden,
             #shortcode,
         });

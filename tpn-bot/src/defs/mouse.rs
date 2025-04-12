@@ -131,7 +131,7 @@ async fn throw(ctx: CommandContext) -> Result<()> {
 /// ```
 /// You can replace `hotbar:8~` with something like `mouse:0:0~` if you want a
 /// little tomfoolery, but that will get you voted into the shadow realm.
-#[command(long, shortcode=h)]
+#[command(shortcode=h)]
 async fn hold(ctx: CommandContext, millis: super::HoldTime) -> Result<()> {
     super::hold(
         ctx,
