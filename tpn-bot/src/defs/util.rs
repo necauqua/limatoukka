@@ -49,11 +49,13 @@ async fn last_error(ctx: CommandContext) -> Result<()> {
 /// Get the current seed (surely you are not planning to look at noitool, right?)
 #[command(global_gate = 15s)]
 async fn seed(ctx: CommandContext) -> Result<()> {
-    ctx.reply(match ctx.noita.get_seed().await {
-        Some(seed) => format!("{seed}"),
-        None => "no data".into(),
-    })
-    .await
+    ctx.reply("nah man stop checking the seed like that at the beginning".into())
+        .await
+    // ctx.reply(match ctx.noita.get_seed().await {
+    //     Some(seed) => format!("{seed}"),
+    //     None => "no data".into(),
+    // })
+    // .await
 }
 
 /// Get the current death count
