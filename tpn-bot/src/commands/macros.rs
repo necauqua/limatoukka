@@ -179,7 +179,7 @@ async fn repeat(ctx: CommandContext, times: InRange<2, 15>, script: String) -> R
         if ctx.inc_repeats() > REPEAT_LIMIT {
             fail!("repeat limit exceeded");
         }
-        let errors = runner::eval(&ctx, command_msg.clone(), ctx.recursion_depth + 1).await;
+        let errors = runner::eval(&ctx, command_msg.clone(), ctx.recursion_depth).await;
         if !errors.is_empty() {
             if errors.iter().any(|e| matches!(e, CommandError::Interrupt)) {
                 bail!(CommandInterrupt);
