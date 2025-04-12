@@ -91,7 +91,7 @@ async fn look_down_left(ctx: CommandContext) -> Result<()> {
 ///
 /// The screen is 1920x1080, and the origin is in the center of it,
 /// so `mouse:0:0~` will move the mouse to the center of the screen.
-#[command]
+#[command(shortcode=m)]
 async fn mouse(ctx: CommandContext, x: i32, y: i32) -> Result<()> {
     ctx.xdo.mousemove(960 + x, 540 + y).await
 }
