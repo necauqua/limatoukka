@@ -1,7 +1,4 @@
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{sync::Arc, time::Instant};
 
 use anyhow::{Ok, Result};
 use axum::{
@@ -17,7 +14,7 @@ use futures_util::StreamExt;
 use indexmap::IndexMap;
 use maud::{PreEscaped, html};
 use serde::{Deserialize, Serialize};
-use tokio::{sync::Mutex, time::sleep};
+use tokio::sync::Mutex;
 
 #[derive(Default, Clone)]
 pub struct StatusWall {
@@ -41,11 +38,6 @@ impl StatusWallInner {
         self.entries
             .iter()
             .fold(String::new(), |acc, (_, (_, entry))| acc + entry + "\n")
-    }
-
-    async fn cleanup(&mut self, age: Duration) {
-        self.entries.retain(|_, (time, _)| time.elapsed() < age);
-        self.sync().await;
     }
 
     async fn sync(&mut self) {
@@ -145,17 +137,6 @@ impl StatusWall {
                     }
                 }),
             );
-
-        // if an entry is on the wall for more than 60 seconds without being
-        // updates, it's very likely stuck, so we clean those up
-        let cleanup_period = Duration::from_secs(60);
-        let inner = self.inner.clone();
-        tokio::spawn(async move {
-            loop {
-                sleep(cleanup_period).await;
-                inner.lock().await.cleanup(cleanup_period).await;
-            }
-        });
 
         let bind_addr = bind_addr.to_owned(); // meh
         async move {
