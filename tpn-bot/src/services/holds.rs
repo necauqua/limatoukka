@@ -5,7 +5,10 @@ use std::{
 };
 
 use anyhow::Result;
-use tokio::sync::{Mutex, oneshot::Sender};
+use tokio::{
+    sync::{Mutex, oneshot::Sender},
+    time::timeout,
+};
 
 use crate::commands::runner::CommandInterrupt;
 
@@ -43,9 +46,9 @@ impl Inner {
             if skip {
                 return Err(CommandInterrupt);
             }
-            tokio::select! { biased;
-                res = rx => res.map_err(|_| CommandInterrupt),
-                _ = tokio::time::sleep(duration) => Ok(())
+            match timeout(duration, rx).await {
+                Ok(Ok(_)) | Err(_) => Ok(()),
+                Ok(Err(_)) => Err(CommandInterrupt),
             }
         }
     }

@@ -1,4 +1,7 @@
+use std::time::Duration;
+
 use anyhow::Result;
+use tokio::time::timeout;
 
 use super::HoldTime;
 use crate::commands::{args::InRange, command, context::CommandContext};
@@ -68,7 +71,7 @@ async fn open_inventory(ctx: CommandContext) -> Result<()> {
         let f = ctx.noita.wait_for_inventory_open();
         ctx.xdo.mousemove(0, 0).await?;
         ctx.xdo.key("Tab").await?;
-        f.await;
+        _ = timeout(Duration::from_millis(100), f).await;
     }
     Ok(())
 }
@@ -81,7 +84,7 @@ async fn close_inventory(ctx: CommandContext) -> Result<()> {
     if ctx.noita.is_inventory_open() {
         let f = ctx.noita.wait_for_inventory_close();
         ctx.xdo.key("Tab").await?;
-        f.await;
+        _ = timeout(Duration::from_millis(100), f).await;
     }
     Ok(())
 }
