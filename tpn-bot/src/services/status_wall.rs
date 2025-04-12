@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Instant};
+use std::sync::Arc;
 
 use anyhow::{Ok, Result};
 use axum::{
@@ -23,7 +23,7 @@ pub struct StatusWall {
 
 #[derive(Default)]
 struct StatusWallInner {
-    entries: IndexMap<EntryKey, (Instant, String)>,
+    entries: IndexMap<EntryKey, String>,
     counter: usize,
     senders: Vec<UnboundedSender<Event>>,
 }
@@ -37,7 +37,7 @@ impl StatusWallInner {
     fn get_text(&self) -> String {
         self.entries
             .iter()
-            .fold(String::new(), |acc, (_, (_, entry))| acc + entry + "\n")
+            .fold(String::new(), |acc, (_, entry)| acc + entry + "\n")
     }
 
     async fn sync(&mut self) {
@@ -77,21 +77,27 @@ impl StatusWall {
         EntryGuard(key, self.clone())
     }
 
-    pub async fn push(&self, entry: String) -> EntryGuard {
+    pub async fn push(&self, entry: impl Into<String>) -> EntryGuard {
         let mut inner = self.inner.lock().await;
         let id = inner.new_key();
-        inner.entries.insert(id, (Instant::now(), entry));
+        inner.entries.insert(id, entry.into());
         inner.sync().await;
         EntryGuard(id, self.clone())
     }
 
-    pub async fn set(&self, id: EntryKey, new_entry: String) -> Option<String> {
+    pub async fn push_top(&self, entry: impl Into<String>) -> EntryGuard {
         let mut inner = self.inner.lock().await;
-        let old_entry = inner
-            .entries
-            .shift_insert(0, id, (Instant::now(), new_entry));
+        let id = inner.new_key();
+        inner.entries.shift_insert(0, id, entry.into());
         inner.sync().await;
-        old_entry.map(|(_, entry)| entry)
+        EntryGuard(id, self.clone())
+    }
+
+    pub async fn set(&self, id: EntryKey, new_entry: impl Into<String>) -> Option<String> {
+        let mut inner = self.inner.lock().await;
+        let old_entry = inner.entries.shift_insert(0, id, new_entry.into());
+        inner.sync().await;
+        old_entry
     }
 
     pub async fn pop(&self, id: EntryKey) {

@@ -17,7 +17,7 @@ use crate::services::messaging::{Message, PermissionLevel};
 use super::{
     CommandContext, CommandFuture,
     args::{Args, ExtractorError},
-    context::{AppContext, CommandDescriptor, CommandToken, MessageContext},
+    context::{AppContext, CommandDescriptor, CommandToken, MessageContext, Nesting},
     parsing::{CommandExpr, CommandMessage},
 };
 
@@ -51,7 +51,7 @@ pub async fn receive_message(ctx: AppContext, message: Message) -> Result<()> {
     let command_msg = CommandMessage::parse(&message.text);
     let ctx = MessageContext::new(ctx.clone(), Arc::new(message));
 
-    let errors = eval(&ctx, command_msg, 0).await;
+    let errors = eval(&ctx, command_msg, Nesting::default()).await;
 
     let error_key = format!("last-error:{}", ctx.message.sender.id);
 
@@ -78,12 +78,12 @@ pub async fn receive_message(ctx: AppContext, message: Message) -> Result<()> {
     Ok(())
 }
 
-type PreparedCommands = Vec<Vec<(CommandDescriptor, CommandFuture)>>;
+type PreparedCommands = Vec<Vec<(CommandContext, CommandFuture)>>;
 
 async fn prepare_commands(
     context: &MessageContext,
     command_msg: CommandMessage,
-    depth: u32,
+    nesting: Nesting,
 ) -> Result<PreparedCommands, Vec<CommandError>> {
     let mut errors = vec![];
     let mut groups = vec![];
@@ -91,7 +91,7 @@ async fn prepare_commands(
     for (group_idx, group) in command_msg.parallel.into_iter().enumerate() {
         let mut prepared = vec![];
         for (cmd_idx, cmd_expr) in group.into_iter().enumerate() {
-            match prepare_command(context, cmd_expr, group_idx, cmd_idx, depth).await {
+            match prepare_command(context, cmd_expr, group_idx, cmd_idx, nesting).await {
                 Ok(p) => prepared.push(p),
                 Err(e) => errors.push(e),
             }
@@ -113,8 +113,8 @@ async fn prepare_command(
     mut cmd_expr: CommandExpr,
     group_idx: usize,
     cmd_idx: usize,
-    depth: u32,
-) -> Result<(CommandDescriptor, CommandFuture), CommandError> {
+    nesting: Nesting,
+) -> Result<(CommandContext, CommandFuture), CommandError> {
     let token = CommandToken {
         name: cmd_expr.name.to_ascii_lowercase().into(),
         tpe: cmd_expr.tpe,
@@ -127,7 +127,7 @@ async fn prepare_command(
             let mut name = (*token.name).to_owned();
 
             // very cringe lmao
-            if let Some(arg) = cmd_expr.args.get(0) {
+            if let Some(arg) = cmd_expr.args.front() {
                 if lazy_regex::regex_is_match!(r"\d+s?", arg) {
                     name.push_str(arg);
                     cmd_expr.args.pop_front();
@@ -152,17 +152,17 @@ async fn prepare_command(
         registration,
         token,
     };
-    if depth > RECURSION_LIMIT {
+    if nesting.macro_depth > RECURSION_LIMIT {
         return Err(CommandError::RecursionLimit(desc));
     }
     if registration.permission > ctx.message.sender.level {
         return Err(CommandError::PermissionError(desc));
     }
 
-    let cmd_ctx = CommandContext::new(ctx.clone(), desc.clone(), depth);
+    let cmd_ctx = CommandContext::new(ctx.clone(), desc.clone(), nesting);
 
-    match (registration.handler)(cmd_ctx, Args::new(cmd_expr.args)) {
-        Ok(fut) => Ok((desc, fut)),
+    match (registration.handler)(cmd_ctx.clone(), Args::new(cmd_expr.args)) {
+        Ok(fut) => Ok((cmd_ctx, fut)),
         Err(error) => Err(CommandError::BadArgs(desc, error)),
     }
 }
@@ -170,9 +170,9 @@ async fn prepare_command(
 pub async fn eval(
     ctx: &MessageContext,
     command_msg: CommandMessage,
-    depth: u32,
+    nesting: Nesting,
 ) -> Vec<CommandError> {
-    let commands = match prepare_commands(ctx, command_msg, depth).await {
+    let commands = match prepare_commands(ctx, command_msg, nesting).await {
         Ok(prepared) => prepared,
         Err(errors) => return errors,
     };
@@ -185,7 +185,7 @@ pub async fn eval(
 
     let mut parallel = JoinSet::new();
     for group in commands {
-        parallel.spawn(run_command_sequence(ctx.clone(), group).in_current_span());
+        parallel.spawn(run_command_sequence(group).in_current_span());
     }
 
     let mut errors = Vec::new();
@@ -198,21 +198,18 @@ pub async fn eval(
     errors
 }
 
-async fn run_command_sequence(
-    ctx: MessageContext,
-    sequence: Vec<(CommandDescriptor, CommandFuture)>,
-) -> Vec<CommandError> {
+async fn run_command_sequence(sequence: Vec<(CommandContext, CommandFuture)>) -> Vec<CommandError> {
     let mut result = Vec::new();
-    for (cmd, fut) in sequence {
+    for (ctx, fut) in sequence {
         // spawn a task for each command to catch panics
-        let tok = &cmd.token;
+        let tok = &ctx.command.token;
         let cmd_span = debug_span!("command", %tok.name, ?tok.tpe, tok.group, tok.idx);
         let cmd_span_inner = cmd_span.clone();
-        let ctx = ctx.clone();
+        let cmd = ctx.command.clone();
         let cmd_inner = cmd.clone();
         let handle = tokio::spawn(
             async move {
-                match run_command(ctx, &cmd_inner, fut).await {
+                match run_command(ctx, fut).await {
                     Ok(()) => {
                         cmd_span_inner.set_status(Status::Ok);
                         Ok(())
@@ -272,26 +269,27 @@ macro_rules! fail {
     };
 }
 
-async fn run_command(
-    ctx: MessageContext,
-    cmd: &CommandDescriptor,
-    fut: CommandFuture,
-) -> Result<()> {
-    if let Some(global_gate) = &cmd.registration.global_gate {
-        if !ctx.gate(cmd.registration.name, *global_gate).await? {
+async fn run_command(ctx: CommandContext, fut: CommandFuture) -> Result<()> {
+    let r = ctx.command.registration;
+    if let Some(global_gate) = &r.global_gate {
+        if !ctx.gate(r.name, *global_gate).await? {
             fail!("global timeout {global_gate:?}");
         }
     }
-    if let Some(sender_gate) = &cmd.registration.sender_gate {
-        if !ctx.sender_gate(cmd.registration.name, *sender_gate).await? {
+    if let Some(sender_gate) = &r.sender_gate {
+        if !ctx.sender_gate(r.name, *sender_gate).await? {
             fail!("sender timeout {sender_gate:?}");
         }
     }
 
     let status = html! {
-        span style="color: #E38AF0" { (ctx.message.sender.name) } ": "(cmd)
+        span style="color: #E38AF0" { (ctx.message.sender.name) } ": " (ctx.command) " " (ctx.nesting)
     };
-    let _guard = ctx.status_wall.push(status.0).await;
+    let _guard = if r.no_wall {
+        None
+    } else {
+        Some(ctx.status_wall.push(status).await)
+    };
 
     tracing::trace!("running command");
     fut.await

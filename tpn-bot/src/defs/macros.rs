@@ -113,14 +113,14 @@ async fn macro_get(
 ///
 /// Can peek at other users macros if their login is specified, they're all
 /// public here.
-#[command(sender_gate=5s)]
+#[command(sender_gate=5s, shortcode=mp)]
 async fn macro_print(ctx: CommandContext, name: String, login: Option<String>) -> Result<()> {
     ctx.reply(macro_get(&ctx, &name, login.as_deref(), false).await?)
         .await
 }
 
 /// List macros you/given chatter has recorded.
-#[command(sender_gate=5s)]
+#[command(sender_gate=5s, shortcode=ml)]
 async fn macro_list(ctx: CommandContext, login: Option<String>) -> Result<()> {
     let id = chatter_id(&ctx, login.as_deref()).await?;
     let keys: Vec<String> = ctx.storage.hkeys(format!("macros:{id}")).await?;
@@ -147,11 +147,17 @@ const REPEAT_LIMIT: u32 = 150;
 /// will only know that an error happened.
 ///
 /// Macros can call other macros, but there is a recursion limit!
-#[command(shortcode=q)]
+#[command(shortcode=q, no_wall)]
 async fn r#macro(ctx: CommandContext, name: String) -> Result<()> {
     let script = macro_get(&ctx, &name, None, true).await?;
     let command_msg = CommandMessage::parse(&script);
-    let errors = runner::eval(&ctx, command_msg, ctx.recursion_depth + 1).await;
+
+    let status = html! {
+        span style="color: #E38AF0" { (ctx.message.sender.name) } ": macro:" (name) " " (ctx.nesting)
+    };
+    let _guard = ctx.status_wall.push(status).await;
+
+    let errors = runner::eval(&ctx, command_msg, ctx.nesting.nest_macro()).await;
     if !errors.is_empty() {
         if errors.iter().any(|e| matches!(e, CommandError::Interrupt)) {
             bail!(CommandInterrupt);
@@ -175,15 +181,21 @@ async fn r#macro(ctx: CommandContext, name: String) -> Result<()> {
 /// And it will only run 15 times and the error out.
 ///
 /// Like with macros, errors in the evaluated string are lost.
-#[command]
+#[command(no_wall)]
 async fn repeat(ctx: CommandContext, times: InRange<2, 15>, script: String) -> Result<()> {
     let command_msg = CommandMessage::parse(&script);
+    let times = times.get();
 
-    for _ in 0..times.get() {
+    let status = html! {
+        span style="color: #E38AF0" { (ctx.message.sender.name) } ": repeat:" (times) " " (ctx.nesting)
+    };
+    let _guard = ctx.status_wall.push(status).await;
+
+    for _ in 0..times {
         if ctx.inc_repeats() > REPEAT_LIMIT {
             fail!("repeat limit exceeded");
         }
-        let errors = runner::eval(&ctx, command_msg.clone(), ctx.recursion_depth).await;
+        let errors = runner::eval(&ctx, command_msg.clone(), ctx.nesting.nest()).await;
         if !errors.is_empty() {
             if errors.iter().any(|e| matches!(e, CommandError::Interrupt)) {
                 bail!(CommandInterrupt);
@@ -206,7 +218,7 @@ async fn repeat(ctx: CommandContext, times: InRange<2, 15>, script: String) -> R
 ///
 /// Additionally, there is an optional name that you can attach to the group to
 /// have it shown on the status wall.
-#[command(shortcode=g)]
+#[command(shortcode=g, no_wall)]
 async fn group(
     ctx: CommandContext,
     script: String,
@@ -214,17 +226,16 @@ async fn group(
 ) -> Result<()> {
     let command_msg = CommandMessage::parse(&script);
 
-    let _guard = match custom_status_name {
-        Some(text) => {
-            let status = html! {
-                span style="color: #E38AF0" { (ctx.message.sender.name) } ":" span style="color: #CCCCFF" { (text) }
-            };
-            Some(ctx.status_wall.push(status.0).await)
-        }
-        None => None,
+    let name = match custom_status_name {
+        Some(text) => html! { "group:" span style="color: #CCCCFF" { (text) } },
+        None => html! { (ctx.command) },
     };
+    let status = html! {
+        span style="color: #E38AF0" { (ctx.message.sender.name) } ": " (name) " " (ctx.nesting)
+    };
+    let _guard = ctx.status_wall.push(status).await;
 
-    let errors = runner::eval(&ctx, command_msg, ctx.recursion_depth).await;
+    let errors = runner::eval(&ctx, command_msg, ctx.nesting.nest()).await;
     if !errors.is_empty() {
         if errors.iter().any(|e| matches!(e, CommandError::Interrupt)) {
             bail!(CommandInterrupt);
@@ -239,7 +250,7 @@ async fn group(
 ///
 /// The difference is that only one `lock` script can run at a time, if
 /// one is already running this command does nothing.
-#[command(shortcode=b)]
+#[command(shortcode=b, no_wall)]
 async fn lock(ctx: CommandContext, script: String) -> Result<()> {
     let exclusive = ctx
         .storage
@@ -258,10 +269,10 @@ async fn lock(ctx: CommandContext, script: String) -> Result<()> {
     let status = html! {
         "current lock: " span style="color: #E38AF0" { (ctx.message.sender.name) }
     };
-    let _guard = ctx.status_wall.push(status.0).await;
+    let _guard = ctx.status_wall.push_top(status).await;
 
     let command_msg = CommandMessage::parse(&script);
-    let errors = runner::eval(&ctx, command_msg, ctx.recursion_depth).await;
+    let errors = runner::eval(&ctx, command_msg, ctx.nesting.nest()).await;
 
     ctx.storage.del("holds:exclusive").await?;
 

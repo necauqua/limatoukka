@@ -24,15 +24,15 @@ async fn hold<D, U, RD, RU>(
 where
     RD: Future<Output = Result<()>>,
     RU: Future<Output = Result<()>>,
-    D: FnOnce(CommandContext) -> RD,
-    U: FnOnce(CommandContext) -> RU,
+    D: FnOnce(&CommandContext) -> RD,
+    U: FnOnce(&CommandContext) -> RU,
 {
     let key = format!("holds:{key}");
     let mut tx = ctx.storage.create_transaction();
     tx.incr(&key).queue();
     tx.pexpire(&key, 60_000, ExpireOption::Nx).forget(); // just in case
     if tx.execute::<i64>().await? == 1 {
-        if let Err(e) = down(ctx.clone()).await {
+        if let Err(e) = down(&ctx).await {
             _ = ctx.storage.decr(&key).await;
             return Err(e);
         }
@@ -43,11 +43,11 @@ where
     let counter = ctx.storage.decr(&key).await?;
 
     match counter.cmp(&0) {
-        Ordering::Equal => up(ctx).await?,
+        Ordering::Equal => up(&ctx).await?,
         Ordering::Less => {
             // oopsie
             ctx.storage.del(&key).await?;
-            up(ctx).await?;
+            up(&ctx).await?;
         }
         _ => {}
     }

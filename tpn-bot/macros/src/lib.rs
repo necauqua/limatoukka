@@ -35,6 +35,7 @@ struct CommandMacroAttrs {
     sender_gate: Option<MacroArg>,
     hidden: Option<MacroArg>,
     shortcode: Option<MacroArg>,
+    no_wall: Option<MacroArg>,
 }
 
 impl Parse for CommandMacroAttrs {
@@ -48,6 +49,7 @@ impl Parse for CommandMacroAttrs {
                 "sender_gate" => args.sender_gate.replace(arg),
                 "hidden" => args.hidden.replace(arg),
                 "shortcode" => args.shortcode.replace(arg),
+                "no_wall" => args.no_wall.replace(arg),
                 _ => return Err(syn::Error::new(arg.name.span(), "Unknown argument")),
             };
             if let Some(prev) = prev {
@@ -184,6 +186,17 @@ pub fn command(attrs: TokenStream, input: TokenStream) -> TokenStream {
         }
         None => quote!(shortcode: None),
     };
+    let no_wall = match attrs.no_wall {
+        Some(no_wall) => {
+            let name = no_wall.name;
+            if let Some(value) = no_wall.value {
+                quote_spanned!(value.span() => #name: compile_error!("`no_wall` attribute does not take a value"))
+            } else {
+                quote!(#name: true)
+            }
+        }
+        None => quote!(no_wall: false),
+    };
 
     quote! {
         #input
@@ -206,6 +219,7 @@ pub fn command(attrs: TokenStream, input: TokenStream) -> TokenStream {
             #sender_gate,
             #hidden,
             #shortcode,
+            #no_wall,
         });
     }
     .into()

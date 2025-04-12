@@ -65,7 +65,7 @@ impl CommandExpr {
             .or(word.strip_prefix('~').map(|w| (w, CommandType::UwuMeh)))
             .or(word.strip_prefix('+').map(|w| (w, CommandType::Crusade)))
             .or(word.strip_prefix('!').map(|w| (w, CommandType::Normie)))
-            .unwrap_or_else(|| (word, CommandType::Neither));
+            .unwrap_or((word, CommandType::Neither));
 
         let mut parts = split_balanced(word, &[':']).into_iter();
         let mut name = parts.next().unwrap();

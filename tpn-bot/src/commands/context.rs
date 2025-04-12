@@ -1,5 +1,5 @@
 use std::{
-    fmt::{self, Display},
+    fmt::{self, Display, Write},
     ops::Deref,
     process::Stdio,
     sync::{
@@ -67,7 +67,7 @@ pub struct CommandDescriptor {
 
 impl Display for CommandDescriptor {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.token.tpe.write_command(f, &self.registration.name)?;
+        self.token.tpe.write_command(f, self.registration.name)?;
         if f.alternate() {
             write!(f, "({},{})", self.token.group, self.token.idx)?;
         }
@@ -85,11 +85,45 @@ impl Display for CommandToken {
     }
 }
 
+#[derive(Default, Clone, Copy)]
+pub struct Nesting {
+    pub depth: u32,
+    pub macro_depth: u32,
+}
+
+impl Display for Nesting {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.macro_depth != 0 {
+            f.write_char('@')?;
+        }
+        for _ in 0..self.depth {
+            f.write_char('|')?;
+        }
+        Ok(())
+    }
+}
+
+impl Nesting {
+    pub fn nest(&self) -> Self {
+        Self {
+            depth: self.depth + 1,
+            macro_depth: self.macro_depth,
+        }
+    }
+
+    pub fn nest_macro(&self) -> Self {
+        Self {
+            depth: self.depth + 1,
+            macro_depth: self.macro_depth + 1,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct CommandContext {
     msg_ctx: MessageContext,
     pub command: CommandDescriptor,
-    pub recursion_depth: u32,
+    pub nesting: Nesting,
 }
 
 // deref hack lol
@@ -259,11 +293,11 @@ impl MessageContext {
 }
 
 impl CommandContext {
-    pub fn new(msg_ctx: MessageContext, desc: CommandDescriptor, depth: u32) -> Self {
+    pub fn new(msg_ctx: MessageContext, command: CommandDescriptor, nesting: Nesting) -> Self {
         Self {
             msg_ctx,
-            command: desc,
-            recursion_depth: depth,
+            command,
+            nesting,
         }
     }
 }
