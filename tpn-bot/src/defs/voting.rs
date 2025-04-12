@@ -88,7 +88,7 @@ async fn vote(ctx: CommandContext, vote: Vote) -> Result<()> {
         vote_data.title,
         ctx.config.vote_min_ratio * 100.0
     );
-    ctx.status_wall.set(vote_data.wall, status).await;
+    ctx.status_wall.set_top(vote_data.wall, status).await;
 
     Ok(())
 }
@@ -165,7 +165,7 @@ where
         key: (&key).into(),
         title: (&wall_title.0).into(),
         chat_title: (&chat_title).into(),
-        wall: wall_entry,
+        wall: wall_entry.key(),
     })?;
     let ongoing: Option<String> = ctx
         .storage
@@ -188,13 +188,11 @@ where
         return Ok(());
     }
 
-    let status = html! {
-        "Vote started (type yes~/no~):\n"(wall_title)
-    };
-    ctx.status_wall.set(wall_entry, status).await;
+    wall_entry
+        .set_top(html! { "Vote started (type yes~/no~):\n"(wall_title) })
+        .await;
 
     ctx.schedule(vote_config.vote_time, move |ctx| async move {
-        let _guard = ctx.status_wall.guard(wall_entry);
         let mut tx = ctx.storage.create_transaction();
         tx.scard(&yes_key).queue();
         tx.scard(&no_key).queue();
@@ -209,12 +207,12 @@ where
 
         if yes / sum >= ctx.config.vote_min_ratio {
             tracing::info!(key, "vote passed");
-            ctx.status_wall.set(wall_entry, "Vote passed!").await;
+            wall_entry.set_top("Vote passed!").await;
             ctx.send(format!("Vote '{chat_title}' passed! :)")).await?;
             action(ctx).await?;
         } else {
             tracing::info!(key, "vote failed");
-            ctx.status_wall.set(wall_entry, "Vote failed!").await;
+            wall_entry.set_top("Vote failed!").await;
             ctx.send(format!("Vote '{chat_title}' failed! :(")).await?;
         }
 

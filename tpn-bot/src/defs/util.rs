@@ -1,10 +1,14 @@
+use std::time::Duration;
+
 use crate::commands::{
     args::HoldTime,
     command,
     context::{AppContext, CommandContext},
 };
 use anyhow::Result;
+use maud::html;
 use rustis::commands::{GenericCommands, StringCommands};
+use tokio::time::sleep;
 
 /// Respond with "pong!".
 ///
@@ -87,11 +91,29 @@ async fn fix_obs_sound() -> Result<()> {
 /// Wait for a specified duration milliseconds.
 ///
 /// Very useful for multi-command messages.
-#[command(shortcode=w)]
+#[command(shortcode=w, no_wall)]
 async fn wait(ctx: CommandContext, duration: HoldTime) -> Result<()> {
     let duration = duration.get();
     tracing::debug!(?duration, "waiting");
-    ctx.holds.sleep(duration).await?;
+
+    let entry = ctx.status_wall.allocate().await;
+    let name = ctx.message.sender.name.clone();
+    let wall_task = tokio::spawn(async move {
+        for i in (1..=duration.as_secs()).rev() {
+            entry
+                .set(html! {
+                    span style="color: #E38AF0" { (name) } ": wait:" (i) "s " (ctx.nesting)
+                })
+                .await;
+            sleep(Duration::from_secs(1)).await;
+        }
+    });
+
+    ctx.holds
+        .sleep(duration)
+        .await
+        .inspect_err(|_| wall_task.abort())?;
+
     Ok(())
 }
 

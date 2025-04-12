@@ -60,50 +60,67 @@ pub struct EntryKey(pub usize);
 
 pub struct EntryGuard(EntryKey, StatusWall);
 
+impl EntryGuard {
+    pub async fn set(&self, new_entry: impl Into<String>) -> Option<String> {
+        self.1
+            .update(|inner| inner.entries.insert(self.0, new_entry.into()))
+            .await
+    }
+
+    pub async fn set_top(&self, new_entry: impl Into<String>) -> Option<String> {
+        self.1.set_top(self.0, new_entry).await
+    }
+
+    pub fn key(&self) -> EntryKey {
+        self.0
+    }
+}
+
 impl Drop for EntryGuard {
     fn drop(&mut self) {
         let entry = self.0;
         let wall = self.1.clone();
-        tokio::spawn(async move { wall.pop(entry).await });
+        tokio::spawn(async move {
+            wall.update(|inner| inner.entries.shift_remove(&entry))
+                .await
+        });
     }
 }
 
 impl StatusWall {
-    pub async fn allocate(&self) -> EntryKey {
-        self.inner.lock().await.new_key()
-    }
-
-    pub fn guard(&self, key: EntryKey) -> EntryGuard {
+    pub async fn allocate(&self) -> EntryGuard {
+        let key = self.inner.lock().await.new_key();
         EntryGuard(key, self.clone())
     }
 
-    pub async fn push(&self, entry: impl Into<String>) -> EntryGuard {
+    async fn update<R>(&self, f: impl FnOnce(&mut StatusWallInner) -> R) -> R {
         let mut inner = self.inner.lock().await;
-        let id = inner.new_key();
-        inner.entries.insert(id, entry.into());
+        let r = f(&mut inner);
         inner.sync().await;
-        EntryGuard(id, self.clone())
+        r
+    }
+
+    pub async fn push(&self, entry: impl Into<String>) -> EntryGuard {
+        self.update(|inner| {
+            let id = inner.new_key();
+            inner.entries.insert(id, entry.into());
+            EntryGuard(id, self.clone())
+        })
+        .await
     }
 
     pub async fn push_top(&self, entry: impl Into<String>) -> EntryGuard {
-        let mut inner = self.inner.lock().await;
-        let id = inner.new_key();
-        inner.entries.shift_insert(0, id, entry.into());
-        inner.sync().await;
-        EntryGuard(id, self.clone())
+        self.update(|inner| {
+            let id = inner.new_key();
+            inner.entries.shift_insert(0, id, entry.into());
+            EntryGuard(id, self.clone())
+        })
+        .await
     }
 
-    pub async fn set(&self, id: EntryKey, new_entry: impl Into<String>) -> Option<String> {
-        let mut inner = self.inner.lock().await;
-        let old_entry = inner.entries.shift_insert(0, id, new_entry.into());
-        inner.sync().await;
-        old_entry
-    }
-
-    pub async fn pop(&self, id: EntryKey) {
-        let mut inner = self.inner.lock().await;
-        inner.entries.shift_remove(&id);
-        inner.sync().await;
+    pub async fn set_top(&self, id: EntryKey, new_entry: impl Into<String>) -> Option<String> {
+        self.update(|inner| inner.entries.shift_insert(0, id, new_entry.into()))
+            .await
     }
 
     pub fn start(&self, bind_addr: &str) -> impl Future<Output = Result<()>> + use<> {

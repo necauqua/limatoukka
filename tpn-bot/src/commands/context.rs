@@ -93,12 +93,6 @@ pub struct Nesting {
 
 impl Display for Nesting {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.macro_depth != 0 {
-            f.write_char('@')?;
-            if self.macro_depth != 1 {
-                write!(f, "{}", self.macro_depth)?;
-            }
-        }
         for _ in 0..self.depth {
             f.write_char('|')?;
         }
@@ -256,11 +250,11 @@ impl AppContext {
 
         let entry = self.status_wall.allocate().await;
         for i in (1..=10).rev() {
-            let status = html! { span style="color:orange" { "Starting new game in " (i) } }.0;
-            self.status_wall.set(entry, status).await;
+            entry
+                .set_top(html! { span style="color:orange" { "Starting new game in " (i) } })
+                .await;
             sleep(Duration::from_secs(1)).await;
         }
-        self.status_wall.pop(entry).await;
         Self::restart().await?;
         Ok(())
     }

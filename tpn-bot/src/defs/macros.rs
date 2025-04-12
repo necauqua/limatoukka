@@ -183,15 +183,15 @@ async fn repeat(ctx: CommandContext, times: InRange<2, 15>, script: String) -> R
     let command_msg = CommandMessage::parse(&script);
     let times = times.get();
 
-    let status = html! {
-        span style="color: #E38AF0" { (ctx.message.sender.name) } ": repeat:" (times) " " (ctx.nesting)
-    };
-    let _guard = ctx.status_wall.push(status).await;
+    let entry = ctx.status_wall.allocate().await;
 
-    for _ in 0..times {
+    for i in (1..=times).rev() {
         if ctx.inc_repeats() > REPEAT_LIMIT {
             fail!("repeat limit exceeded");
         }
+        entry.set(html! {
+            span style="color: #E38AF0" { (ctx.message.sender.name) } ": repeat:" (i) " " (ctx.nesting)
+        }).await;
         let errors = runner::eval(&ctx, command_msg.clone(), ctx.nesting.nest()).await;
         if !errors.is_empty() {
             if errors.iter().any(|e| matches!(e, CommandError::Interrupt)) {
