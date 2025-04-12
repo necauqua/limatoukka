@@ -8,11 +8,15 @@ use rustis::{
 };
 
 use crate::{
-    commands::runner::{CommandError, CommandInterrupt},
+    commands::{
+        args::InRange,
+        command,
+        context::CommandContext,
+        parsing::CommandMessage,
+        runner::{self, CommandError, CommandInterrupt},
+    },
     fail,
 };
-
-use super::{args::InRange, command, context::CommandContext, parsing::CommandMessage, runner};
 
 /// Stores a string as a personal macro.
 ///

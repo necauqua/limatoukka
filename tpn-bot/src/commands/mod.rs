@@ -6,7 +6,6 @@ use context::CommandContext;
 
 pub mod args;
 pub mod context;
-pub mod macros;
 pub mod parsing;
 pub mod runner;
 

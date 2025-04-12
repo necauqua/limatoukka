@@ -9,6 +9,7 @@ use rustis::{
 use crate::commands::{args::HoldTime, context::CommandContext};
 
 mod keys;
+mod macros;
 mod mouse;
 mod util;
 mod voting;
