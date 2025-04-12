@@ -95,6 +95,9 @@ impl Display for Nesting {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.macro_depth != 0 {
             f.write_char('@')?;
+            if self.macro_depth != 1 {
+                write!(f, "{}", self.macro_depth)?;
+            }
         }
         for _ in 0..self.depth {
             f.write_char('|')?;

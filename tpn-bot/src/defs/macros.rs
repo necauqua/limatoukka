@@ -139,8 +139,6 @@ async fn yoink(
     macro_record(ctx, rename.unwrap_or(name), script).await
 }
 
-const REPEAT_LIMIT: u32 = 150;
-
 /// Run the macro.
 ///
 /// Note that errors in the macro string are lost, `last-error~`
@@ -167,18 +165,17 @@ async fn r#macro(ctx: CommandContext, name: String) -> Result<()> {
     Ok(())
 }
 
+const REPEAT_LIMIT: u32 = 1000;
+
 /// Execute a given string several times.
 ///
 /// ```tpn
 /// jump five times: repeat:5:" wait~ up~ "~
 /// ```
 ///
-/// The total limit of repetitions in a given message is 15!
-/// So you can do something like
-/// ```tpn
-/// repeat:15:" repeat:15:\" wait~ | up~ \" "~
-/// ```
-/// And it will only run 15 times and the error out.
+/// The total limit of repetitions in a given message is 1000! This counts all
+/// repetitions, nested or inside of macros etc. Once the limit is reached, the
+/// command will error out.
 ///
 /// Like with macros, errors in the evaluated string are lost.
 #[command(no_wall)]
