@@ -116,8 +116,16 @@ obs-reset-display:
     echo '{"op":1,"d":{"rpcVersion":1}}'; \
     sleep 0.1; \
     echo '{"op":6,"d":{"requestType":"SetInputSettings","requestId":"1","requestData":{"inputName":"capture","inputSettings":{"server":":99"}}}}'; \
-    echo '{"op":6,"d":{"requestType":"SetInputSettings","requestId":"2","requestData":{"inputName":"capture","inputSettings":{"server":"{{display}}"}}}}';\
+    sleep 0.01; \
+    echo '{"op":6,"d":{"requestType":"SetInputSettings","requestId":"2","requestData":{"inputName":"capture","inputSettings":{"server":"{{display}}"}}}}'; \
     ) | websocat ws://localhost:4455 >/dev/null
+
+obs-refresh-chat:
+    @(\
+    echo '{"op":1,"d":{"rpcVersion":1}}'; \
+    sleep 0.1; \
+    echo '{"op":6,"d":{"requestType":"PressInputPropertiesButton","requestId":"1","requestData":{"inputName":"chat message","propertyName":"refreshnocache"}}}'; \
+    ) | websocat ws://localhost4455 >/dev/null
 
 [working-directory("obs-files")]
 start-intro-timer seconds="900":
