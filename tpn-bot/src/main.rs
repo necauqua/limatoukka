@@ -9,7 +9,12 @@ use tpn_bot::{
     },
     config::Config,
     logging,
-    services::{messaging, noita::NoitaHandle, status_wall::StatusWall, xdo::XDoClient},
+    services::{
+        messaging,
+        noita::{ItemFound, NoitaHandle},
+        status_wall::StatusWall,
+        xdo::XDoClient,
+    },
 };
 
 use tracing::{Instrument, Span, field::Empty};
@@ -53,6 +58,30 @@ async fn run(config: Config) -> Result<()> {
                 state.noita.wait_for_player_death().await;
                 if let Err(error) = state.next_run().await {
                     tracing::error!(?error, "failed to start next run");
+                }
+            }
+        }
+    });
+
+    // ehhh
+    tokio::spawn({
+        let mut rx = ctx.noita.subscribe_to_found_items();
+        let msg = ctx.messaging.clone();
+        async move {
+            loop {
+                let Ok(found) = rx.recv().await else {
+                    break;
+                };
+                let message = match found {
+                    ItemFound::TreeTablet => "The best TABLET in the game acquired!",
+                    ItemFound::OtherTablet => "TABLET acquired",
+                    ItemFound::EvilEye => "Got the EVILEYE",
+                    ItemFound::EarthStone => {
+                        "The final frontier before all the wacky shit, EARTHSTONE acquired! POGGIES"
+                    }
+                };
+                if let Err(error) = msg.send(message).await {
+                    tracing::error!(?error, "failed send item found message");
                 }
             }
         }

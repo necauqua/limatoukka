@@ -159,30 +159,26 @@ pub enum MessagingClient {
 }
 
 impl MessagingClient {
-    pub async fn send(&self, message: String) -> Result<()> {
+    pub async fn send(&self, message: impl Into<String>) -> Result<()> {
         match self {
             MessagingClient::Twitch {
                 client, channel, ..
-            } => {
-                client
-                    .say((**channel).to_owned(), message.to_owned())
-                    .await?
-            }
-            MessagingClient::Mock => tracing::info!(message, "mock send"),
+            } => client.say((**channel).to_owned(), message.into()).await?,
+            MessagingClient::Mock => tracing::info!(message = message.into(), "mock send"),
         }
         Ok(())
     }
 
-    pub async fn reply(&self, message_id: &str, message: String) -> Result<()> {
+    pub async fn reply(&self, message_id: &str, message: impl Into<String>) -> Result<()> {
         match self {
             MessagingClient::Twitch {
                 client, channel, ..
             } => {
                 client
-                    .say_in_reply_to(&(channel, message_id), message)
+                    .say_in_reply_to(&(channel, message_id), message.into())
                     .await?
             }
-            MessagingClient::Mock => tracing::info!(message, "mock reply"),
+            MessagingClient::Mock => tracing::info!(message = message.into(), "mock reply"),
         }
         Ok(())
     }

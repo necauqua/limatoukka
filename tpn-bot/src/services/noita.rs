@@ -3,24 +3,40 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result};
 use noita_engine_reader::{
     Noita, Seed,
     discovery::KnownBuild,
-    memory::{PadBool, RawPtr},
+    memory::{MemoryStorage, PadBool, RawPtr},
+    types::components::ItemComponent,
 };
-use tokio::sync::{Mutex, Notify, futures::Notified};
+use strum::EnumCount;
+use tokio::{
+    sync::{
+        Mutex, Notify,
+        broadcast::{Receiver, Sender},
+        futures::Notified,
+    },
+    time::sleep,
+};
 use tracing::{Instrument, Span};
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct NoitaHandle {
     inner: Arc<Inner>,
 }
 
-#[derive(Default)]
+#[derive(EnumCount, Clone, Copy)]
+pub enum ItemFound {
+    TreeTablet,
+    OtherTablet,
+    EvilEye,
+    EarthStone,
+}
+
 struct Inner {
     noita: Mutex<Option<Noita>>,
     seed: Mutex<Option<Seed>>,
@@ -29,6 +45,7 @@ struct Inner {
     on_inventory_open: Notify,
     on_inventory_close: Notify,
     on_player_death: Notify,
+    found_items: Arc<Sender<ItemFound>>,
 }
 
 fn is_dead(noita: &Noita) -> Result<bool> {
@@ -62,7 +79,18 @@ async fn find_noita() -> Result<Option<Noita>> {
 
 impl NoitaHandle {
     pub fn new() -> Self {
-        let handle = Self::default();
+        let handle = Self {
+            inner: Arc::new(Inner {
+                noita: Default::default(),
+                seed: Default::default(),
+                inventory_open: Default::default(),
+                player_dead: Default::default(),
+                on_inventory_open: Default::default(),
+                on_inventory_close: Default::default(),
+                on_player_death: Default::default(),
+                found_items: Arc::new(Sender::new(ItemFound::COUNT)),
+            }),
+        };
         tokio::spawn(handle.clone().start_state_polling().in_current_span());
         handle
     }
@@ -100,10 +128,56 @@ impl NoitaHandle {
         self.inner.on_player_death.notified()
     }
 
+    pub fn subscribe_to_found_items(&self) -> Receiver<ItemFound> {
+        self.inner.found_items.subscribe()
+    }
+
     async fn start_state_polling(self) {
         let mut prev_dead = None;
         let mut prev_inventory = None;
         let mut prev_seed = None;
+
+        let inv_handle = self.clone();
+        tokio::spawn(async move {
+            let mut prev_inv: Option<Inventory> = None;
+            loop {
+                sleep(Duration::from_secs(1)).await;
+
+                if inv_handle.inner.player_dead.load(Ordering::Relaxed) {
+                    prev_inv = None;
+                }
+
+                let Ok(inv) = inv_handle.with(Inventory::read).await else {
+                    continue;
+                };
+
+                if let Some(prev) = &mut prev_inv {
+                    if !prev.has_tablet.any() {
+                        match inv.has_tablet {
+                            Tablet::Tree => {
+                                prev.has_tablet = Tablet::Tree;
+                                _ = inv_handle.inner.found_items.send(ItemFound::TreeTablet);
+                            }
+                            Tablet::Other => {
+                                prev.has_tablet = Tablet::Other;
+                                _ = inv_handle.inner.found_items.send(ItemFound::OtherTablet);
+                            }
+                            _ => {}
+                        }
+                    }
+                    if !prev.has_evil_eye && inv.has_evil_eye {
+                        prev.has_evil_eye = true;
+                        _ = inv_handle.inner.found_items.send(ItemFound::EvilEye);
+                    }
+                    if !prev.has_earth_stone && inv.has_earth_stone {
+                        prev.has_earth_stone = true;
+                        _ = inv_handle.inner.found_items.send(ItemFound::EarthStone);
+                    }
+                } else {
+                    prev_inv = Some(inv);
+                }
+            }
+        });
 
         loop {
             let state = self
@@ -146,7 +220,7 @@ impl NoitaHandle {
                 prev_seed = seed;
             }
 
-            tokio::time::sleep(tokio::time::Duration::from_millis(30)).await;
+            sleep(Duration::from_millis(30)).await;
         }
     }
 
@@ -188,5 +262,70 @@ impl NoitaHandle {
         } else {
             Err(e)
         }
+    }
+}
+
+#[derive(Default, Clone, Copy)]
+enum Tablet {
+    #[default]
+    None,
+    Tree,
+    Other,
+}
+
+impl Tablet {
+    fn any(&self) -> bool {
+        !matches!(self, Tablet::None)
+    }
+}
+
+#[derive(Default)]
+struct Inventory {
+    has_tablet: Tablet,
+    has_evil_eye: bool,
+    has_earth_stone: bool,
+}
+
+impl Inventory {
+    fn read(noita: &mut Noita) -> Result<Self> {
+        let (entity, polied) = noita.get_player()?.context("no player")?;
+        if polied {
+            return Ok(Self::default());
+        }
+
+        let p = noita.proc().clone();
+
+        let mut inv_quick = None;
+        for child in entity.children.read(&p)?.read(&p)? {
+            let child = child.read(&p)?;
+            if child.name.read(&p)? == "inventory_quick" {
+                inv_quick = Some(child);
+                break;
+            }
+        }
+
+        let inv_quick = inv_quick.context("no inventory")?;
+        let store = noita.component_store::<ItemComponent>()?;
+        let mut inv = Self::default();
+
+        for child in inv_quick.children.read(&p)?.read(&p)? {
+            let child = child.read(&p)?;
+            let Some(item_comp) = store.get(&child)? else {
+                continue;
+            };
+            let name = item_comp.item_name.read(&p)?;
+            if name.starts_with("$booktitle") {
+                inv.has_tablet = if name == "$booktitle_tree" {
+                    Tablet::Tree
+                } else {
+                    Tablet::Other
+                };
+            } else if name == "$item_evil_eye" {
+                inv.has_evil_eye = true;
+            } else if name == "$item_stonestone" {
+                inv.has_earth_stone = true;
+            }
+        }
+        Ok(inv)
     }
 }
