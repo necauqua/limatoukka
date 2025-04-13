@@ -119,11 +119,28 @@ async fn macro_print(ctx: CommandContext, name: String, login: Option<String>) -
         .await
 }
 
+/// Replies with the stored global macro.
+#[command(sender_gate=5s, shortcode=gmp)]
+async fn global_macro_print(ctx: CommandContext, name: String) -> Result<()> {
+    let script: Option<String> = ctx.storage.hget("macros:global", &name).await?;
+    let Some(script) = script else {
+        fail!("no global macro named `{name}`");
+    };
+    ctx.reply(script).await
+}
+
 /// List macros you/given chatter has recorded.
 #[command(sender_gate=5s, shortcode=ml)]
 async fn macro_list(ctx: CommandContext, login: Option<String>) -> Result<()> {
     let id = chatter_id(&ctx, login.as_deref()).await?;
     let keys: Vec<String> = ctx.storage.hkeys(format!("macros:{id}")).await?;
+    ctx.reply(keys.join(", ")).await
+}
+
+/// List global macros recorded.
+#[command(sender_gate=5s, shortcode=gml)]
+async fn global_macro_list(ctx: CommandContext) -> Result<()> {
+    let keys: Vec<String> = ctx.storage.hkeys("macros:global").await?;
     ctx.reply(keys.join(", ")).await
 }
 
