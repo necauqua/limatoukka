@@ -160,26 +160,63 @@ pub enum MessagingClient {
 
 impl MessagingClient {
     pub async fn send(&self, message: impl Into<String>) -> Result<()> {
-        match self {
-            MessagingClient::Twitch {
-                client, channel, ..
-            } => client.say((**channel).to_owned(), message.into()).await?,
-            MessagingClient::Mock => tracing::info!(message = message.into(), "mock send"),
-        }
-        Ok(())
-    }
+        let message = message.into();
 
-    pub async fn reply(&self, message_id: &str, message: impl Into<String>) -> Result<()> {
         match self {
             MessagingClient::Twitch {
                 client, channel, ..
             } => {
-                client
-                    .say_in_reply_to(&(channel, message_id), message.into())
-                    .await?
+                for chunk in chunk_text(message, 250) {
+                    client.say(channel.to_string(), chunk).await?;
+                }
             }
-            MessagingClient::Mock => tracing::info!(message = message.into(), "mock reply"),
+            MessagingClient::Mock => tracing::info!(message, "mock send"),
         }
         Ok(())
     }
+
+    pub async fn reply(&self, message: &Message, text: impl Into<String>) -> Result<()> {
+        let text = text.into();
+        match self {
+            MessagingClient::Twitch {
+                client, channel, ..
+            } => {
+                for chunk in chunk_text(text, 250) {
+                    client
+                        .say_in_reply_to(&(channel, &message.id), chunk)
+                        .await?
+                }
+            }
+            MessagingClient::Mock => tracing::info!(message = text, "mock reply"),
+        }
+        Ok(())
+    }
+}
+
+fn chunk_text(text: String, max_length: usize) -> Vec<String> {
+    if text.len() < max_length {
+        return vec![text];
+    }
+
+    let mut chunks = Vec::new();
+    let mut current = String::new();
+
+    for word in text.split_whitespace() {
+        let delimiter = if current.is_empty() { "" } else { " " };
+        let next_length = current.len() + delimiter.len() + word.len();
+
+        if next_length > max_length && !current.is_empty() {
+            chunks.push(current);
+            current = word.to_string();
+        } else {
+            current.push_str(delimiter);
+            current.push_str(word);
+        }
+    }
+
+    if !current.is_empty() {
+        chunks.push(current);
+    }
+
+    chunks
 }

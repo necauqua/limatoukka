@@ -284,7 +284,7 @@ impl MessageContext {
 
     pub async fn reply(&self, message: String) -> Result<()> {
         tracing::debug!(reply = message, "replying");
-        self.messaging.reply(&self.message.id, message).await?;
+        self.messaging.reply(&self.message, message).await?;
         Ok(())
     }
 }
