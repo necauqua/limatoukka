@@ -38,7 +38,8 @@ async fn run(config: Config) -> Result<()> {
     tokio::spawn(status_wall.start(&config.browser_source_bind));
 
     let xdo = XDoClient::new(config.display.clone());
-    let noita = NoitaHandle::new();
+    let noita = NoitaHandle::default();
+    tokio::spawn(noita.clone().poll_state_updates());
 
     let ctx = AppContext {
         config: config.into(),

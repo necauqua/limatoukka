@@ -7,6 +7,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
+use bitflags::bitflags;
 use noita_engine_reader::{
     Noita, Seed,
     discovery::KnownBuild,
@@ -22,7 +23,7 @@ use tokio::{
     },
     time::sleep,
 };
-use tracing::{Instrument, Span};
+use tracing::Span;
 
 #[derive(Clone)]
 pub struct NoitaHandle {
@@ -30,6 +31,7 @@ pub struct NoitaHandle {
 }
 
 #[derive(EnumCount, Clone, Copy)]
+#[repr(u8)]
 pub enum ItemFound {
     TreeTablet,
     OtherTablet,
@@ -77,9 +79,9 @@ async fn find_noita() -> Result<Option<Noita>> {
     Ok(tokio::task::spawn_blocking(|| Noita::lookup(KnownBuild::last().map())).await??)
 }
 
-impl NoitaHandle {
-    pub fn new() -> Self {
-        let handle = Self {
+impl Default for NoitaHandle {
+    fn default() -> Self {
+        Self {
             inner: Arc::new(Inner {
                 noita: Default::default(),
                 seed: Default::default(),
@@ -90,11 +92,11 @@ impl NoitaHandle {
                 on_player_death: Default::default(),
                 found_items: Arc::new(Sender::new(ItemFound::COUNT)),
             }),
-        };
-        tokio::spawn(handle.clone().start_state_polling().in_current_span());
-        handle
+        }
     }
+}
 
+impl NoitaHandle {
     pub fn is_inventory_open(&self) -> bool {
         self.inner.inventory_open.load(Ordering::Relaxed)
     }
@@ -132,54 +134,17 @@ impl NoitaHandle {
         self.inner.found_items.subscribe()
     }
 
-    async fn start_state_polling(self) {
+    pub async fn poll_state_updates(self) {
         let mut prev_dead = None;
         let mut prev_inventory = None;
         let mut prev_seed = None;
+        let mut best_inv = None;
 
-        let inv_handle = self.clone();
-        tokio::spawn(async move {
-            let mut prev_inv: Option<Inventory> = None;
-            loop {
-                sleep(Duration::from_secs(1)).await;
-
-                if inv_handle.inner.player_dead.load(Ordering::Relaxed) {
-                    prev_inv = None;
-                }
-
-                let Ok(inv) = inv_handle.with(Inventory::read).await else {
-                    continue;
-                };
-
-                if let Some(prev) = &mut prev_inv {
-                    if !prev.has_tablet.any() {
-                        match inv.has_tablet {
-                            Tablet::Tree => {
-                                prev.has_tablet = Tablet::Tree;
-                                _ = inv_handle.inner.found_items.send(ItemFound::TreeTablet);
-                            }
-                            Tablet::Other => {
-                                prev.has_tablet = Tablet::Other;
-                                _ = inv_handle.inner.found_items.send(ItemFound::OtherTablet);
-                            }
-                            _ => {}
-                        }
-                    }
-                    if !prev.has_evil_eye && inv.has_evil_eye {
-                        prev.has_evil_eye = true;
-                        _ = inv_handle.inner.found_items.send(ItemFound::EvilEye);
-                    }
-                    if !prev.has_earth_stone && inv.has_earth_stone {
-                        prev.has_earth_stone = true;
-                        _ = inv_handle.inner.found_items.send(ItemFound::EarthStone);
-                    }
-                } else {
-                    prev_inv = Some(inv);
-                }
-            }
-        });
+        let mut last_inv_update = Instant::now();
 
         loop {
+            sleep(Duration::from_millis(30)).await;
+
             let state = self
                 .with(|n| Ok((is_dead(n)?, is_inventory_open(n)?, get_seed(n)?)))
                 .await
@@ -191,6 +156,7 @@ impl NoitaHandle {
                 self.inner.player_dead.store(dead_bool, Ordering::Relaxed);
                 if dead_bool {
                     tracing::debug!("died");
+                    best_inv = None;
                     self.inner.on_player_death.notify_waiters();
                 }
                 prev_dead = dead;
@@ -220,7 +186,34 @@ impl NoitaHandle {
                 prev_seed = seed;
             }
 
-            sleep(Duration::from_millis(30)).await;
+            if last_inv_update.elapsed() < Duration::from_secs(1) {
+                continue;
+            }
+            last_inv_update = Instant::now();
+
+            let Ok(inv) = self.with(Inventory::read).await else {
+                continue;
+            };
+            let Some(best_inv) = &mut best_inv else {
+                best_inv = Some(inv);
+                continue;
+            };
+
+            let diff = inv.difference(*best_inv);
+
+            if diff.contains(Inventory::BEST_TABLET) {
+                _ = self.inner.found_items.send(ItemFound::TreeTablet);
+            } else if diff.contains(Inventory::TABLET) {
+                _ = self.inner.found_items.send(ItemFound::OtherTablet);
+            }
+            if diff.contains(Inventory::EVIL_EYE) {
+                _ = self.inner.found_items.send(ItemFound::EvilEye);
+            }
+            if diff.contains(Inventory::EARTH_STONE) {
+                _ = self.inner.found_items.send(ItemFound::EarthStone);
+            }
+
+            *best_inv |= inv;
         }
     }
 
@@ -265,32 +258,21 @@ impl NoitaHandle {
     }
 }
 
-#[derive(Default, Clone, Copy)]
-enum Tablet {
-    #[default]
-    None,
-    Tree,
-    Other,
-}
-
-impl Tablet {
-    fn any(&self) -> bool {
-        !matches!(self, Tablet::None)
+bitflags! {
+    #[derive(Clone, Copy)]
+    pub struct Inventory: u64 {
+        const TABLET = 1 << 0;
+        const BEST_TABLET = 1 << 1;
+        const EVIL_EYE = 1 << 2;
+        const EARTH_STONE = 1 << 3;
     }
-}
-
-#[derive(Default)]
-struct Inventory {
-    has_tablet: Tablet,
-    has_evil_eye: bool,
-    has_earth_stone: bool,
 }
 
 impl Inventory {
     fn read(noita: &mut Noita) -> Result<Self> {
         let (entity, polied) = noita.get_player()?.context("no player")?;
         if polied {
-            return Ok(Self::default());
+            return Ok(Self::empty());
         }
 
         let p = noita.proc().clone();
@@ -306,7 +288,7 @@ impl Inventory {
 
         let inv_quick = inv_quick.context("no inventory")?;
         let store = noita.component_store::<ItemComponent>()?;
-        let mut inv = Self::default();
+        let mut inv = Self::empty();
 
         for child in inv_quick.children.read(&p)?.read(&p)? {
             let child = child.read(&p)?;
@@ -315,15 +297,14 @@ impl Inventory {
             };
             let name = item_comp.item_name.read(&p)?;
             if name.starts_with("$booktitle") {
-                inv.has_tablet = if name == "$booktitle_tree" {
-                    Tablet::Tree
-                } else {
-                    Tablet::Other
-                };
+                if name == "$booktitle_tree" {
+                    inv |= Inventory::BEST_TABLET;
+                }
+                inv |= Inventory::TABLET;
             } else if name == "$item_evil_eye" {
-                inv.has_evil_eye = true;
+                inv |= Inventory::EVIL_EYE;
             } else if name == "$item_stonestone" {
-                inv.has_earth_stone = true;
+                inv |= Inventory::EARTH_STONE;
             }
         }
         Ok(inv)
