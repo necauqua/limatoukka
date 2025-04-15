@@ -148,7 +148,7 @@ fn unwrap_string_literals(input: &str) -> String {
         match ch {
             '\\' => match chars.next() {
                 Some('n') => result.push('\n'),
-                Some('r') => result.push('\r'),
+                // Some('r') => result.push('\r'), // SSE does not support \r
                 Some('t') => result.push('\t'),
                 Some(ch) => result.push(ch),
                 _ => (),
