@@ -163,8 +163,8 @@ async fn yoink(
 ///
 /// Macros can call other macros, but there is a recursion limit!
 #[command(shortcode=q, no_wall)]
-async fn r#macro(ctx: CommandContext, name: String) -> Result<()> {
-    let script = macro_get(&ctx, &name, None, true).await?;
+async fn r#macro(ctx: CommandContext, name: String, login: Option<String>) -> Result<()> {
+    let script = macro_get(&ctx, &name, login.as_deref(), true).await?;
     let command_msg = CommandMessage::parse(&script);
 
     let status = html! {
