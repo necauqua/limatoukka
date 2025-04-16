@@ -302,7 +302,7 @@ async fn banish(ctx: CommandContext, login: String) -> Result<()> {
         ctx.reply("already banished".into()).await?;
         return Ok(());
     }
-    do_banish((**ctx).clone(), id, login).await?;
+    do_banish((***ctx).clone(), id, login).await?;
     ctx.reply("whoosh!".to_owned()).await?;
     Ok(())
 }

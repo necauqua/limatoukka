@@ -97,12 +97,14 @@ async fn wait(ctx: CommandContext, duration: HoldTime) -> Result<()> {
     tracing::debug!(?duration, "waiting");
 
     let entry = ctx.status_wall.allocate().await;
-    let name = ctx.message.sender.name.clone();
+    let inner_ctx = ctx.clone();
     let wall_task = tokio::spawn(async move {
+        let name = &inner_ctx.message.sender.name;
+        let nesting = inner_ctx.nesting_str();
         for i in (1..=duration.as_secs()).rev() {
             entry
                 .set(html! {
-                    span style="color: #E38AF0" { (name) } ": wait:" (i) "s " (ctx.nesting)
+                    span style="color: #E38AF0" { (name) } ": wait:" (i) "s " (nesting)
                 })
                 .await;
             sleep(Duration::from_secs(1)).await;

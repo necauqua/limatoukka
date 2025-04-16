@@ -1,5 +1,5 @@
 use std::{
-    fmt::{self, Display, Write},
+    fmt::{self, Display},
     ops::Deref,
     process::Stdio,
     sync::{
@@ -85,31 +85,45 @@ impl Display for CommandToken {
     }
 }
 
-#[derive(Default, Clone, Copy)]
-pub struct Nesting {
+#[derive(Clone)]
+pub struct EvalContext {
+    msg_ctx: MessageContext,
+    pub owner: Arc<str>,
     pub depth: u32,
     pub macro_depth: u32,
 }
 
-impl Display for Nesting {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for _ in 0..self.depth {
-            f.write_char('|')?;
+impl EvalContext {
+    pub fn new(msg_ctx: MessageContext) -> Self {
+        Self {
+            owner: (&*msg_ctx.message.sender.id).into(),
+            msg_ctx,
+            depth: 0,
+            macro_depth: 0,
         }
-        Ok(())
     }
-}
 
-impl Nesting {
+    pub fn nesting_str(&self) -> String {
+        let mut s = String::with_capacity(self.depth as _);
+        for _ in 0..self.depth {
+            s.push('|');
+        }
+        s
+    }
+
     pub fn nest(&self) -> Self {
         Self {
+            msg_ctx: self.msg_ctx.clone(),
+            owner: self.owner.clone(),
             depth: self.depth + 1,
             macro_depth: self.macro_depth,
         }
     }
 
-    pub fn nest_macro(&self) -> Self {
+    pub fn nest_macro(&self, owner: &str) -> Self {
         Self {
+            msg_ctx: self.msg_ctx.clone(),
+            owner: owner.into(),
             depth: self.depth + 1,
             macro_depth: self.macro_depth + 1,
         }
@@ -118,9 +132,8 @@ impl Nesting {
 
 #[derive(Clone)]
 pub struct CommandContext {
-    msg_ctx: MessageContext,
+    eval_ctx: EvalContext,
     pub command: CommandDescriptor,
-    pub nesting: Nesting,
 }
 
 // deref hack lol
@@ -132,11 +145,19 @@ impl Deref for MessageContext {
     }
 }
 
-impl Deref for CommandContext {
+impl Deref for EvalContext {
     type Target = MessageContext;
 
     fn deref(&self) -> &Self::Target {
         &self.msg_ctx
+    }
+}
+
+impl Deref for CommandContext {
+    type Target = EvalContext;
+
+    fn deref(&self) -> &Self::Target {
+        &self.eval_ctx
     }
 }
 
@@ -290,11 +311,7 @@ impl MessageContext {
 }
 
 impl CommandContext {
-    pub fn new(msg_ctx: MessageContext, command: CommandDescriptor, nesting: Nesting) -> Self {
-        Self {
-            msg_ctx,
-            command,
-            nesting,
-        }
+    pub fn new(eval_ctx: EvalContext, command: CommandDescriptor) -> Self {
+        Self { eval_ctx, command }
     }
 }

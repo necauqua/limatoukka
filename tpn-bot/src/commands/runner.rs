@@ -17,7 +17,7 @@ use crate::services::messaging::{Message, PermissionLevel};
 use super::{
     CommandContext, CommandFuture,
     args::{Args, ExtractorError},
-    context::{AppContext, CommandDescriptor, CommandToken, MessageContext, Nesting},
+    context::{AppContext, CommandDescriptor, CommandToken, EvalContext, MessageContext},
     parsing::{CommandExpr, CommandMessage},
 };
 
@@ -49,15 +49,16 @@ pub async fn receive_message(ctx: AppContext, message: Message) -> Result<()> {
     tracing::debug!("processing message");
 
     let command_msg = CommandMessage::parse(&message.text);
-    let ctx = MessageContext::new(ctx.clone(), Arc::new(message));
+    let msg_ctx = MessageContext::new(ctx.clone(), Arc::new(message));
+    let eval_ctx = EvalContext::new(msg_ctx);
 
-    let errors = eval(&ctx, command_msg, Nesting::default()).await;
+    let errors = eval(&eval_ctx, command_msg).await;
 
-    let error_key = format!("last-error:{}", ctx.message.sender.id);
+    let error_key = format!("last-error:{}", eval_ctx.message.sender.id);
 
     if errors.is_empty() {
         Span::current().set_status(Status::Ok);
-        ctx.storage.del(error_key).await?;
+        eval_ctx.storage.del(error_key).await?;
         return Ok(());
     }
 
@@ -69,21 +70,20 @@ pub async fn receive_message(ctx: AppContext, message: Message) -> Result<()> {
         .collect::<Vec<_>>()
         .join("\n");
     if errors.iter().any(|e| e.internal()) {
-        err.push_str("\n(msg-id: ");
-        err.push_str(&ctx.message.id);
+        err.push_str(" (msg-id: ");
+        err.push_str(&eval_ctx.message.id);
         err.push(')');
     }
-    ctx.storage.set(error_key, &err).await?;
+    eval_ctx.storage.set(error_key, &err).await?;
 
     Ok(())
 }
 
 type PreparedCommands = Vec<Vec<(CommandContext, CommandFuture)>>;
 
-async fn prepare_commands(
-    context: &MessageContext,
+pub async fn prepare_commands(
+    ctx: &EvalContext,
     command_msg: CommandMessage,
-    nesting: Nesting,
 ) -> Result<PreparedCommands, Vec<CommandError>> {
     let mut errors = vec![];
     let mut groups = vec![];
@@ -91,7 +91,7 @@ async fn prepare_commands(
     for (group_idx, group) in command_msg.parallel.into_iter().enumerate() {
         let mut prepared = vec![];
         for (cmd_idx, cmd_expr) in group.into_iter().enumerate() {
-            match prepare_command(context, cmd_expr, group_idx, cmd_idx, nesting).await {
+            match prepare_command(ctx, cmd_expr, group_idx, cmd_idx).await {
                 Ok(p) => prepared.push(p),
                 Err(e) => errors.push(e),
             }
@@ -109,11 +109,10 @@ async fn prepare_commands(
 const RECURSION_LIMIT: u32 = 3;
 
 async fn prepare_command(
-    ctx: &MessageContext,
+    ctx: &EvalContext,
     mut cmd_expr: CommandExpr,
     group_idx: usize,
     cmd_idx: usize,
-    nesting: Nesting,
 ) -> Result<(CommandContext, CommandFuture), CommandError> {
     let token = CommandToken {
         name: cmd_expr.name.to_ascii_lowercase().into(),
@@ -135,8 +134,7 @@ async fn prepare_command(
             }
 
             let mut p = ctx.storage.create_pipeline();
-            p.hexists(format!("macros:{}", ctx.message.sender.id), &name)
-                .queue();
+            p.hexists(format!("macros:{}", ctx.owner), &name).queue();
             p.hexists("macros:global", &name).queue();
 
             match p.execute().await {
@@ -152,14 +150,14 @@ async fn prepare_command(
         registration,
         token,
     };
-    if nesting.macro_depth > RECURSION_LIMIT {
+    if ctx.macro_depth > RECURSION_LIMIT {
         return Err(CommandError::RecursionLimit(desc));
     }
     if registration.permission > ctx.message.sender.level {
         return Err(CommandError::PermissionError(desc));
     }
 
-    let cmd_ctx = CommandContext::new(ctx.clone(), desc.clone(), nesting);
+    let cmd_ctx = CommandContext::new(ctx.clone(), desc.clone());
 
     match (registration.handler)(cmd_ctx.clone(), Args::new(cmd_expr.args)) {
         Ok(fut) => Ok((cmd_ctx, fut)),
@@ -167,12 +165,8 @@ async fn prepare_command(
     }
 }
 
-pub async fn eval(
-    ctx: &MessageContext,
-    command_msg: CommandMessage,
-    nesting: Nesting,
-) -> Vec<CommandError> {
-    let commands = match prepare_commands(ctx, command_msg, nesting).await {
+pub async fn eval(ctx: &EvalContext, command_msg: CommandMessage) -> Vec<CommandError> {
+    let commands = match prepare_commands(ctx, command_msg).await {
         Ok(prepared) => prepared,
         Err(errors) => return errors,
     };
@@ -283,7 +277,7 @@ async fn run_command(ctx: CommandContext, fut: CommandFuture) -> Result<()> {
     }
 
     let status = html! {
-        span style="color: #E38AF0" { (ctx.message.sender.name) } ": " (ctx.command) " " (ctx.nesting)
+        span style="color: #E38AF0" { (ctx.message.sender.name) } ": " (ctx.command) " " (ctx.nesting_str())
     };
     let _guard = if r.no_wall {
         None

@@ -128,6 +128,10 @@ impl CommandMessage {
                 .collect::<Vec<_>>(),
         }
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.parallel.iter().all(|seq| seq.is_empty())
+    }
 }
 
 fn unwrap_string_literals(input: &str) -> String {
