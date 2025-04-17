@@ -28,12 +28,14 @@ pub async fn receive_message(ctx: AppContext, message: Message) -> Result<()> {
         return Ok(());
     }
 
-    let stop_count = ctx
-        .storage
-        .exists(["full-stop", &format!("kick:begone:{}", s.id)])
-        .await?;
-    if stop_count != 0 && message.sender.level < PermissionLevel::Moderator {
-        return Ok(());
+    if message.sender.level < PermissionLevel::Moderator {
+        let stop_count = ctx
+            .storage
+            .exists(["full-stop", &format!("kick:begone:{}", s.id)])
+            .await?;
+        if stop_count != 0 {
+            return Ok(());
+        }
     }
 
     // ughh, just keep a login -> id mapping to avoid having to hook up twitch
@@ -49,11 +51,15 @@ pub async fn receive_message(ctx: AppContext, message: Message) -> Result<()> {
     tracing::debug!("processing message");
 
     let command_msg = CommandMessage::parse(&message.text);
+    if command_msg.is_empty() {
+        tracing::trace!("no commands");
+        return Ok(());
+    }
+
     let msg_ctx = MessageContext::new(ctx.clone(), Arc::new(message));
     let eval_ctx = EvalContext::new(msg_ctx);
 
     let errors = eval(&eval_ctx, command_msg).await;
-
     let error_key = format!("last-error:{}", eval_ctx.message.sender.id);
 
     if errors.is_empty() {
@@ -170,10 +176,6 @@ pub async fn eval(ctx: &EvalContext, command_msg: CommandMessage) -> Vec<Command
         Ok(prepared) => prepared,
         Err(errors) => return errors,
     };
-
-    if commands.is_empty() {
-        return Vec::new();
-    }
 
     tracing::trace!("running commands");
 

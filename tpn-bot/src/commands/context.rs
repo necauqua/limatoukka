@@ -91,6 +91,7 @@ pub struct EvalContext {
     pub owner: Arc<str>,
     pub depth: u32,
     pub macro_depth: u32,
+    pub in_global_macro: bool,
 }
 
 impl EvalContext {
@@ -100,6 +101,7 @@ impl EvalContext {
             msg_ctx,
             depth: 0,
             macro_depth: 0,
+            in_global_macro: false,
         }
     }
 
@@ -117,15 +119,17 @@ impl EvalContext {
             owner: self.owner.clone(),
             depth: self.depth + 1,
             macro_depth: self.macro_depth,
+            in_global_macro: self.in_global_macro,
         }
     }
 
-    pub fn nest_macro(&self, owner: &str) -> Self {
+    pub fn nest_macro(&self, owner: &str, is_global: bool) -> Self {
         Self {
             msg_ctx: self.msg_ctx.clone(),
             owner: owner.into(),
             depth: self.depth + 1,
             macro_depth: self.macro_depth + 1,
+            in_global_macro: self.in_global_macro || is_global,
         }
     }
 }
@@ -185,32 +189,6 @@ impl AppContext {
     pub async fn send(&self, message: String) -> Result<()> {
         tracing::debug!(text = message, "sending");
         self.messaging.send(message).await?;
-        Ok(())
-    }
-
-    pub async fn send_buffered(
-        &self,
-        key: &str,
-        period: Duration,
-        message: String,
-        separator: &'static str,
-    ) -> Result<()> {
-        let state_key = format!("send_buffered:{key}");
-
-        if self.storage.rpush(&state_key, message).await? == 1 {
-            tracing::debug!(key, "new buffer");
-            self.schedule(period, move |ctx| async move {
-                let mut tx = ctx.storage.create_transaction();
-                tx.lrange::<_, _, Vec<String>>(&state_key, 0, -1).queue();
-                tx.del(&state_key).forget();
-                let messages: Vec<String> = tx.execute::<Vec<String>>().await?;
-
-                ctx.send(messages.join(separator)).await
-            });
-        } else {
-            tracing::debug!(key, "adding to existing buffer");
-        }
-
         Ok(())
     }
 
@@ -306,6 +284,28 @@ impl MessageContext {
     pub async fn reply(&self, message: String) -> Result<()> {
         tracing::debug!(reply = message, "replying");
         self.messaging.reply(&self.message, message).await?;
+        Ok(())
+    }
+
+    pub async fn reply_buffered(&self, message: String) -> Result<()> {
+        let state_key = format!("reply_buffered:{}", self.message.sender.id);
+
+        if self.storage.rpush(&state_key, &message).await? != 1 {
+            tracing::debug!(message, "adding to existing reply buffer");
+            return Ok(());
+        }
+
+        tracing::debug!(message, "new reply buffer");
+        let ctx = self.clone();
+        self.schedule(Duration::from_millis(100), move |_| async move {
+            let mut tx = ctx.storage.create_transaction();
+            tx.lrange::<_, _, Vec<String>>(&state_key, 0, -1).queue();
+            tx.del(&state_key).forget();
+
+            let messages: Vec<String> = tx.execute().await?;
+            ctx.reply(messages.join("; ")).await
+        });
+
         Ok(())
     }
 }

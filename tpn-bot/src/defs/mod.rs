@@ -1,4 +1,4 @@
-use std::cmp::Ordering;
+use std::{borrow::Cow, cmp::Ordering};
 
 use anyhow::Result;
 use rustis::{
@@ -6,7 +6,10 @@ use rustis::{
     commands::{ExpireOption, GenericCommands, StringCommands},
 };
 
-use crate::commands::{args::HoldTime, context::CommandContext};
+use crate::{
+    commands::{args::HoldTime, context::CommandContext},
+    fail,
+};
 
 mod keys;
 mod macros;
@@ -54,4 +57,17 @@ where
     sleep?;
 
     Ok(())
+}
+
+async fn chatter_id<'a>(ctx: &'a CommandContext, login: Option<&str>) -> Result<Cow<'a, str>> {
+    match login {
+        Some(login) => {
+            let id: Option<String> = ctx.storage.get(format!("twitch-users:{login}")).await?;
+            match id {
+                Some(id) => Ok(Cow::Owned(id)),
+                None => fail!("they never even typed in chat"),
+            }
+        }
+        None => Ok(Cow::Borrowed(&*ctx.owner)),
+    }
 }

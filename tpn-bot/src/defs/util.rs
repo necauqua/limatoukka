@@ -1,14 +1,20 @@
 use std::time::Duration;
 
-use crate::commands::{
-    args::HoldTime,
-    command,
-    context::{AppContext, CommandContext},
+use crate::{
+    commands::{
+        args::HoldTime,
+        command,
+        context::{AppContext, CommandContext},
+    },
+    fail,
+    services::messaging::PermissionLevel,
 };
 use anyhow::Result;
 use maud::html;
 use rustis::commands::{GenericCommands, StringCommands};
 use tokio::time::sleep;
+
+use super::chatter_id;
 
 /// Respond with "pong!".
 ///
@@ -19,18 +25,18 @@ async fn ping(ctx: CommandContext) -> Result<()> {
     ctx.reply("pong!".into()).await
 }
 
-/// Show the command instruction link.
-#[command(global_gate = 15s)]
-async fn info(ctx: CommandContext) -> Result<()> {
-    ctx.send("Command instructions are available at https://noit.ing/live".into())
-        .await
-}
-
-/// Show the discord server link.
-#[command(global_gate = 15s)]
-async fn discord(ctx: CommandContext) -> Result<()> {
-    ctx.send("Join the discord server at https://discord.gg/qZ926RvXjK".into())
-        .await
+/// A building block for basic static text commands.
+///
+/// This just makes the bot print the given text, but non-moderators can only call it through global macros.
+///
+/// So you can call a global macro `discord~` which will resolve to `echo:"discord link etc"~` and print it.
+#[command(sender_gate = 5s)]
+async fn echo(ctx: CommandContext, text: String) -> Result<()> {
+    if !ctx.in_global_macro && ctx.message.sender.level < PermissionLevel::Moderator {
+        fail!("only works from inside of global macros")
+    }
+    ctx.send(text).await?;
+    Ok(())
 }
 
 /// Respond with the last error message for user.
@@ -39,14 +45,14 @@ async fn discord(ctx: CommandContext) -> Result<()> {
 /// execution managed to crash somehow. In the latter case, you'll be given the
 /// message id - please send it to me to look at logs and fix the issue.
 #[command(sender_gate = 3s)]
-async fn last_error(ctx: CommandContext) -> Result<()> {
-    let status: Option<String> = ctx.storage.get(ctx.sender_key("last-error")).await?;
+async fn last_error(ctx: CommandContext, login: Option<String>) -> Result<()> {
+    let id = chatter_id(&ctx, login.as_deref()).await?;
+    let status: Option<String> = ctx.storage.get(format!("last-error:{id}")).await?;
     if let Some(status) = status {
         ctx.reply(status).await?;
     } else {
         ctx.reply("No errors in your last message".into()).await?;
     }
-
     Ok(())
 }
 

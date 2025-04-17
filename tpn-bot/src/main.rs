@@ -38,6 +38,20 @@ async fn run(config: Config) -> Result<()> {
     tokio::spawn(status_wall.start(&config.browser_source_bind));
 
     let xdo = XDoClient::new(config.display.clone());
+    // fix any stuck holds
+    tokio::spawn({
+        let xdo = xdo.clone();
+        async move {
+            tokio::join!(
+                xdo.keyup("w"),
+                xdo.keyup("a"),
+                xdo.keyup("s"),
+                xdo.keyup("d"),
+                xdo.mouseup(1),
+            )
+        }
+    });
+
     let noita = NoitaHandle::default();
     tokio::spawn(noita.clone().poll_state_updates());
 
@@ -51,28 +65,35 @@ async fn run(config: Config) -> Result<()> {
         holds: Default::default(),
     };
 
-    // the main loop, lol
-    tokio::spawn({
-        let state = ctx.clone();
-        async move {
-            loop {
-                state.noita.wait_for_player_death().await;
-                if let Err(error) = state.next_run().await {
+    let mut rx = ctx.noita.subscribe_to_found_items();
+
+    loop {
+        tokio::select! {
+            Some(msg) = incoming.recv() => {
+                let span = tracing::info_span!(
+                    "message",
+                    msg.id,
+                    msg.text,
+                    msg.sender = msg.sender.login,
+                    msg.sender.id = msg.sender.id,
+                );
+                let ctx = ctx.clone();
+                tokio::spawn(
+                    async move {
+                        if let Err(error) = runner::receive_message(ctx, msg).await {
+                            tracing::error!(?error, "failed to handle message");
+                            Span::current().set_status(Status::error("error"));
+                        }
+                    }
+                    .instrument(span),
+                );
+            }
+            _ = ctx.noita.wait_for_player_death() => {
+                if let Err(error) = ctx.next_run().await {
                     tracing::error!(?error, "failed to start next run");
                 }
             }
-        }
-    });
-
-    // ehhh
-    tokio::spawn({
-        let mut rx = ctx.noita.subscribe_to_found_items();
-        let msg = ctx.messaging.clone();
-        async move {
-            loop {
-                let Ok(found) = rx.recv().await else {
-                    break;
-                };
+            Ok(found) = rx.recv() => {
                 let message = match found {
                     ItemFound::TreeTablet => "The best TABLET in the game acquired!",
                     ItemFound::OtherTablet => "TABLET acquired",
@@ -81,35 +102,13 @@ async fn run(config: Config) -> Result<()> {
                         "The final frontier before all the wacky shit, EARTHSTONE acquired! POGGIES"
                     }
                 };
-                if let Err(error) = msg.send(message).await {
+                if let Err(error) = ctx.messaging.send(message).await {
                     tracing::error!(?error, "failed send item found message");
                 }
             }
+            else => return Ok(()),
         }
-    });
-
-    // the _other_ main loop, lol²
-    while let Some(msg) = incoming.recv().await {
-        let span = tracing::info_span!(
-            "message",
-            msg.id,
-            msg.text,
-            msg.sender = msg.sender.login,
-            msg.sender.id = msg.sender.id,
-        );
-        let ctx = ctx.clone();
-        tokio::spawn(
-            async move {
-                if let Err(error) = runner::receive_message(ctx, msg).await {
-                    tracing::error!(?error, "failed to handle message");
-                    Span::current().set_status(Status::error("error"));
-                }
-            }
-            .instrument(span),
-        );
     }
-
-    Ok(())
 }
 
 #[tokio::main]

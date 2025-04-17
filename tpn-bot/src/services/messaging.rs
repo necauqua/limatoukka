@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
 use strum::{EnumIter, EnumMessage, IntoStaticStr};
@@ -6,6 +6,7 @@ use tokio::{
     fs::File,
     io::{AsyncBufReadExt, BufReader},
     sync::mpsc::UnboundedReceiver,
+    time::sleep,
 };
 use twitch_irc::{
     ClientConfig, SecureTCPTransport, TwitchIRCClient,
@@ -160,17 +161,18 @@ pub enum MessagingClient {
 
 impl MessagingClient {
     pub async fn send(&self, message: impl Into<String>) -> Result<()> {
-        let message = message.into();
+        let text = message.into();
 
         match self {
             MessagingClient::Twitch {
                 client, channel, ..
             } => {
-                for chunk in chunk_text(message, 250) {
-                    client.say(channel.to_string(), chunk).await?;
-                }
+                send_chunked(text, |chunk| async {
+                    Ok(client.say(channel.to_string(), chunk).await?)
+                })
+                .await?
             }
-            MessagingClient::Mock => tracing::info!(message, "mock send"),
+            MessagingClient::Mock => tracing::info!(text, "mock send"),
         }
         Ok(())
     }
@@ -181,16 +183,37 @@ impl MessagingClient {
             MessagingClient::Twitch {
                 client, channel, ..
             } => {
-                for chunk in chunk_text(text, 250) {
-                    client
+                send_chunked(text, |chunk| async {
+                    Ok(client
                         .say_in_reply_to(&(channel, &message.id), chunk)
-                        .await?
-                }
+                        .await?)
+                })
+                .await?
             }
             MessagingClient::Mock => tracing::info!(message = text, "mock reply"),
         }
         Ok(())
     }
+}
+
+async fn send_chunked<R>(text: String, mut the_send: impl FnMut(String) -> R) -> Result<()>
+where
+    R: Future<Output = Result<()>>,
+{
+    let chunks = chunk_text(text, 420);
+    let len = chunks.len();
+    for (i, chunk) in chunks.into_iter().enumerate() {
+        let chunk = if len != 1 {
+            format!("{chunk} ({}/{len})", i + 1)
+        } else {
+            chunk
+        };
+        the_send(chunk).await?;
+        if i != 0 && i != len - 1 {
+            sleep(Duration::from_millis(300)).await;
+        }
+    }
+    Ok(())
 }
 
 fn chunk_text(text: String, max_length: usize) -> Vec<String> {

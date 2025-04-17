@@ -1,5 +1,3 @@
-use std::borrow::Cow;
-
 use anyhow::{Result, bail};
 use maud::html;
 use rustis::{
@@ -17,6 +15,8 @@ use crate::{
     },
     fail,
 };
+
+use super::chatter_id;
 
 fn print_inner_errors(errors: &[CommandError]) -> String {
     format!(
@@ -41,13 +41,10 @@ async fn macro_record(ctx: CommandContext, name: String, script: String) -> Resu
 
     let parsed = CommandMessage::parse(&script);
     if parsed.is_empty() {
-        fail!("macro script contained no commands");
+        fail!("script contained no commands");
     }
     if let Err(errors) = runner::prepare_commands(&ctx, parsed).await {
-        fail!(
-            "macro script contained errors: {}",
-            print_inner_errors(&errors)
-        );
+        fail!("script contained errors: {}", print_inner_errors(&errors));
     }
 
     let mut tx = ctx.storage.create_transaction();
@@ -60,8 +57,7 @@ async fn macro_record(ctx: CommandContext, name: String, script: String) -> Resu
         ctx.reply("too many macros brother, this incident will be investigated Stare".into())
             .await
     } else {
-        ctx.reply(format!("Recorded macro `{name}` as: {script}"))
-            .await
+        ctx.reply_buffered(format!("recorded macro `{name}`")).await
     }
 }
 
@@ -72,7 +68,8 @@ async fn macro_delete(ctx: CommandContext, name: String) -> Result<()> {
     if ctx.storage.hdel(key, &name).await? == 0 {
         fail!("no macro named `{name}`");
     } else {
-        ctx.reply(format!("Deleted macro `{name}`")).await?;
+        ctx.reply_buffered(format!("deleted macro `{name}`"))
+            .await?;
     }
     Ok(())
 }
@@ -82,7 +79,7 @@ async fn macro_delete(ctx: CommandContext, name: String) -> Result<()> {
 async fn global_macro_record(ctx: CommandContext, name: String, script: String) -> Result<()> {
     let name = name.to_lowercase();
     ctx.storage.hset("macros:global", (&name, &script)).await?;
-    ctx.reply(format!("Recorded global macro `{name}` as: {script}"))
+    ctx.reply_buffered(format!("recorded global macro `{name}`"))
         .await?;
     Ok(())
 }
@@ -93,21 +90,9 @@ async fn global_macro_delete(ctx: CommandContext, name: String) -> Result<()> {
     if ctx.storage.hdel("macros:global", &name).await? == 0 {
         fail!("no macro named `{name}`");
     }
-    ctx.reply(format!("Deleted global macro {name}")).await?;
+    ctx.reply_buffered(format!("deleted global macro `{name}`"))
+        .await?;
     Ok(())
-}
-
-async fn chatter_id<'a>(ctx: &'a CommandContext, login: Option<&str>) -> Result<Cow<'a, str>> {
-    match login {
-        Some(login) => {
-            let id: Option<String> = ctx.storage.get(format!("twitch-users:{login}")).await?;
-            match id {
-                Some(id) => Ok(Cow::Owned(id)),
-                None => fail!("they never even typed in chat"),
-            }
-        }
-        None => Ok(Cow::Borrowed(&*ctx.owner)),
-    }
 }
 
 async fn macro_get(ctx: &CommandContext, name: &str, login: Option<&str>) -> Result<String> {
@@ -115,9 +100,7 @@ async fn macro_get(ctx: &CommandContext, name: &str, login: Option<&str>) -> Res
     let script: Option<String> = ctx.storage.hget(format!("macros:{id}"), name).await?;
     match script {
         Some(script) => Ok(script),
-        None => {
-            fail!("no macro named `{name}`")
-        }
+        None => fail!("no macro named `{name}`"),
     }
 }
 
@@ -181,12 +164,12 @@ async fn r#macro(ctx: CommandContext, name: String, login: Option<String>) -> Re
         .storage
         .hget(format!("macros:{chatter_id}"), &name)
         .await?;
-    let script = match script {
-        Some(script) => script,
+    let (script, global) = match script {
+        Some(script) => (script, false),
         None => {
             let script: Option<String> = ctx.storage.hget("macros:global", &name).await?;
             if let Some(script) = script {
-                script
+                (script, true)
             } else {
                 fail!("no macro named `{name}`")
             }
@@ -200,7 +183,7 @@ async fn r#macro(ctx: CommandContext, name: String, login: Option<String>) -> Re
     };
     let _guard = ctx.status_wall.push(status).await;
 
-    let errors = runner::eval(&ctx.nest_macro(&chatter_id), command_msg).await;
+    let errors = runner::eval(&ctx.nest_macro(&chatter_id, global), command_msg).await;
     if !errors.is_empty() {
         if errors.iter().any(|e| matches!(e, CommandError::Interrupt)) {
             bail!(CommandInterrupt);
