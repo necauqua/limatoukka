@@ -247,6 +247,11 @@ impl AppContext {
 
         self.xdo.key("Enter").await?;
 
+        let no_restarts: Option<String> = self.storage.get("no-restarts").await?;
+        if no_restarts.is_some() {
+            return Ok(());
+        }
+
         let entry = self.status_wall.allocate().await;
         for i in (1..=10).rev() {
             entry

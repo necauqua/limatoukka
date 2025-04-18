@@ -149,12 +149,25 @@ async fn interrupt(ctx: CommandContext) -> Result<()> {
 /// Stop processing commands from everyone below the moderator level.
 #[command(permission = Moderator)]
 async fn full_stop(ctx: CommandContext) -> Result<()> {
-    Ok(ctx.storage.set("full-stop", "1").await?)
+    ctx.storage.set("full-stop", "1").await?;
+    Ok(())
 }
 
 /// Undo the effect of `full-stop~`.
 #[command(permission = Moderator)]
 async fn full_ahead(ctx: CommandContext) -> Result<()> {
     ctx.storage.del("full-stop").await?;
+    Ok(())
+}
+
+#[command(permission = Moderator, hidden)]
+async fn no_restarts(ctx: CommandContext) -> Result<()> {
+    ctx.storage.set("no-restarts", "1").await?;
+    Ok(())
+}
+
+#[command(permission = Moderator, hidden)]
+async fn yes_restarts(ctx: CommandContext) -> Result<()> {
+    ctx.storage.del("no-restarts").await?;
     Ok(())
 }

@@ -144,7 +144,7 @@ async fn prepare_command(
             p.hexists("macros:global", &name).queue();
 
             match p.execute().await {
-                Ok((true, _)) | Ok((_, true)) => {
+                Ok((personal, global)) if personal || global => {
                     cmd_expr.args.push_front(name);
                     *super::MACRO
                 }
