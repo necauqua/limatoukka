@@ -1,13 +1,34 @@
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use futures::FutureExt;
 use rustis::commands::StringCommands;
 use tokio::time::sleep;
 
 use crate::{
-    commands::{args::InRange, command, context::CommandContext},
+    commands::{
+        args::{HoldTime, InRange},
+        command,
+        context::CommandContext,
+    },
     fail,
+    services::noita::NoitaHandle,
 };
+
+async fn player_screen_pos(noita: &NoitaHandle) -> Result<(f32, f32)> {
+    let (player_pos, [x, y, w, h]) = noita
+        .with(|noita| {
+            let (player, _) = noita.get_player()?.context("no player entity")?;
+            let bounds = noita.get_camera_bounds()?;
+            Ok((player.transform.pos, bounds))
+        })
+        .await?;
+
+    Ok((
+        (player_pos.x - x as f32) * 1920.0 / w as f32,
+        (player_pos.y - y as f32) * 1080.0 / h as f32,
+    ))
+}
 
 /// Position the mouse relative to the player on the screen.
 ///
@@ -18,73 +39,36 @@ use crate::{
 /// This is extremely useful, for example `slot:5~ look:0:-70~ hold~` to douse
 /// Minä.
 #[command]
-async fn look(ctx: CommandContext, dx: i32, dy: i32) -> Result<()> {
-    let (player_pos, camera_bounds) = ctx
-        .noita
-        .with(|noita| {
-            let (player, _) = noita.get_player()?.context("no player entity")?;
-            let bounds = noita.get_camera_bounds()?;
-            Ok((player.transform.pos, bounds))
-        })
-        .await?;
+async fn look(ctx: CommandContext, dx: i32, dy: i32, duration: HoldTime<0>) -> Result<()> {
+    if duration.get() == Duration::ZERO {
+        let (px, py) = player_screen_pos(&ctx.noita).await?;
+        let mx = (px + dx as f32) as i32;
+        let my = (py + dy as f32) as i32;
+        ctx.xdo.mousemove(mx, my).await?;
+        return Ok(());
+    }
 
-    let [x, y, w, h] = camera_bounds;
+    let (sx, sy) = ctx.xdo.getmouselocation().await?;
 
-    let px = (player_pos.x - x as f32) * 1920.0 / w as f32;
-    let py = (player_pos.y - y as f32) * 1080.0 / h as f32;
+    let millis = 5_u32;
+    let mut interval = tokio::time::interval(Duration::from_millis(millis as _));
+    let ticks = ((duration.get().as_millis() as u32) / millis).max(1);
 
-    let mx = (px + dx as f32) as i32;
-    let my = (py + dy as f32) as i32;
+    for i in 0..ticks {
+        ctx.holds.interruptible(interval.tick().map(|_| ())).await?;
 
-    ctx.xdo.mousemove(mx, my).await
-}
+        let t = (i + 1) as f32 / ticks as f32;
 
-/// A shortcut for `look:500:0~`.
-#[command(shortcode=lr)]
-async fn look_right(ctx: CommandContext) -> Result<()> {
-    look(ctx, 500, 0).await
-}
+        let (px, py) = player_screen_pos(&ctx.noita).await?;
+        let ex = px + dx as f32;
+        let ey = py + dy as f32;
 
-/// A shortcut for `look:-500:0~`.
-#[command(shortcode=ll)]
-async fn look_left(ctx: CommandContext) -> Result<()> {
-    look(ctx, -500, 0).await
-}
+        let ix = sx as f32 + (ex - sx as f32) * t;
+        let iy = sy as f32 + (ey - sy as f32) * t;
 
-/// A shortcut for `look:0:500~`.
-#[command(shortcode=ld)]
-async fn look_down(ctx: CommandContext) -> Result<()> {
-    look(ctx, 0, 500).await
-}
-
-/// A shortcut for `look:0:-500~`.
-#[command(shortcode=lu)]
-async fn look_up(ctx: CommandContext) -> Result<()> {
-    look(ctx, 0, -500).await
-}
-
-/// A shortcut for `look:500:-500~`.
-#[command(shortcode=lur)]
-async fn look_up_right(ctx: CommandContext) -> Result<()> {
-    look(ctx, 500, -500).await
-}
-
-/// A shortcut for `look:-500:-500~`.
-#[command(shortcode=lul)]
-async fn look_up_left(ctx: CommandContext) -> Result<()> {
-    look(ctx, -500, -500).await
-}
-
-/// A shortcut for `look:500:500~`.
-#[command(shortcode=ldr)]
-async fn look_down_right(ctx: CommandContext) -> Result<()> {
-    look(ctx, 500, 500).await
-}
-
-/// A shortcut for `look:-500:500~`.
-#[command(shortcode=ldl)]
-async fn look_down_left(ctx: CommandContext) -> Result<()> {
-    look(ctx, -500, 500).await
+        ctx.xdo.mousemove(ix as _, iy as _).await?;
+    }
+    Ok(())
 }
 
 /// Move the mouse to the absolute position on the screen.
@@ -92,8 +76,32 @@ async fn look_down_left(ctx: CommandContext) -> Result<()> {
 /// The screen is 1920x1080, and the origin is in the center of it,
 /// so `mouse:0:0~` will move the mouse to the center of the screen.
 #[command(shortcode=m)]
-async fn mouse(ctx: CommandContext, x: i32, y: i32) -> Result<()> {
-    ctx.xdo.mousemove(960 + x, 540 + y).await
+async fn mouse(ctx: CommandContext, x: i32, y: i32, duration: HoldTime<0>) -> Result<()> {
+    let duration = duration.get();
+    if duration == Duration::ZERO {
+        ctx.xdo.mousemove(960 + x, 540 + y).await?;
+        return Ok(());
+    }
+
+    let (sx, sy) = ctx.xdo.getmouselocation().await?;
+    let dx = (960 + x - sx as i32) as f32;
+    let dy = (540 + y - sy as i32) as f32;
+
+    let millis = 5_u32;
+    let mut interval = tokio::time::interval(Duration::from_millis(millis as _));
+    let ticks = ((duration.as_millis() as u32) / millis).max(1);
+
+    for i in 0..ticks {
+        ctx.holds.interruptible(interval.tick().map(|_| ())).await?;
+
+        let t = (i + 1) as f32 / ticks as f32;
+
+        let ix = sx as f32 + dx * t;
+        let iy = sy as f32 + dy * t;
+
+        ctx.xdo.mousemove(ix as _, iy as _).await?;
+    }
+    Ok(())
 }
 
 /// Move the mouse relative to its current position.
@@ -179,13 +187,4 @@ async fn wand(ctx: CommandContext, wand: InRange<1, 4>, slot: InRange<1, 26>) ->
     sleep(Duration::from_millis(50)).await;
 
     Ok(())
-}
-
-/// A shortcut for `mouse:-100:85~`.
-///
-/// Moves the mouse to the position of the 'Restore' button on the autosave
-/// screen. You can type `restore-autosave~ click~` to click it real fast.
-#[command]
-async fn restore_autosave(ctx: CommandContext) -> Result<()> {
-    ctx.xdo.mousemove(860, 625).await
 }

@@ -1,6 +1,6 @@
-use std::sync::Arc;
+use std::{io::BufRead, sync::Arc};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use futures::TryFutureExt;
 use tokio::process::Command;
 
@@ -15,7 +15,11 @@ macro_rules! xdotool_calls {
     ($($name:ident($($arg:ident: $tpe:ty),*);)*) => {
         $(
             pub fn $name(&self, $($arg: $tpe),*) -> impl Future<Output = Result<()>> + use<> {
-                self.cmd(stringify!($name), &[$( xdotool_calls!(__tostring $arg $tpe) ),* ])
+                let f = self.cmd(&[stringify!($name), "--", $( xdotool_calls!(__tostring $arg $tpe) ),* ]);
+                async {
+                    f.await?;
+                    Ok(())
+                }
             }
         )*
     }
@@ -35,12 +39,10 @@ impl XDoClient {
     //
     // at least it's way simpler than managing mpsc channels feeding a single
     // xdo instance or whatever (I totally did not have all that implemented)
-    fn cmd(&self, name: &str, args: &[&str]) -> impl Future<Output = Result<()>> + use<> {
+    fn cmd(&self, args: &[&str]) -> impl Future<Output = Result<Vec<u8>>> + use<> {
         tracing::debug!(?args, "running xdotool");
         Command::new("xdotool")
             .env("DISPLAY", self.display.as_deref().unwrap_or(":0"))
-            .arg(name)
-            .arg("--")
             .args(args)
             .output()
             .map_err(|e| e.into())
@@ -48,8 +50,27 @@ impl XDoClient {
                 if !result.status.success() {
                     bail!("{}", String::from_utf8_lossy(&result.stderr))
                 }
-                Ok(())
+                Ok(result.stdout)
             })
+    }
+
+    pub fn getmouselocation(&self) -> impl Future<Output = Result<(u32, u32)>> + use<> {
+        let f = self.cmd(&["getmouselocation", "--shell"]);
+        async {
+            let output = f.await?;
+            let mut lines = output.lines();
+            let x = lines
+                .next()
+                .and_then(|l| l.ok())
+                .and_then(|l| l.strip_prefix("X=").and_then(|l| l.parse().ok()))
+                .context("bad mouse location output")?;
+            let y = lines
+                .next()
+                .and_then(|l| l.ok())
+                .and_then(|l| l.strip_prefix("Y=").and_then(|l| l.parse().ok()))
+                .context("bad mouse location output")?;
+            Ok((x, y))
+        }
     }
 
     xdotool_calls! {

@@ -57,19 +57,24 @@ async fn last_error(ctx: CommandContext, login: Option<String>) -> Result<()> {
 }
 
 /// Get the current seed (surely you are not planning to look at noitool, right?)
+///
+/// At the moment only replies with actual seed to moderators 🤷
 #[command(global_gate = 15s)]
 async fn seed(ctx: CommandContext) -> Result<()> {
-    ctx.reply("nah man stop checking the seed like that at the beginning".into())
+    if ctx.message.sender.level < PermissionLevel::Moderator {
+        ctx.reply("nah man stop checking the seed like that at the beginning".into())
+            .await
+    } else {
+        ctx.reply(match ctx.noita.get_seed().await {
+            Some(seed) => format!("{seed}"),
+            None => "no data".into(),
+        })
         .await
-    // ctx.reply(match ctx.noita.get_seed().await {
-    //     Some(seed) => format!("{seed}"),
-    //     None => "no data".into(),
-    // })
-    // .await
+    }
 }
 
 /// Get the current death count
-#[command(global_gate = 15s)]
+#[command(global_gate = 15s, shortcode=deaths)]
 async fn death_count(ctx: CommandContext) -> Result<()> {
     ctx.reply(match ctx.noita.get_death_count().await {
         Some(count) => count.to_string(),
@@ -118,7 +123,7 @@ async fn wait(ctx: CommandContext, duration: HoldTime) -> Result<()> {
     });
 
     ctx.holds
-        .sleep(duration)
+        .interruptible(sleep(duration))
         .await
         .inspect_err(|_| wall_task.abort())?;
 
@@ -146,28 +151,20 @@ async fn interrupt(ctx: CommandContext) -> Result<()> {
     Ok(())
 }
 
-/// Stop processing commands from everyone below the moderator level.
+/// Set a bot flag.
+///
+/// Two flags that currently do things are `full-stop` and
+/// `no-restarts` - first one disables processing any commands from non-mods,
+/// and the latter one disables the game restarting on player death.
+///
+/// If the flag argument is prefixed with `-` it is removed if it was set
+/// previously.
 #[command(permission = Moderator)]
-async fn full_stop(ctx: CommandContext) -> Result<()> {
-    ctx.storage.set("full-stop", "1").await?;
-    Ok(())
-}
-
-/// Undo the effect of `full-stop~`.
-#[command(permission = Moderator)]
-async fn full_ahead(ctx: CommandContext) -> Result<()> {
-    ctx.storage.del("full-stop").await?;
-    Ok(())
-}
-
-#[command(permission = Moderator, hidden)]
-async fn no_restarts(ctx: CommandContext) -> Result<()> {
-    ctx.storage.set("no-restarts", "1").await?;
-    Ok(())
-}
-
-#[command(permission = Moderator, hidden)]
-async fn yes_restarts(ctx: CommandContext) -> Result<()> {
-    ctx.storage.del("no-restarts").await?;
+async fn flag(ctx: CommandContext, flag: String) -> Result<()> {
+    if let Some(flag) = flag.strip_prefix("-") {
+        ctx.storage.del(format!("flags:{flag}")).await?;
+    } else {
+        ctx.storage.set(format!("flags:{flag}"), "1").await?;
+    }
     Ok(())
 }

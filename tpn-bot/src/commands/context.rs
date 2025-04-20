@@ -247,7 +247,7 @@ impl AppContext {
 
         self.xdo.key("Enter").await?;
 
-        let no_restarts: Option<String> = self.storage.get("no-restarts").await?;
+        let no_restarts: Option<String> = self.storage.get("flags:no-restarts").await?;
         if no_restarts.is_some() {
             return Ok(());
         }

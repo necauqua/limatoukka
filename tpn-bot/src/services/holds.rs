@@ -5,10 +5,7 @@ use std::{
 };
 
 use anyhow::Result;
-use tokio::{
-    sync::{Mutex, oneshot::Sender},
-    time::timeout,
-};
+use tokio::sync::{Mutex, oneshot::Sender};
 
 use crate::commands::runner::CommandInterrupt;
 
@@ -31,10 +28,13 @@ impl Inner {
         self.last_interrupt = Some(Instant::now());
     }
 
-    fn sleep(
+    fn interruptible<F>(
         &mut self,
-        duration: Duration,
-    ) -> impl Future<Output = Result<(), CommandInterrupt>> + use<> {
+        f: F,
+    ) -> impl Future<Output = Result<(), CommandInterrupt>> + use<F>
+    where
+        F: Future<Output = ()>,
+    {
         let skip = self
             .last_interrupt
             .is_some_and(|i| i.elapsed() < Duration::from_millis(50));
@@ -46,9 +46,9 @@ impl Inner {
             if skip {
                 return Err(CommandInterrupt);
             }
-            match timeout(duration, rx).await {
-                Ok(Ok(_)) | Err(_) => Ok(()),
-                Ok(Err(_)) => Err(CommandInterrupt),
+            tokio::select! {
+                r = rx => r.map_err(|_| CommandInterrupt),
+                _ = f => Ok(())
             }
         }
     }
@@ -74,8 +74,11 @@ impl HoldState {
         self.inner.lock().await.send_interrupt();
     }
 
-    pub async fn sleep(&self, duration: Duration) -> Result<(), CommandInterrupt> {
-        let fut = { self.inner.lock().await.sleep(duration) };
+    pub async fn interruptible<F>(&self, f: F) -> Result<(), CommandInterrupt>
+    where
+        F: Future<Output = ()>,
+    {
+        let fut = { self.inner.lock().await.interruptible(f) };
         fut.await
     }
 }

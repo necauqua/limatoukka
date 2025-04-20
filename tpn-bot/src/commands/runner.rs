@@ -31,7 +31,7 @@ pub async fn receive_message(ctx: AppContext, message: Message) -> Result<()> {
     if message.sender.level < PermissionLevel::Moderator {
         let stop_count = ctx
             .storage
-            .exists(["full-stop", &format!("kick:begone:{}", s.id)])
+            .exists(["flags:full-stop", &format!("kick:begone:{}", s.id)])
             .await?;
         if stop_count != 0 {
             return Ok(());

@@ -135,18 +135,18 @@ impl CommandArg for u32 {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct HoldTime(Duration);
+pub struct HoldTime<const DEFAULT: u32 = 500, const MAX: u32 = 15_000>(Duration);
 
-impl HoldTime {
+impl<const DEFAULT: u32, const MAX: u32> HoldTime<DEFAULT, MAX> {
     pub fn get(self) -> Duration {
         self.0
     }
 }
 
-impl ArgExtractor for HoldTime {
+impl<const DEFAULT: u32, const MAX: u32> ArgExtractor for HoldTime<DEFAULT, MAX> {
     fn extract(args: &mut Args) -> ExtractorResult<Self> {
         let Some((pos, input)) = args.pop() else {
-            return Ok(Self(Duration::from_millis(500)));
+            return Ok(Self(Duration::from_millis(DEFAULT as _)));
         };
         let millis = match input.strip_suffix("s") {
             Some(seconds) => {
@@ -154,10 +154,10 @@ impl ArgExtractor for HoldTime {
             }
             None => u32::parse(input).map_err(|e| ExtractorError::BadArgument(pos, e))?,
         };
-        if millis > 15_000 {
+        if millis > MAX {
             Err(ExtractorError::BadArgument(
                 pos,
-                ArgError::Precondition("duration must be at most 15 seconds".into()),
+                ArgError::Precondition(format!("duration must be at most {MAX}")),
             ))
         } else {
             Ok(Self(Duration::from_millis(millis as _)))
@@ -165,7 +165,7 @@ impl ArgExtractor for HoldTime {
     }
 
     fn type_desc() -> Cow<'static, str> {
-        "duration in milliseconds, at most 15000, defaults to 500. You can also specify whole seconds by appending 's'".into()
+        format!("duration in milliseconds, at most {MAX}, defaults to {DEFAULT}. You can also specify whole seconds by appending 's'").into()
     }
 
     const OPTIONAL: bool = true;
