@@ -3,6 +3,8 @@ use std::time::Duration;
 use schemars::JsonSchema;
 use serde::Deserialize;
 
+use crate::services::twitch::TwitchApp;
+
 // This file is `include!`d into the buildscript to generate the schema for the configuration file.
 
 #[derive(Clone, Copy, Deserialize, JsonSchema, Default)]
@@ -11,16 +13,6 @@ pub enum Env {
     #[default]
     Dev,
     Prod,
-}
-
-#[derive(Clone, Deserialize, JsonSchema)]
-pub struct Bot {
-    /// Bot login username
-    pub login: String,
-    /// Without the "oauth:" prefix
-    pub token: String,
-    /// The channel on which the bot operates
-    pub target: String,
 }
 
 #[derive(Deserialize /*, JsonSchema*/, Default, Clone)]
@@ -34,7 +26,7 @@ pub struct Voting {
     pub vote_time: Duration,
 }
 
-#[derive(Deserialize /*, JsonSchema*/, Default)]
+#[derive(Deserialize /*, JsonSchema*/)]
 #[serde(rename_all = "kebab-case")]
 pub struct Config {
     /// The environment in which the bot is running
@@ -42,8 +34,8 @@ pub struct Config {
 
     /// X server display to which the bot should send inputs
     pub display: Option<String>,
-    /// Bot credentials
-    pub bot: Option<Bot>,
+    /// Twitch app credentials
+    pub twitch: TwitchApp,
 
     pub valkey: String,
 

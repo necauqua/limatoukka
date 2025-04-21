@@ -18,6 +18,6 @@ begin
     echo '{"op":1,"d":{"rpcVersion":1}}'
     sleep 0.1
     echo '{"op":6,"d":{"requestType":"SetSceneItemEnabled","requestId":"1","requestData":{"sceneName":"main","sceneItemId":'$itemId',"sceneItemEnabled":false}}}'
-    sleep 15
+    sleep 20
     echo '{"op":6,"d":{"requestType":"SetSceneItemEnabled","requestId":"1","requestData":{"sceneName":"main","sceneItemId":'$itemId',"sceneItemEnabled":true}}}'
 end | websocat ws://localhost:4455 # >/dev/null

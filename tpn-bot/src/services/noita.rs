@@ -12,7 +12,7 @@ use noita_engine_reader::{
     Noita, Seed,
     discovery::KnownBuild,
     memory::{MemoryStorage, PadBool, RawPtr},
-    types::components::ItemComponent,
+    types::components::{ItemActionComponent, ItemComponent},
 };
 use strum::EnumCount;
 use tokio::{
@@ -37,17 +37,18 @@ pub enum ItemFound {
     OtherTablet,
     EvilEye,
     EarthStone,
+    Taikasauva,
 }
 
 struct Inner {
     noita: Mutex<Option<Noita>>,
     seed: Mutex<Option<Seed>>,
     inventory_open: AtomicBool,
-    player_dead: AtomicBool,
     on_inventory_open: Notify,
     on_inventory_close: Notify,
     on_player_death: Notify,
     found_items: Arc<Sender<ItemFound>>,
+    reset_items: AtomicBool,
 }
 
 fn is_dead(noita: &Noita) -> Result<bool> {
@@ -86,11 +87,11 @@ impl Default for NoitaHandle {
                 noita: Default::default(),
                 seed: Default::default(),
                 inventory_open: Default::default(),
-                player_dead: Default::default(),
                 on_inventory_open: Default::default(),
                 on_inventory_close: Default::default(),
                 on_player_death: Default::default(),
                 found_items: Arc::new(Sender::new(ItemFound::COUNT)),
+                reset_items: Default::default(),
             }),
         }
     }
@@ -99,10 +100,6 @@ impl Default for NoitaHandle {
 impl NoitaHandle {
     pub fn is_inventory_open(&self) -> bool {
         self.inner.inventory_open.load(Ordering::Relaxed)
-    }
-
-    pub fn is_player_dead(&self) -> bool {
-        self.inner.player_dead.load(Ordering::Relaxed)
     }
 
     pub async fn get_death_count(&self) -> Option<u32> {
@@ -134,6 +131,10 @@ impl NoitaHandle {
         self.inner.found_items.subscribe()
     }
 
+    pub fn reset_inventory(&self) {
+        self.inner.reset_items.store(true, Ordering::Relaxed);
+    }
+
     pub async fn poll_state_updates(self) {
         let mut prev_dead = None;
         let mut prev_inventory = None;
@@ -153,13 +154,15 @@ impl NoitaHandle {
             let dead = state.map(|(d, _, _)| d);
             if dead != prev_dead {
                 let dead_bool = dead.unwrap_or_default();
-                self.inner.player_dead.store(dead_bool, Ordering::Relaxed);
                 if dead_bool {
                     tracing::debug!("died");
                     best_inv = None;
                     self.inner.on_player_death.notify_waiters();
                 }
                 prev_dead = dead;
+            }
+            if self.inner.reset_items.swap(false, Ordering::Relaxed) {
+                best_inv = None;
             }
 
             let inventory = state.map(|(_, i, _)| i);
@@ -259,12 +262,13 @@ impl NoitaHandle {
 }
 
 bitflags! {
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Copy, Debug)]
     pub struct Inventory: u64 {
         const TABLET = 1 << 0;
         const BEST_TABLET = 1 << 1;
         const EVIL_EYE = 1 << 2;
         const EARTH_STONE = 1 << 3;
+        const TAIKASAUVA = 1 << 4;
     }
 }
 
@@ -278,16 +282,24 @@ impl Inventory {
         let p = noita.proc().clone();
 
         let mut inv_quick = None;
+        let mut inv_full = None;
         for child in entity.children.read(&p)?.read(&p)? {
             let child = child.read(&p)?;
-            if child.name.read(&p)? == "inventory_quick" {
-                inv_quick = Some(child);
-                break;
+            match &*child.name.read(&p)? {
+                "inventory_quick" => {
+                    inv_quick = Some(child);
+                }
+                "inventory_full" => {
+                    inv_full = Some(child);
+                }
+                _ => {}
             }
         }
 
         let inv_quick = inv_quick.context("no inventory")?;
+        let inv_full = inv_full.context("no inventory")?;
         let store = noita.component_store::<ItemComponent>()?;
+        let action_store = noita.component_store::<ItemActionComponent>()?;
         let mut inv = Self::empty();
 
         for child in inv_quick.children.read(&p)?.read(&p)? {
@@ -305,6 +317,20 @@ impl Inventory {
                 inv |= Inventory::EVIL_EYE;
             } else if name == "$item_stonestone" {
                 inv |= Inventory::EARTH_STONE;
+            }
+        }
+        // apparently this can happen
+        if inv_full.children.is_null() {
+            return Ok(inv);
+        }
+        for child in inv_full.children.read(&p)?.read(&p)? {
+            let child = child.read(&p)?;
+            let Some(item_action_comp) = action_store.get(&child)? else {
+                continue;
+            };
+            let action_id = item_action_comp.action_id.read(&p)?;
+            if action_id == "SUMMON_WANDGHOST" {
+                inv |= Inventory::TAIKASAUVA;
             }
         }
         Ok(inv)

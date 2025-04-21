@@ -66,6 +66,7 @@
       env.LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
         pkgsi686Linux.pulseaudio # for audio to work
         openssl
+        dbus
         xorg.libX11
         xdotool
       ];
@@ -85,6 +86,7 @@
         pkg-config
 
         openssl
+        dbus
         xdotool
         xorg.libX11
       ];

@@ -41,32 +41,34 @@ async fn player_screen_pos(noita: &NoitaHandle) -> Result<(f32, f32)> {
 #[command]
 async fn look(ctx: CommandContext, dx: i32, dy: i32, duration: HoldTime<0>) -> Result<()> {
     if duration.get() == Duration::ZERO {
-        let (px, py) = player_screen_pos(&ctx.noita).await?;
+        let (px, py) = player_screen_pos(ctx.noita()).await?;
         let mx = (px + dx as f32) as i32;
         let my = (py + dy as f32) as i32;
-        ctx.xdo.mousemove(mx, my).await?;
+        ctx.xdo().mousemove(mx, my).await?;
         return Ok(());
     }
 
-    let (sx, sy) = ctx.xdo.getmouselocation().await?;
+    let (sx, sy) = ctx.xdo().getmouselocation().await?;
 
     let millis = 5_u32;
     let mut interval = tokio::time::interval(Duration::from_millis(millis as _));
     let ticks = ((duration.get().as_millis() as u32) / millis).max(1);
 
     for i in 0..ticks {
-        ctx.holds.interruptible(interval.tick().map(|_| ())).await?;
+        ctx.holds()
+            .interruptible(interval.tick().map(|_| ()))
+            .await?;
 
         let t = (i + 1) as f32 / ticks as f32;
 
-        let (px, py) = player_screen_pos(&ctx.noita).await?;
+        let (px, py) = player_screen_pos(ctx.noita()).await?;
         let ex = px + dx as f32;
         let ey = py + dy as f32;
 
         let ix = sx as f32 + (ex - sx as f32) * t;
         let iy = sy as f32 + (ey - sy as f32) * t;
 
-        ctx.xdo.mousemove(ix as _, iy as _).await?;
+        ctx.xdo().mousemove(ix as _, iy as _).await?;
     }
     Ok(())
 }
@@ -79,11 +81,11 @@ async fn look(ctx: CommandContext, dx: i32, dy: i32, duration: HoldTime<0>) -> R
 async fn mouse(ctx: CommandContext, x: i32, y: i32, duration: HoldTime<0>) -> Result<()> {
     let duration = duration.get();
     if duration == Duration::ZERO {
-        ctx.xdo.mousemove(960 + x, 540 + y).await?;
+        ctx.xdo().mousemove(960 + x, 540 + y).await?;
         return Ok(());
     }
 
-    let (sx, sy) = ctx.xdo.getmouselocation().await?;
+    let (sx, sy) = ctx.xdo().getmouselocation().await?;
     let dx = (960 + x - sx as i32) as f32;
     let dy = (540 + y - sy as i32) as f32;
 
@@ -92,14 +94,16 @@ async fn mouse(ctx: CommandContext, x: i32, y: i32, duration: HoldTime<0>) -> Re
     let ticks = ((duration.as_millis() as u32) / millis).max(1);
 
     for i in 0..ticks {
-        ctx.holds.interruptible(interval.tick().map(|_| ())).await?;
+        ctx.holds()
+            .interruptible(interval.tick().map(|_| ()))
+            .await?;
 
         let t = (i + 1) as f32 / ticks as f32;
 
         let ix = sx as f32 + dx * t;
         let iy = sy as f32 + dy * t;
 
-        ctx.xdo.mousemove(ix as _, iy as _).await?;
+        ctx.xdo().mousemove(ix as _, iy as _).await?;
     }
     Ok(())
 }
@@ -107,14 +111,14 @@ async fn mouse(ctx: CommandContext, x: i32, y: i32, duration: HoldTime<0>) -> Re
 /// Move the mouse relative to its current position.
 #[command(shortcode=mm)]
 async fn mouse_move(ctx: CommandContext, dx: i32, dy: i32) -> Result<()> {
-    ctx.xdo.mousemove_relative(dx, dy).await
+    ctx.xdo().mousemove_relative(dx, dy).await
 }
 
 /// Click the left mouse button.
 #[command(shortcode=c)]
 async fn click(ctx: CommandContext) -> Result<()> {
     if ctx
-        .storage
+        .storage()
         .get::<_, Option<i64>>("holds:lmb")
         .await?
         .unwrap_or_default()
@@ -122,13 +126,13 @@ async fn click(ctx: CommandContext) -> Result<()> {
     {
         fail!("click during hold")
     }
-    ctx.xdo.click(1).await
+    ctx.xdo().click(1).await
 }
 
 /// Click the right mouse button.
 #[command]
 async fn throw(ctx: CommandContext) -> Result<()> {
-    ctx.xdo.click(3).await
+    ctx.xdo().click(3).await
 }
 
 /// Hold left mouse button down for the specified duration of milliseconds (defaulting to 500).
@@ -145,8 +149,8 @@ async fn hold(ctx: CommandContext, millis: super::HoldTime) -> Result<()> {
         ctx,
         millis,
         "lmb",
-        |ctx| ctx.xdo.mousedown(1),
-        |ctx| ctx.xdo.mouseup(1),
+        |ctx| ctx.xdo().mousedown(1),
+        |ctx| ctx.xdo().mouseup(1),
     )
     .await
 }
@@ -160,7 +164,7 @@ static HOTBAR_Y: i32 = 91;
 /// A helper to move the mouse to the hotbar slot without you having to guess slot coordinates.
 #[command]
 async fn hotbar(ctx: CommandContext, slot: InRange<1, 24>) -> Result<()> {
-    ctx.xdo
+    ctx.xdo()
         .mousemove(HOTBAR_XS[slot.get() as usize - 1], HOTBAR_Y)
         .await?;
 
@@ -176,7 +180,7 @@ const WAND_START_Y: i32 = 273; // + 190 * 26
 /// A helper to move the mouse to the wand slot without you having to guess slot coordinates.
 #[command]
 async fn wand(ctx: CommandContext, wand: InRange<1, 4>, slot: InRange<1, 26>) -> Result<()> {
-    ctx.xdo
+    ctx.xdo()
         .mousemove(
             WAND_START_X + 60 * (slot.get() as i32 - 1),
             WAND_START_Y + 190 * (wand.get() as i32 - 1),

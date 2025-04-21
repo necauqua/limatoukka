@@ -24,13 +24,13 @@ use super::{
 pub async fn receive_message(ctx: AppContext, message: Message) -> Result<()> {
     let s = &message.sender;
 
-    if ctx.config.bot.as_ref().is_some_and(|b| s.login == b.login) {
+    if s.login == ctx.twitch().bot() {
         return Ok(());
     }
 
     if message.sender.level < PermissionLevel::Moderator {
         let stop_count = ctx
-            .storage
+            .storage()
             .exists(["flags:full-stop", &format!("kick:begone:{}", s.id)])
             .await?;
         if stop_count != 0 {
@@ -44,7 +44,7 @@ pub async fn receive_message(ctx: AppContext, message: Message) -> Result<()> {
     //
     // well, as a bonus this allows us to check if user being voteckicked ever
     // typed in chat
-    ctx.storage
+    ctx.storage()
         .set(format!("twitch-users:{}", s.login), &s.id)
         .await?;
 
@@ -64,7 +64,7 @@ pub async fn receive_message(ctx: AppContext, message: Message) -> Result<()> {
 
     if errors.is_empty() {
         Span::current().set_status(Status::Ok);
-        eval_ctx.storage.del(error_key).await?;
+        eval_ctx.storage().del(error_key).await?;
         return Ok(());
     }
 
@@ -80,7 +80,7 @@ pub async fn receive_message(ctx: AppContext, message: Message) -> Result<()> {
         err.push_str(&eval_ctx.message.id);
         err.push(')');
     }
-    eval_ctx.storage.set(error_key, &err).await?;
+    eval_ctx.storage().set(error_key, &err).await?;
 
     Ok(())
 }
@@ -139,7 +139,7 @@ async fn prepare_command(
                 }
             }
 
-            let mut p = ctx.storage.create_pipeline();
+            let mut p = ctx.storage().create_pipeline();
             p.hexists(format!("macros:{}", ctx.owner), &name).queue();
             p.hexists("macros:global", &name).queue();
 
@@ -284,7 +284,7 @@ async fn run_command(ctx: CommandContext, fut: CommandFuture) -> Result<()> {
     let _guard = if r.no_wall {
         None
     } else {
-        Some(ctx.status_wall.push(status).await)
+        Some(ctx.status_wall().push(status).await)
     };
 
     tracing::trace!("running command");

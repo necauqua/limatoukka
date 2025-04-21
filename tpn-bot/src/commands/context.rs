@@ -25,6 +25,7 @@ use crate::{
         messaging::{Message, MessagingClient},
         noita::NoitaHandle,
         status_wall::StatusWall,
+        twitch::Twitch,
         xdo::XDoClient,
     },
 };
@@ -33,15 +34,20 @@ use super::{CommandRegistration, parsing::CommandType};
 
 pub type Valkey = rustis::client::Client;
 
+struct AppContextInner {
+    messaging: MessagingClient,
+    config: Config,
+    storage: Valkey,
+    xdo: XDoClient,
+    noita: NoitaHandle,
+    status_wall: StatusWall,
+    holds: HoldState,
+    twitch: Twitch,
+}
+
 #[derive(Clone)]
 pub struct AppContext {
-    pub config: Arc<Config>,
-    pub messaging: MessagingClient,
-    pub storage: Arc<Valkey>,
-    pub xdo: XDoClient,
-    pub noita: NoitaHandle,
-    pub status_wall: StatusWall,
-    pub holds: HoldState,
+    inner: Arc<AppContextInner>,
 }
 
 #[derive(Clone)]
@@ -166,10 +172,63 @@ impl Deref for CommandContext {
 }
 
 impl AppContext {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        messaging: MessagingClient,
+        config: Config,
+        storage: Valkey,
+        xdo: XDoClient,
+        noita: NoitaHandle,
+        status_wall: StatusWall,
+        holds: HoldState,
+        twitch: Twitch,
+    ) -> Self {
+        Self {
+            inner: Arc::new(AppContextInner {
+                messaging,
+                config,
+                storage,
+                xdo,
+                noita,
+                status_wall,
+                holds,
+                twitch,
+            }),
+        }
+    }
+
+    pub fn config(&self) -> &Config {
+        &self.inner.config
+    }
+
+    pub fn storage(&self) -> &Valkey {
+        &self.inner.storage
+    }
+
+    pub fn xdo(&self) -> &XDoClient {
+        &self.inner.xdo
+    }
+
+    pub fn noita(&self) -> &NoitaHandle {
+        &self.inner.noita
+    }
+
+    pub fn status_wall(&self) -> &StatusWall {
+        &self.inner.status_wall
+    }
+
+    pub fn holds(&self) -> &HoldState {
+        &self.inner.holds
+    }
+
+    pub fn twitch(&self) -> &Twitch {
+        &self.inner.twitch
+    }
+
     /// Returns true once (atomically) in the given period - per key.
     pub async fn gate(&self, key: &str, period: Duration) -> Result<bool> {
         let gate: Option<String> = self
-            .storage
+            .storage()
             .set_get_with_options(
                 format!("gate:{key}"),
                 "1",
@@ -188,7 +247,7 @@ impl AppContext {
 
     pub async fn send(&self, message: String) -> Result<()> {
         tracing::debug!(text = message, "sending");
-        self.messaging.send(message).await?;
+        self.inner.messaging.send(message).await?;
         Ok(())
     }
 
@@ -236,23 +295,24 @@ impl AppContext {
         Self::just("sound-setup").await
     }
 
-    pub async fn reset() -> Result<()> {
-        Self::just("reset-restart").await
+    pub fn reset(&self) -> impl Future<Output = Result<()>> + use<> {
+        self.noita().reset_inventory();
+        Self::just("reset-restart")
     }
 
     pub async fn next_run(&self) -> Result<()> {
-        self.holds.send_interrupt().await;
+        self.holds().send_interrupt().await;
 
         sleep(Duration::from_millis(500)).await;
 
-        self.xdo.key("Enter").await?;
+        self.xdo().key("Enter").await?;
 
-        let no_restarts: Option<String> = self.storage.get("flags:no-restarts").await?;
+        let no_restarts: Option<String> = self.storage().get("flags:no-restarts").await?;
         if no_restarts.is_some() {
             return Ok(());
         }
 
-        let entry = self.status_wall.allocate().await;
+        let entry = self.status_wall().allocate().await;
         for i in (1..=10).rev() {
             entry
                 .set_top(html! { span style="color:orange" { "Starting new game in " (i) } })
@@ -288,14 +348,14 @@ impl MessageContext {
 
     pub async fn reply(&self, message: String) -> Result<()> {
         tracing::debug!(reply = message, "replying");
-        self.messaging.reply(&self.message, message).await?;
+        self.inner.messaging.reply(&self.message, message).await?;
         Ok(())
     }
 
     pub async fn reply_buffered(&self, message: String) -> Result<()> {
         let state_key = format!("reply_buffered:{}", self.message.sender.id);
 
-        if self.storage.rpush(&state_key, &message).await? != 1 {
+        if self.storage().rpush(&state_key, &message).await? != 1 {
             tracing::debug!(message, "adding to existing reply buffer");
             return Ok(());
         }
@@ -303,7 +363,7 @@ impl MessageContext {
         tracing::debug!(message, "new reply buffer");
         let ctx = self.clone();
         self.schedule(Duration::from_millis(100), move |_| async move {
-            let mut tx = ctx.storage.create_transaction();
+            let mut tx = ctx.storage().create_transaction();
             tx.lrange::<_, _, Vec<String>>(&state_key, 0, -1).queue();
             tx.del(&state_key).forget();
 

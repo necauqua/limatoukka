@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use anyhow::Result;
 use opentelemetry::trace::Status;
 use tpn_bot::{
@@ -13,6 +11,7 @@ use tpn_bot::{
         messaging,
         noita::{ItemFound, NoitaHandle},
         status_wall::StatusWall,
+        twitch::Twitch,
         xdo::XDoClient,
     },
 };
@@ -25,13 +24,16 @@ async fn run(config: Config) -> Result<()> {
     // let it fail before we connect to twitch
     let valkey = Valkey::connect(&*config.valkey).await?;
 
-    let (mut incoming, messaging) = match &config.bot {
-        Some(bot) => {
-            let creds =
-                StaticLoginCredentials::new(bot.login.to_owned(), Some(bot.token.to_owned()));
-            messaging::connect_to_twitch(creds, bot.target.to_owned())
-        }
-        _ => messaging::connect_to_mock().await?,
+    let twitch = Twitch::new(&config.twitch).await?;
+    let (mut incoming, messaging) = {
+        // Some(twitch) => {
+        let login = twitch.bot();
+        let token = twitch.token().await;
+
+        let creds = StaticLoginCredentials::new(login.to_owned(), Some(token.access_token.take()));
+        messaging::connect_to_twitch(creds, twitch.target().login.clone().take())
+        // }
+        // _ => messaging::connect_to_mock().await?,
     };
 
     let status_wall = StatusWall::default();
@@ -55,17 +57,18 @@ async fn run(config: Config) -> Result<()> {
     let noita = NoitaHandle::default();
     tokio::spawn(noita.clone().poll_state_updates());
 
-    let ctx = AppContext {
-        config: config.into(),
+    let ctx = AppContext::new(
         messaging,
-        storage: Arc::new(valkey),
+        config,
+        valkey,
         xdo,
         noita,
         status_wall,
-        holds: Default::default(),
-    };
+        Default::default(),
+        twitch,
+    );
 
-    let mut rx = ctx.noita.subscribe_to_found_items();
+    let mut rx = ctx.noita().subscribe_to_found_items();
 
     loop {
         tokio::select! {
@@ -88,7 +91,7 @@ async fn run(config: Config) -> Result<()> {
                     .instrument(span),
                 );
             }
-            _ = ctx.noita.wait_for_player_death() => {
+            _ = ctx.noita().wait_for_player_death() => {
                 if let Err(error) = ctx.next_run().await {
                     tracing::error!(?error, "failed to start next run");
                 }
@@ -101,8 +104,11 @@ async fn run(config: Config) -> Result<()> {
                     ItemFound::EarthStone => {
                         "The final frontier before all the wacky shit, EARTHSTONE acquired! POGGIES"
                     }
+                    ItemFound::Taikasauva => {
+                        "Got the SUMMONTAIKASAUVA , the whole world is in your hands now"
+                    }
                 };
-                if let Err(error) = ctx.messaging.send(message).await {
+                if let Err(error) = ctx.send(message.into()).await {
                     tracing::error!(?error, "failed send item found message");
                 }
             }

@@ -47,7 +47,7 @@ async fn echo(ctx: CommandContext, text: String) -> Result<()> {
 #[command(sender_gate = 3s)]
 async fn last_error(ctx: CommandContext, login: Option<String>) -> Result<()> {
     let id = chatter_id(&ctx, login.as_deref()).await?;
-    let status: Option<String> = ctx.storage.get(format!("last-error:{id}")).await?;
+    let status: Option<String> = ctx.storage().get(format!("last-error:{id}")).await?;
     if let Some(status) = status {
         ctx.reply(status).await?;
     } else {
@@ -65,7 +65,7 @@ async fn seed(ctx: CommandContext) -> Result<()> {
         ctx.reply("nah man stop checking the seed like that at the beginning".into())
             .await
     } else {
-        ctx.reply(match ctx.noita.get_seed().await {
+        ctx.reply(match ctx.noita().get_seed().await {
             Some(seed) => format!("{seed}"),
             None => "no data".into(),
         })
@@ -76,7 +76,7 @@ async fn seed(ctx: CommandContext) -> Result<()> {
 /// Get the current death count
 #[command(global_gate = 15s, shortcode=deaths)]
 async fn death_count(ctx: CommandContext) -> Result<()> {
-    ctx.reply(match ctx.noita.get_death_count().await {
+    ctx.reply(match ctx.noita().get_death_count().await {
         Some(count) => count.to_string(),
         None => "Couldn't read the death count - is the game running?".into(),
     })
@@ -107,7 +107,7 @@ async fn wait(ctx: CommandContext, duration: HoldTime) -> Result<()> {
     let duration = duration.get();
     tracing::debug!(?duration, "waiting");
 
-    let entry = ctx.status_wall.allocate().await;
+    let entry = ctx.status_wall().allocate().await;
     let inner_ctx = ctx.clone();
     let wall_task = tokio::spawn(async move {
         let name = &inner_ctx.message.sender.name;
@@ -122,7 +122,7 @@ async fn wait(ctx: CommandContext, duration: HoldTime) -> Result<()> {
         }
     });
 
-    ctx.holds
+    ctx.holds()
         .interruptible(sleep(duration))
         .await
         .inspect_err(|_| wall_task.abort())?;
@@ -138,7 +138,7 @@ async fn wait(ctx: CommandContext, duration: HoldTime) -> Result<()> {
 /// This is kind of a niche thing, most likely you need `interrupt~`.
 #[command]
 async fn r#break(ctx: CommandContext) -> Result<()> {
-    ctx.holds.send_break().await;
+    ctx.holds().send_break().await;
     Ok(())
 }
 
@@ -147,7 +147,7 @@ async fn r#break(ctx: CommandContext) -> Result<()> {
 /// get completed do not run.
 #[command]
 async fn interrupt(ctx: CommandContext) -> Result<()> {
-    ctx.holds.send_interrupt().await;
+    ctx.holds().send_interrupt().await;
     Ok(())
 }
 
@@ -162,9 +162,9 @@ async fn interrupt(ctx: CommandContext) -> Result<()> {
 #[command(permission = Moderator)]
 async fn flag(ctx: CommandContext, flag: String) -> Result<()> {
     if let Some(flag) = flag.strip_prefix("-") {
-        ctx.storage.del(format!("flags:{flag}")).await?;
+        ctx.storage().del(format!("flags:{flag}")).await?;
     } else {
-        ctx.storage.set(format!("flags:{flag}"), "1").await?;
+        ctx.storage().set(format!("flags:{flag}"), "1").await?;
     }
     Ok(())
 }

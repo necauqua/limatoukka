@@ -83,7 +83,7 @@ run:
 stop:
     #!/usr/bin/env bash
     DISPLAY={{display}} xdotool key Alt+F4
-    sleep 2 # maybe wait for game to end (check by pid)
+    sleep 10 # maybe wait for game to end (check by pid)
     pkill .exe
     pkill wine
     pkill -f pipewire-obs-thing.lua
