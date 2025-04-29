@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 use anyhow::Result;
 use strum::{EnumIter, EnumMessage, IntoStaticStr};
@@ -36,10 +36,7 @@ pub fn connect_to_twitch(twitch: Twitch) -> (MessageSource, MessagingClient) {
     client.join(channel.clone()).unwrap(); // panic on invalid channel
     (
         MessageSource::Twitch(incoming),
-        MessagingClient::Twitch {
-            client,
-            channel: channel.into(),
-        },
+        MessagingClient::Twitch { client, channel },
     )
 }
 
@@ -149,11 +146,10 @@ impl MessageSource {
     }
 }
 
-#[derive(Clone)]
 pub enum MessagingClient {
     Twitch {
         client: TwitchIRCClient<SecureTCPTransport, Twitch>,
-        channel: Arc<str>,
+        channel: String,
     },
     Mock,
 }

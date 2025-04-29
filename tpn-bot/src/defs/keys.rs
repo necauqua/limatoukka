@@ -4,7 +4,10 @@ use anyhow::Result;
 use tokio::time::timeout;
 
 use super::HoldTime;
-use crate::commands::{args::InRange, command, context::CommandContext};
+use crate::{
+    commands::{args::InRange, command},
+    context::cmd::CommandContext,
+};
 
 async fn mv(ctx: CommandContext, duration: HoldTime, key: &'static str) -> Result<()> {
     super::hold(

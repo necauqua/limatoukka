@@ -9,10 +9,10 @@ use crate::{
     commands::{
         args::InRange,
         command,
-        context::CommandContext,
         parsing::CommandMessage,
         runner::{self, CommandError, CommandInterrupt},
     },
+    context::cmd::CommandContext,
     fail,
 };
 
@@ -181,7 +181,7 @@ async fn r#macro(ctx: CommandContext, name: String, login: Option<String>) -> Re
     let command_msg = CommandMessage::parse(&script);
 
     let status = html! {
-        span style="color: #E38AF0" { (ctx.message.sender.name) } ": macro:" (name) " " (ctx.nesting_str())
+        span style="color: #E38AF0" { (ctx.message().sender.name) } ": macro:" (name) " " (ctx.nesting_str())
     };
     let _guard = ctx.status_wall().push(status).await;
 
@@ -218,7 +218,7 @@ async fn repeat(ctx: CommandContext, times: InRange<2, 15>, script: String) -> R
             fail!("repeat limit exceeded");
         }
         entry.set(html! {
-            span style="color: #E38AF0" { (ctx.message.sender.name) } ": repeat:" (i) " " (ctx.nesting_str())
+            span style="color: #E38AF0" { (ctx.message().sender.name) } ": repeat:" (i) " " (ctx.nesting_str())
         }).await;
         let errors = runner::eval(&ctx.nest(), command_msg.clone()).await;
         if !errors.is_empty() {
@@ -254,7 +254,7 @@ async fn group(
         None => html! { (ctx.command) },
     };
     let status = html! {
-        span style="color: #E38AF0" { (ctx.message.sender.name) } ": " (name) " " (ctx.nesting_str())
+        span style="color: #E38AF0" { (ctx.message().sender.name) } ": " (name) " " (ctx.nesting_str())
     };
     let _guard = ctx.status_wall().push(status).await;
 
@@ -290,7 +290,7 @@ async fn lock(ctx: CommandContext, script: String) -> Result<()> {
     }
 
     let status = html! {
-        "current lock: " span style="color: #E38AF0" { (ctx.message.sender.name) }
+        "current lock: " span style="color: #E38AF0" { (ctx.message().sender.name) }
     };
     let _guard = ctx.status_wall().push_top(status).await;
 

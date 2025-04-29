@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -60,9 +59,9 @@ impl Drop for Inner {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub struct HoldState {
-    inner: Arc<Mutex<Inner>>,
+    inner: Mutex<Inner>,
 }
 
 impl HoldState {

@@ -1,4 +1,4 @@
-use std::{any::Any, sync::Arc};
+use std::any::Any;
 
 use anyhow::Result;
 use maud::html;
@@ -12,12 +12,19 @@ use tokio::task::JoinSet;
 use tracing::{Instrument, Span, debug_span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-use crate::services::messaging::{Message, PermissionLevel};
+use crate::{
+    context::{
+        app::AppContext,
+        cmd::{CommandDescriptor, CommandToken},
+        eval::EvalContext,
+        msg::MessageContext,
+    },
+    services::messaging::{Message, PermissionLevel},
+};
 
 use super::{
     CommandContext, CommandFuture,
     args::{Args, ExtractorError},
-    context::{AppContext, CommandDescriptor, CommandToken, EvalContext, MessageContext},
     parsing::{CommandExpr, CommandMessage},
 };
 
@@ -56,15 +63,14 @@ pub async fn receive_message(ctx: AppContext, message: Message) -> Result<()> {
         return Ok(());
     }
 
-    let msg_ctx = MessageContext::new(ctx.clone(), Arc::new(message));
-    let eval_ctx = EvalContext::new(msg_ctx);
+    let ctx = EvalContext::new(MessageContext::new(ctx.clone(), message));
 
-    let errors = eval(&eval_ctx, command_msg).await;
-    let error_key = format!("last-error:{}", eval_ctx.message.sender.id);
+    let errors = eval(&ctx, command_msg).await;
+    let error_key = format!("last-error:{}", ctx.message().sender.id);
 
     if errors.is_empty() {
         Span::current().set_status(Status::Ok);
-        eval_ctx.storage().del(error_key).await?;
+        ctx.storage().del(error_key).await?;
         return Ok(());
     }
 
@@ -77,10 +83,10 @@ pub async fn receive_message(ctx: AppContext, message: Message) -> Result<()> {
         .join("\n");
     if errors.iter().any(|e| e.internal()) {
         err.push_str(" (msg-id: ");
-        err.push_str(&eval_ctx.message.id);
+        err.push_str(&ctx.message().id);
         err.push(')');
     }
-    eval_ctx.storage().set(error_key, &err).await?;
+    ctx.storage().set(error_key, &err).await?;
 
     Ok(())
 }
@@ -159,7 +165,7 @@ async fn prepare_command(
     if ctx.macro_depth > RECURSION_LIMIT {
         return Err(CommandError::RecursionLimit(desc));
     }
-    if registration.permission > ctx.message.sender.level {
+    if registration.permission > ctx.message().sender.level {
         return Err(CommandError::PermissionError(desc));
     }
 
@@ -279,7 +285,7 @@ async fn run_command(ctx: CommandContext, fut: CommandFuture) -> Result<()> {
     }
 
     let status = html! {
-        span style="color: #E38AF0" { (ctx.message.sender.name) } ": " (ctx.command) " " (ctx.nesting_str())
+        span style="color: #E38AF0" { (ctx.message().sender.name) } ": " (ctx.command) " " (ctx.nesting_str())
     };
     let _guard = if r.no_wall {
         None

@@ -1,12 +1,11 @@
-use std::{io::BufRead, sync::Arc};
+use std::io::BufRead;
 
 use anyhow::{Context, Result, bail};
 use futures::TryFutureExt;
 use tokio::process::Command;
 
-#[derive(Clone)]
 pub struct XDoClient {
-    display: Option<Arc<str>>,
+    display: Option<String>,
 }
 
 macro_rules! xdotool_calls {
@@ -27,9 +26,7 @@ macro_rules! xdotool_calls {
 
 impl XDoClient {
     pub fn new(display: Option<String>) -> Self {
-        Self {
-            display: display.map(|d| d.into()),
-        }
+        Self { display }
     }
 
     // xdotool uses xlib, so if you use libxdo and the X connection drops

@@ -9,8 +9,8 @@ use crate::{
     commands::{
         args::{HoldTime, InRange},
         command,
-        context::CommandContext,
     },
+    context::cmd::CommandContext,
     fail,
     services::noita::NoitaHandle,
 };

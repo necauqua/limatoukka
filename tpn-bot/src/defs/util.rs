@@ -1,11 +1,8 @@
 use std::time::Duration;
 
 use crate::{
-    commands::{
-        args::HoldTime,
-        command,
-        context::{AppContext, CommandContext},
-    },
+    commands::{args::HoldTime, command},
+    context::{app::AppContext, cmd::CommandContext},
     fail,
     services::messaging::PermissionLevel,
 };
@@ -32,7 +29,7 @@ async fn ping(ctx: CommandContext) -> Result<()> {
 /// So you can call a global macro `discord~` which will resolve to `echo:"discord link etc"~` and print it.
 #[command(sender_gate = 5s)]
 async fn echo(ctx: CommandContext, text: String) -> Result<()> {
-    if !ctx.in_global_macro && ctx.message.sender.level < PermissionLevel::Moderator {
+    if !ctx.in_global_macro && ctx.message().sender.level < PermissionLevel::Moderator {
         fail!("only works from inside of global macros")
     }
     ctx.send(text).await?;
@@ -61,7 +58,7 @@ async fn last_error(ctx: CommandContext, login: Option<String>) -> Result<()> {
 /// At the moment only replies with actual seed to moderators 🤷
 #[command(global_gate = 15s)]
 async fn seed(ctx: CommandContext) -> Result<()> {
-    if ctx.message.sender.level < PermissionLevel::Moderator {
+    if ctx.message().sender.level < PermissionLevel::Moderator {
         ctx.reply("nah man stop checking the seed like that at the beginning".into())
             .await
     } else {
@@ -110,7 +107,7 @@ async fn wait(ctx: CommandContext, duration: HoldTime) -> Result<()> {
     let entry = ctx.status_wall().allocate().await;
     let inner_ctx = ctx.clone();
     let wall_task = tokio::spawn(async move {
-        let name = &inner_ctx.message.sender.name;
+        let name = &inner_ctx.message().sender.name;
         let nesting = inner_ctx.nesting_str();
         for i in (1..=duration.as_secs()).rev() {
             entry

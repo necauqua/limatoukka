@@ -6,10 +6,7 @@ use rustis::{
     commands::{ExpireOption, GenericCommands, StringCommands},
 };
 
-use crate::{
-    commands::{args::HoldTime, context::CommandContext},
-    fail,
-};
+use crate::{commands::args::HoldTime, context::cmd::CommandContext, fail};
 
 mod keys;
 mod macros;

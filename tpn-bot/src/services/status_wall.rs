@@ -16,19 +16,14 @@ use maud::{PreEscaped, html};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
-#[derive(Default, Clone)]
-pub struct StatusWall {
-    inner: Arc<Mutex<StatusWallInner>>,
-}
-
 #[derive(Default)]
-struct StatusWallInner {
+struct Inner {
     entries: IndexMap<EntryKey, String>,
     counter: usize,
     senders: Vec<UnboundedSender<Event>>,
 }
 
-impl StatusWallInner {
+impl Inner {
     fn new_key(&mut self) -> EntryKey {
         self.counter += 1;
         EntryKey(self.counter)
@@ -52,6 +47,11 @@ impl StatusWallInner {
             self.senders.retain(|sender| !sender.is_closed());
         }
     }
+}
+
+#[derive(Default, Clone)]
+pub struct StatusWall {
+    inner: Arc<Mutex<Inner>>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -93,7 +93,7 @@ impl StatusWall {
         EntryGuard(key, self.clone())
     }
 
-    async fn update<R>(&self, f: impl FnOnce(&mut StatusWallInner) -> R) -> R {
+    async fn update<R>(&self, f: impl FnOnce(&mut Inner) -> R) -> R {
         let mut inner = self.inner.lock().await;
         let r = f(&mut inner);
         inner.sync().await;

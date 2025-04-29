@@ -8,16 +8,14 @@ use std::{
 
 use anyhow::Result;
 use args::{Args, ExtractorResult};
-use context::CommandContext;
 
 pub mod args;
-pub mod context;
 pub mod parsing;
 pub mod runner;
 
 pub use tpn_bot_macros::command;
 
-use crate::services::messaging::PermissionLevel;
+use crate::{context::cmd::CommandContext, services::messaging::PermissionLevel};
 
 pub type CommandFuture = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
 pub type CommandPtr = fn(CommandContext, Args) -> ExtractorResult<CommandFuture>;

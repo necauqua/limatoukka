@@ -1,16 +1,15 @@
 use anyhow::Result;
 use opentelemetry::trace::Status;
 use tpn_bot::{
-    commands::{
-        context::{AppContext, Valkey},
-        runner,
-    },
+    commands::runner,
     config::Config,
+    context::app::AppContext,
     logging,
     services::{
         messaging,
         noita::{ItemFound, NoitaHandle},
         status_wall::StatusWall,
+        storage::Storage,
         twitch::Twitch,
         xdo::XDoClient,
     },
@@ -20,50 +19,26 @@ use tracing::{Instrument, Span, field::Empty};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 async fn run(config: Config) -> Result<()> {
-    // let it fail before we connect to twitch
-    let valkey = Valkey::connect(&*config.valkey).await?;
-
+    let storage = Storage::new(&*config.valkey).await?;
     let twitch = Twitch::new(&config.twitch).await?;
-    let (mut incoming, messaging) = {
-        // Some(twitch) => {
-        messaging::connect_to_twitch(twitch.clone())
-        // }
-        // _ => messaging::connect_to_mock().await?,
-    };
-
-    let status_wall = StatusWall::default();
-    tokio::spawn(status_wall.start(&config.browser_source_bind));
-
     let xdo = XDoClient::new(config.display.clone());
-    // fix any stuck holds
-    tokio::spawn({
-        let xdo = xdo.clone();
-        async move {
-            tokio::join!(
-                xdo.keyup("w"),
-                xdo.keyup("a"),
-                xdo.keyup("s"),
-                xdo.keyup("d"),
-                xdo.mouseup(1),
-            )
-        }
-    });
 
-    let noita = NoitaHandle::default();
-    tokio::spawn(noita.clone().poll_state_updates());
+    let (mut incoming, messaging) = messaging::connect_to_twitch(twitch.clone());
 
     let ctx = AppContext::new(
         messaging,
         config,
-        valkey,
+        storage,
         xdo,
-        noita,
-        status_wall,
+        NoitaHandle::default(),
+        StatusWall::default(),
         Default::default(),
         twitch,
     );
 
-    let mut rx = ctx.noita().subscribe_to_found_items();
+    ctx.init();
+
+    let mut found_items = ctx.noita().subscribe_to_found_items();
 
     loop {
         tokio::select! {
@@ -91,7 +66,7 @@ async fn run(config: Config) -> Result<()> {
                     tracing::error!(?error, "failed to start next run");
                 }
             }
-            Ok(found) = rx.recv() => {
+            Ok(found) = found_items.recv() => {
                 let message = match found {
                     ItemFound::TreeTablet => "The best TABLET in the game acquired!",
                     ItemFound::OtherTablet => "TABLET acquired",
