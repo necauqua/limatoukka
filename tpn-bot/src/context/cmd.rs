@@ -4,7 +4,9 @@ use std::{
     sync::Arc,
 };
 
-use crate::commands::{CommandRegistration, parsing::CommandType};
+use neca_cmd::CommandType;
+
+use crate::commands::CommandRegistration;
 
 use super::eval::EvalContext;
 

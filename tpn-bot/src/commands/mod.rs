@@ -10,7 +10,6 @@ use anyhow::Result;
 use args::{Args, ExtractorResult};
 
 pub mod args;
-pub mod parsing;
 pub mod runner;
 
 pub use tpn_bot_macros::command;

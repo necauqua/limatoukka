@@ -1,5 +1,6 @@
 use anyhow::{Result, bail};
 use maud::html;
+use neca_cmd::CommandMessage;
 use rustis::{
     client::BatchPreparedCommand,
     commands::{GenericCommands, HashCommands, SetCondition, SetExpiration, StringCommands},
@@ -9,7 +10,6 @@ use crate::{
     commands::{
         args::InRange,
         command,
-        parsing::CommandMessage,
         runner::{self, CommandError, CommandInterrupt},
     },
     context::cmd::CommandContext,

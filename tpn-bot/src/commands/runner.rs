@@ -2,6 +2,7 @@ use std::any::Any;
 
 use anyhow::Result;
 use maud::html;
+use neca_cmd::{CommandExpr, CommandMessage};
 use opentelemetry::trace::Status;
 use rustis::{
     client::BatchPreparedCommand,
@@ -25,7 +26,6 @@ use crate::{
 use super::{
     CommandContext, CommandFuture,
     args::{Args, ExtractorError},
-    parsing::{CommandExpr, CommandMessage},
 };
 
 pub async fn receive_message(ctx: AppContext, message: Message) -> Result<()> {

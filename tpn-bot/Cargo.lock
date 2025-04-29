@@ -1752,6 +1752,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "neca-cmd"
+version = "0.1.0"
+dependencies = [
+ "lazy-regex",
+]
+
+[[package]]
 name = "nix"
 version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3311,6 +3318,7 @@ dependencies = [
  "libxdo",
  "maud",
  "metrics",
+ "neca-cmd",
  "noita-engine-reader",
  "opentelemetry",
  "opentelemetry-otlp",
