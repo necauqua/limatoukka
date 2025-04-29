@@ -72,7 +72,6 @@ async fn slot(ctx: CommandContext, slot: InRange<1, 8>) -> Result<()> {
 async fn open_inventory(ctx: CommandContext) -> Result<()> {
     if !ctx.noita().is_inventory_open() {
         let f = ctx.noita().wait_for_inventory_open();
-        ctx.xdo().mousemove(0, 0).await?;
         ctx.xdo().key("Tab").await?;
         _ = timeout(Duration::from_millis(100), f).await;
     }
