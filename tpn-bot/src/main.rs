@@ -74,6 +74,9 @@ async fn run(config: Config) -> Result<()> {
                     ItemFound::EarthStone => {
                         "The final frontier before all the wacky shit, EARTHSTONE acquired! POGGIES"
                     }
+                    ItemFound::TouchOfGold => {
+                        "TOUCHOFGOLD - Infinite money glitch? Midas at home? A boss-killer even ( Clueless )?"
+                    }
                     ItemFound::Taikasauva => {
                         "Got the SUMMONTAIKASAUVA , the whole world is in your hands now"
                     }

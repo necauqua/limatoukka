@@ -43,6 +43,7 @@ pub enum ItemFound {
     OtherTablet,
     EvilEye,
     EarthStone,
+    TouchOfGold,
     Taikasauva,
 }
 
@@ -212,6 +213,9 @@ impl NoitaHandle {
             if diff.contains(Inventory::TAIKASAUVA) {
                 _ = self.found_items.send(ItemFound::Taikasauva);
             }
+            if diff.contains(Inventory::TOUCH_OF_GOLD) {
+                _ = self.found_items.send(ItemFound::TouchOfGold);
+            }
 
             *best_inv |= inv;
         }
@@ -265,7 +269,8 @@ bitflags! {
         const BEST_TABLET = 1 << 1;
         const EVIL_EYE = 1 << 2;
         const EARTH_STONE = 1 << 3;
-        const TAIKASAUVA = 1 << 4;
+        const TOUCH_OF_GOLD = 1 << 4;
+        const TAIKASAUVA = 1 << 5;
     }
 }
 
@@ -310,10 +315,12 @@ impl Inventory {
                     inv |= Inventory::BEST_TABLET;
                 }
                 inv |= Inventory::TABLET;
-            } else if name == "$item_evil_eye" {
-                inv |= Inventory::EVIL_EYE;
-            } else if name == "$item_stonestone" {
-                inv |= Inventory::EARTH_STONE;
+            } else {
+                inv |= match &*name {
+                    "$item_evil_eye" => Inventory::EVIL_EYE,
+                    "$item_stonestone" => Inventory::EARTH_STONE,
+                    _ => Inventory::empty(),
+                };
             }
         }
         // apparently this can happen
@@ -326,9 +333,11 @@ impl Inventory {
                 continue;
             };
             let action_id = item_action_comp.action_id.read(&p)?;
-            if action_id == "SUMMON_WANDGHOST" {
-                inv |= Inventory::TAIKASAUVA;
-            }
+            inv |= match &*action_id {
+                "TOUCH_GOLD" => Inventory::TOUCH_OF_GOLD,
+                "SUMMON_WANDGHOST" => Inventory::TAIKASAUVA,
+                _ => Inventory::empty(),
+            };
         }
         Ok(inv)
     }
