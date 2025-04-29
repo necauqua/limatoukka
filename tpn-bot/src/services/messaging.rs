@@ -10,9 +10,10 @@ use tokio::{
 };
 use twitch_irc::{
     ClientConfig, SecureTCPTransport, TwitchIRCClient,
-    login::StaticLoginCredentials,
     message::{Badge, ServerMessage},
 };
+
+use super::twitch::Twitch;
 
 #[derive(Debug, Clone)]
 pub struct Sender {
@@ -29,11 +30,9 @@ pub struct Message {
     pub text: String,
 }
 
-pub fn connect_to_twitch(
-    creds: StaticLoginCredentials,
-    channel: String,
-) -> (MessageSource, MessagingClient) {
-    let (incoming, client) = TwitchIRCClient::new(ClientConfig::new_simple(creds));
+pub fn connect_to_twitch(twitch: Twitch) -> (MessageSource, MessagingClient) {
+    let channel = twitch.target().login.to_string();
+    let (incoming, client) = TwitchIRCClient::new(ClientConfig::new_simple(twitch));
     client.join(channel.clone()).unwrap(); // panic on invalid channel
     (
         MessageSource::Twitch(incoming),
@@ -153,7 +152,7 @@ impl MessageSource {
 #[derive(Clone)]
 pub enum MessagingClient {
     Twitch {
-        client: TwitchIRCClient<SecureTCPTransport, StaticLoginCredentials>,
+        client: TwitchIRCClient<SecureTCPTransport, Twitch>,
         channel: Arc<str>,
     },
     Mock,

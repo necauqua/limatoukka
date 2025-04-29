@@ -18,7 +18,6 @@ use tpn_bot::{
 
 use tracing::{Instrument, Span, field::Empty};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-use twitch_irc::login::StaticLoginCredentials;
 
 async fn run(config: Config) -> Result<()> {
     // let it fail before we connect to twitch
@@ -27,11 +26,7 @@ async fn run(config: Config) -> Result<()> {
     let twitch = Twitch::new(&config.twitch).await?;
     let (mut incoming, messaging) = {
         // Some(twitch) => {
-        let login = twitch.bot();
-        let token = twitch.token().await;
-
-        let creds = StaticLoginCredentials::new(login.to_owned(), Some(token.access_token.take()));
-        messaging::connect_to_twitch(creds, twitch.target().login.clone().take())
+        messaging::connect_to_twitch(twitch.clone())
         // }
         // _ => messaging::connect_to_mock().await?,
     };

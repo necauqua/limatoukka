@@ -60,6 +60,7 @@ keyring = { version = "3.6.2", features = [
     "crypto-rust",
     "sync-secret-service",
 ] }
+async-trait = "0.1.88"
 
 [build-dependencies]
 anyhow = "1.0.97"

@@ -1,10 +1,13 @@
 use std::{
     collections::HashMap,
+    fmt::Debug,
     option::Option::Some,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use anyhow::{Context, Result, anyhow, bail};
+use async_trait::async_trait;
 use axum::{Router, extract::Query, routing::get};
 use helix::{
     ClientRequestError, HelixRequestDeleteError, HelixRequestGetError, HelixRequestPatchError,
@@ -17,6 +20,7 @@ use tokio::{
     sync::{Notify, RwLock, oneshot},
 };
 use twitch_api::{twitch_oauth2::*, *};
+use twitch_irc::login::{CredentialsPair, LoginCredentials};
 use url::Url;
 
 #[derive(Deserialize)]
@@ -142,6 +146,35 @@ pub struct Twitch {
     inner: Arc<Inner>,
 }
 
+impl Debug for Twitch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Twitch")
+            .field("bot", &self.bot())
+            .field("target", &self.target().login)
+            .finish()
+    }
+}
+
+#[async_trait]
+impl LoginCredentials for Twitch {
+    type Error = anyhow::Error;
+
+    async fn get_credentials(&self) -> Result<CredentialsPair, Self::Error> {
+        let mut token = self.inner.token.write().await;
+        // idk about the time
+        if token.expires_in() < Duration::from_secs(1800) {
+            tracing::info!("(irc) token close to expiration, refreshing");
+            token
+                .refresh_token(self.inner.client.helix.get_client())
+                .await?;
+        }
+        Ok(CredentialsPair {
+            login: self.inner.bot.to_owned(),
+            token: Some(token.token().clone().take()),
+        })
+    }
+}
+
 pub struct TwitchRefs<'a> {
     pub helix: &'a HelixClient<'static, reqwest::Client>,
     pub target: &'a User,
@@ -151,10 +184,6 @@ pub struct TwitchRefs<'a> {
 impl Twitch {
     pub fn bot(&self) -> &str {
         &self.inner.bot
-    }
-
-    pub async fn token(&self) -> UserToken {
-        self.inner.token.read().await.clone()
     }
 
     pub fn target(&self) -> &User {
@@ -187,35 +216,34 @@ impl Twitch {
         R: Future<Output = Result<T, ClientRequestError<reqwest::Error>>>,
         F: FnMut(TwitchRefs<'a>) -> R,
     {
-        // clone the token for every request because twitch-api lifetimes are shit
-        //  (also that's what causes the turbo-annoying async move { api.call().await } constructs too)
-        let token = self.inner.token.read().await.clone();
         let res = f(TwitchRefs {
             helix: &self.inner.client.helix,
             target: &self.inner.target,
-            token,
+            // clone the token for every request because twitch-api lifetimes are shit
+            //  (also that's what causes the turbo-annoying async move { api.call().await } constructs too)
+            token: self.inner.token.read().await.clone(),
         })
         .await;
 
-        if let Err(e) = &res {
-            if is_auth_error(e) {
-                tracing::info!(error = ?e, "token expired, refreshing");
-                self.inner
-                    .token
-                    .write()
-                    .await
-                    .refresh_token(self.inner.client.get_client())
-                    .await?;
-                let token = self.inner.token.read().await.clone();
-                return Ok(f(TwitchRefs {
-                    helix: &self.inner.client.helix,
-                    target: &self.inner.target,
-                    token,
-                })
-                .await?);
-            }
+        let Err(e) = &res else {
+            return Ok(res?);
+        };
+        if !is_auth_error(e) {
+            return Ok(res?);
         }
-        Ok(res?)
+
+        tracing::info!(error = ?e, "token expired, refreshing");
+        let mut token = self.inner.token.write().await;
+        token.refresh_token(self.inner.client.get_client()).await?;
+        let t = token.clone();
+        drop(token);
+
+        Ok(f(TwitchRefs {
+            helix: &self.inner.client.helix,
+            target: &self.inner.target,
+            token: t,
+        })
+        .await?)
     }
 }
 
