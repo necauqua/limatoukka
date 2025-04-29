@@ -209,6 +209,9 @@ impl NoitaHandle {
             if diff.contains(Inventory::EARTH_STONE) {
                 _ = self.found_items.send(ItemFound::EarthStone);
             }
+            if diff.contains(Inventory::TAIKASAUVA) {
+                _ = self.found_items.send(ItemFound::Taikasauva);
+            }
 
             *best_inv |= inv;
         }
