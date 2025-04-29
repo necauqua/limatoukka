@@ -229,26 +229,10 @@ async fn get_id(ctx: &CommandContext, login: &str) -> Result<Option<String>> {
         .await?)
 }
 
-async fn do_banish(ctx: AppContext, id: String, login: String) -> Result<()> {
-    let thin_ice = format!("kick:thin-ice:{id}");
-    if ctx.storage().del(&thin_ice).await? != 0 {
-        // yeet em
-        ctx.storage().set(format!("kick:begone:{id}"), "1").await?;
-        tracing::info!(id, login, "sent to shadow realm");
-        return Ok(());
-    }
-
-    ctx.storage().set(&thin_ice, "1").await?;
-    ctx.storage()
-        .set_with_options(
-            format!("kick:begone:{id}"),
-            "1",
-            SetCondition::None,
-            SetExpiration::Px(ctx.config().first_time_kick.as_millis() as _),
-            false,
-        )
-        .await?;
-    tracing::info!(id, login, "temporarily sent to shadow realm");
+async fn do_banish(ctx: &AppContext, id: String, login: String) -> Result<()> {
+    // yeet em
+    ctx.storage().set(format!("kick:begone:{id}"), "1").await?;
+    tracing::info!(id, login, "sent to shadow realm");
     Ok(())
 }
 
@@ -284,7 +268,7 @@ async fn votekick(ctx: CommandContext, login: String) -> Result<()> {
         html! { "Banish " span style="color: #E38AF0" { (login) } },
         format!("Banish {login}"),
         config,
-        move |ctx| do_banish(ctx, id, login),
+        move |ctx| async move { do_banish(&ctx, id, login).await },
     )
     .await
 }
@@ -300,7 +284,7 @@ async fn banish(ctx: CommandContext, login: String) -> Result<()> {
         ctx.reply("already banished".into()).await?;
         return Ok(());
     }
-    do_banish((***ctx).clone(), id, login).await?;
+    do_banish(&ctx, id, login).await?;
     ctx.reply("whoosh!".to_owned()).await?;
     Ok(())
 }
@@ -308,7 +292,7 @@ async fn banish(ctx: CommandContext, login: String) -> Result<()> {
 /// Restore users ability to use the bot, bringing them back from the shadow
 /// realm regardless of their crimes.
 #[command(permission = Moderator)]
-async fn pull_out(ctx: CommandContext, login: String) -> Result<()> {
+async fn unbanish(ctx: CommandContext, login: String) -> Result<()> {
     let Some(id) = get_id(&ctx, &login).await? else {
         ctx.reply("target never typed in chat".into()).await?;
         return Ok(());
@@ -324,14 +308,10 @@ async fn pull_out(ctx: CommandContext, login: String) -> Result<()> {
 /// Check if a user was yeeted into the shadow realm. Per-user 15 second
 /// cooldown.
 ///
-/// The user will or will not return depending on if it was their first
-/// offence, and if they dipped their toes in the shadow realm previously then
-/// they're on thin ice.
-///
-/// If _you_ are yeeted currently (or forever), the bot ignores you utterly, so
-/// this won't work ¯\\\_(ツ)_/¯.
+/// If _you_ are yeeted, the bot ignores you utterly, so this won't work
+/// ¯\\\_(ツ)_/¯.
 #[command(sender_gate = 15s)]
-async fn shadowbanned(ctx: CommandContext, login: String) -> Result<()> {
+async fn banished(ctx: CommandContext, login: String) -> Result<()> {
     let Some(id) = ctx
         .storage()
         .get::<_, Option<String>>(format!("twitch-users:{login}"))
@@ -340,21 +320,9 @@ async fn shadowbanned(ctx: CommandContext, login: String) -> Result<()> {
         return ctx.reply("They never even typed in chat lmao".into()).await;
     };
 
-    let (thin_ice, begone) = tokio::join!(
-        ctx.storage().exists(format!("kick:thin-ice:{id}")),
-        ctx.storage().exists(format!("kick:begone:{id}")),
-    );
-    let (thin_ice, begone) = (thin_ice?, begone?);
+    let begone = ctx.storage().exists(format!("kick:begone:{id}")).await?;
     if begone != 0 {
-        if thin_ice != 0 {
-            ctx.reply("In the shadow realm, but they will return..".into())
-                .await?;
-        } else {
-            ctx.reply("In the shadow realm, not coming back xdd".into())
-                .await?;
-        }
-    } else if thin_ice != 0 {
-        ctx.reply("They're on thin ice".into()).await?;
+        ctx.reply("In the shadow realm xdd".into()).await?;
     } else {
         ctx.reply("They're good".into()).await?;
     }
