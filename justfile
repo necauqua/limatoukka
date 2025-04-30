@@ -83,7 +83,9 @@ run:
 stop:
     #!/usr/bin/env bash
     DISPLAY={{display}} xdotool key Alt+F4
-    sleep 10 # maybe wait for game to end (check by pid)
+    while pgrep noita.exe >/dev/null; do
+        sleep 0.1
+    done
     pkill .exe
     pkill wine
     pkill -f pipewire-obs-thing.lua
