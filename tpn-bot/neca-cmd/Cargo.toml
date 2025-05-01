@@ -2,6 +2,10 @@
 name = "neca-cmd"
 version = "0.1.0"
 edition = "2024"
+description = "A simple command tokenizer used by my Twitch chat bot"
+homepage = "https://noit.ing/live"
+authors = ["Anton Bulakh <him@necauq.ua>"]
+license = "MIT"
 
 [dependencies]
 lazy-regex = "3.4.1"

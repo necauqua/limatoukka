@@ -35,7 +35,7 @@
   record_events="0" 
   rendering_brightness_delta="0" 
   rendering_contrast_delta="0" 
-  rendering_cosmetic_particle_count_coeff="1" 
+  rendering_cosmetic_particle_count_coeff="0.0952379" 
   rendering_filmgrain="1" 
   rendering_gamma_delta="0" 
   rendering_low_quality="0" 
