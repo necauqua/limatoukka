@@ -79,9 +79,7 @@ impl CommandExpr {
 
         let mut args: VecDeque<_> = parts.map(|s| unwrap_string_literals(&s)).collect();
 
-        if (matches!(tpe, CommandType::Neither) && args.is_empty())
-            || args.iter().any(|arg| arg.is_empty())
-        {
+        if (matches!(tpe, CommandType::Neither) && args.is_empty()) {
             return None;
         }
 
@@ -125,10 +123,11 @@ impl CommandMessage {
             parallel: split_balanced(content.trim(), &['|', '/']) // allow / for mobile
                 .into_iter()
                 .map(|group| {
-                    split_balanced(&group, &[' '])
+                    split_balanced(&group, &[' ', ','])
                         .iter()
                         .filter_map(|s| {
-                            if s.trim().is_empty() {
+                            let s = s.trim().trim_end_matches('\u{e0000}'); // 7tv spam utf tag
+                            if s.is_empty() {
                                 return None;
                             }
                             let parsed = CommandExpr::parse(s);
@@ -274,10 +273,18 @@ mod tests {
 
     #[test]
     fn pure_cmd() {
-        let message = r#"U3s~ | w1s~ l600~"#;
+        assert!(CommandMessage::parse("U3s~ | w1s~ l600~").pure);
+    }
 
-        let parsed = CommandMessage::parse(message);
+    #[test]
+    fn seventv_spam_suffix() {
+        assert!(CommandMessage::parse("+lh 󠀀").pure);
+    }
 
-        assert!(parsed.pure);
+    #[test]
+    fn empty_arg() {
+        let parsed = CommandMessage::parse("command::second-arg~");
+
+        insta::assert_snapshot!(parsed, @"command::\"second-arg\"~");
     }
 }

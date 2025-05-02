@@ -1,6 +1,6 @@
 [package]
 name = "neca-cmd"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "A simple command tokenizer used by my Twitch chat bot"
 homepage = "https://noit.ing/live"
@@ -8,7 +8,7 @@ authors = ["Anton Bulakh <him@necauq.ua>"]
 license = "MIT"
 
 [dependencies]
-lazy-regex = "3.4.1"
+lazy-regex = "3.4"
 
 [dev-dependencies]
-insta = "1.43.1"
+insta = "1.43"
