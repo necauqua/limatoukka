@@ -56,6 +56,10 @@ impl MessageContext {
         self.state.repeats.fetch_add(1, Ordering::Relaxed)
     }
 
+    pub fn reset_repeats(&self) {
+        self.state.repeats.store(0, Ordering::Relaxed);
+    }
+
     /// Returns true once (atomically) in the given period - per key and per sender.
     pub async fn sender_gate(&self, key: &str, period: Duration) -> Result<bool> {
         self.gate(&format!("{key}:{}", self.message().sender.id), period)

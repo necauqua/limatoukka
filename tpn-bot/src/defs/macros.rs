@@ -1,3 +1,5 @@
+use std::time::{Duration, Instant};
+
 use anyhow::{Result, bail};
 use maud::html;
 use neca_cmd::CommandMessage;
@@ -307,4 +309,45 @@ async fn lock(ctx: CommandContext, script: String) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Repeatedly execute a given script indefinitely - until an interrupt is
+/// sent.
+///
+/// A special condition: a single loop iteration must take at least 100ms,
+/// otherwise after the first iteration the command will error out.
+///
+/// Unless you have a repeat _inside_ of the loop that exceeds it, the loop is
+/// not limited by the repeat limit.
+///
+/// The only way to stop a running loop is `interrupt~`, and putting a loop
+/// looinside of a loop is obviously pointless.
+///
+/// ```tpn
+/// stalling: repeat:5:" wait~ up~ "~
+/// ```
+#[command(permission=Subscriber, no_wall)]
+async fn r#loop(ctx: CommandContext, script: String) -> Result<()> {
+    let command_msg = CommandMessage::parse(&script);
+
+    let entry = ctx.status_wall().allocate().await;
+
+    let mut i = 0;
+    loop {
+        i += 1;
+        ctx.reset_repeats();
+        entry.set(html! {
+            span style="color: #E38AF0" { (ctx.message().sender.name) } ": loop:" (i) " " (ctx.nesting_str())
+        }).await;
+        let start = Instant::now();
+        let errors = runner::eval(&ctx.nest(), command_msg.clone()).await;
+        if !errors.is_empty() {
+            if errors.iter().any(|e| matches!(e, CommandError::Interrupt)) {
+                bail!(CommandInterrupt);
+            }
+            fail!("script errors: {}", print_inner_errors(&errors));
+        } else if start.elapsed() < Duration::from_millis(100) {
+            fail!("loop iteration took less than 100ms");
+        }
+    }
 }

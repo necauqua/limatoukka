@@ -95,7 +95,10 @@ impl PermissionLevel {
             PermissionLevel::Vip
         } else if badges.iter().any(|b| b.name == "partner") {
             PermissionLevel::Verified
-        } else if badges.iter().any(|b| b.name == "subscriber") {
+        } else if badges
+            .iter()
+            .any(|b| b.name == "subscriber" || b.name == "founder")
+        {
             PermissionLevel::Subscriber
         } else {
             PermissionLevel::Viewer
