@@ -11,6 +11,7 @@ use crate::{commands::args::HoldTime, context::cmd::CommandContext, fail};
 mod keys;
 mod macros;
 mod mouse;
+mod stats;
 mod util;
 mod voting;
 

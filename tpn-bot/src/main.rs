@@ -19,7 +19,7 @@ use tracing::{Instrument, Span, field::Empty};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 async fn run(config: Config) -> Result<()> {
-    let storage = Storage::new(&*config.valkey).await?;
+    let storage = Storage::new(&config).await?;
     let twitch = Twitch::new(&config.twitch).await?;
     let xdo = XDoClient::new(config.display.clone());
 

@@ -26,6 +26,15 @@ pub struct Voting {
     pub vote_time: Duration,
 }
 
+#[derive(Deserialize /*, JsonSchema*/, Default, Clone)]
+#[serde(rename_all = "kebab-case")]
+pub struct Elastic {
+    /// The URL of the Elastic instance
+    pub url: String,
+    /// The API key for the Elastic instance
+    pub api_key: String,
+}
+
 #[derive(Deserialize /*, JsonSchema*/)]
 #[serde(rename_all = "kebab-case")]
 pub struct Config {
@@ -38,6 +47,7 @@ pub struct Config {
     pub twitch: TwitchApp,
 
     pub valkey: String,
+    pub elastic: Elastic,
 
     pub loki: Option<String>,
     pub otel: Option<String>,

@@ -58,6 +58,7 @@ impl Args {
 impl<T: CommandArg> ArgExtractor for T {
     fn extract(args: &mut Args) -> ExtractorResult<Self> {
         args.pop()
+            .filter(|(_, s)| !s.is_empty())
             .ok_or(args.len())
             .map_err(ExtractorError::MissingArgument)
             .and_then(|(i, s)| T::parse(s).map_err(|e| ExtractorError::BadArgument(i, e)))
