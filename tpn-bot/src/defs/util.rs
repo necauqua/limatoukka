@@ -120,8 +120,7 @@ async fn wait(ctx: CommandContext, duration: HoldTime) -> Result<()> {
         }
     });
 
-    ctx.holds()
-        .interruptible(sleep(duration))
+    ctx.interruptible(sleep(duration))
         .await
         .inspect_err(|_| wall_task.abort())?;
 
@@ -136,7 +135,7 @@ async fn wait(ctx: CommandContext, duration: HoldTime) -> Result<()> {
 /// This is kind of a niche thing, most likely you need `interrupt~`.
 #[command]
 async fn r#break(ctx: CommandContext) -> Result<()> {
-    ctx.holds().send_break().await;
+    ctx.break_holds().await;
     Ok(())
 }
 
@@ -145,7 +144,7 @@ async fn r#break(ctx: CommandContext) -> Result<()> {
 /// get completed do not run.
 #[command]
 async fn interrupt(ctx: CommandContext) -> Result<()> {
-    ctx.holds().send_interrupt().await;
+    ctx.interrupt_holds().await;
     Ok(())
 }
 

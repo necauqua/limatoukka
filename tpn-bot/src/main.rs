@@ -20,10 +20,18 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 async fn run(config: Config) -> Result<()> {
     let storage = Storage::new(&config).await?;
-    let twitch = Twitch::new(&config.twitch).await?;
     let xdo = XDoClient::new(config.display.clone());
 
+    let (twitch, eventsub) = Twitch::new(&config.twitch).await?;
     let (mut incoming, messaging) = messaging::connect_to_twitch(twitch.clone());
+
+    let mut eventsub_rx = eventsub.subscribe();
+
+    tokio::spawn(async {
+        if let Err(e) = eventsub.run().await {
+            tracing::error!(error=?e, "twitch eventsub fail");
+        }
+    });
 
     let ctx = AppContext::new(
         messaging,
@@ -32,7 +40,6 @@ async fn run(config: Config) -> Result<()> {
         xdo,
         NoitaHandle::default(),
         StatusWall::default(),
-        Default::default(),
         twitch,
     );
 
@@ -41,7 +48,7 @@ async fn run(config: Config) -> Result<()> {
     let mut found_items = ctx.noita().subscribe_to_found_items();
 
     loop {
-        tokio::select! {
+        let res = tokio::select! {
             Some(msg) = incoming.recv() => {
                 let span = tracing::info_span!(
                     "message",
@@ -60,14 +67,11 @@ async fn run(config: Config) -> Result<()> {
                     }
                     .instrument(span),
                 );
+                Ok(())
             }
-            _ = ctx.noita().wait_for_player_death() => {
-                if let Err(error) = ctx.next_run().await {
-                    tracing::error!(?error, "failed to start next run");
-                }
-            }
+            _ = ctx.noita().wait_for_player_death() => ctx.next_run().await,
             Ok(found) = found_items.recv() => {
-                let message = match found {
+                ctx.send(match found {
                     ItemFound::TreeTablet => "The best TABLET in the game acquired!",
                     ItemFound::OtherTablet => "TABLET acquired",
                     ItemFound::EvilEye => "Got the EVILEYE",
@@ -80,12 +84,13 @@ async fn run(config: Config) -> Result<()> {
                     ItemFound::Taikasauva => {
                         "Got the SUMMONTAIKASAUVA , the whole world is in your hands now"
                     }
-                };
-                if let Err(error) = ctx.send(message.into()).await {
-                    tracing::error!(?error, "failed send item found message");
-                }
+                }.into()).await
             }
+            Ok(event) = eventsub_rx.recv() => ctx.handle_event(event).await,
             else => return Ok(()),
+        };
+        if let Err(e) = res {
+            tracing::error!(error = ?e, "main loop error");
         }
     }
 }

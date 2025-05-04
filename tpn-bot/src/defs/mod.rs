@@ -39,10 +39,7 @@ where
         }
     }
 
-    let sleep = ctx
-        .holds()
-        .interruptible(tokio::time::sleep(duration.get()))
-        .await;
+    let sleep = ctx.interruptible(tokio::time::sleep(duration.get())).await;
 
     let counter = ctx.storage().decr(&key).await?;
 

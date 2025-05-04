@@ -6,21 +6,18 @@ use axum::{
     response::{Sse, sse::Event},
     routing::get,
 };
-use futures::{
-    SinkExt,
-    channel::mpsc::{self, UnboundedSender},
-};
-use futures_util::StreamExt;
 use indexmap::IndexMap;
 use maud::{PreEscaped, html};
 use serde::{Deserialize, Serialize};
-use tokio::sync::Mutex;
+use tokio::sync::{
+    Mutex,
+    broadcast::{self, Sender},
+};
 
-#[derive(Default)]
 struct Inner {
     entries: IndexMap<EntryKey, String>,
     counter: usize,
-    senders: Vec<UnboundedSender<Event>>,
+    broadcast: Sender<Event>,
 }
 
 impl Inner {
@@ -36,15 +33,17 @@ impl Inner {
     }
 
     async fn sync(&mut self) {
-        let text = self.get_text();
-        let mut has_dead = false;
-        for sender in &mut self.senders {
-            if sender.send(Event::default().data(&text)).await.is_err() {
-                has_dead = true;
-            }
-        }
-        if has_dead {
-            self.senders.retain(|sender| !sender.is_closed());
+        _ = self.broadcast.send(Event::default().data(self.get_text()));
+    }
+}
+
+impl Default for Inner {
+    fn default() -> Self {
+        let (tx, _) = broadcast::channel(1);
+        Self {
+            entries: IndexMap::new(),
+            counter: 0,
+            broadcast: tx,
         }
     }
 }
@@ -154,9 +153,11 @@ impl StatusWall {
                 get({
                     let inner = self.inner.clone();
                     || async move {
-                        let (tx, rx) = mpsc::unbounded();
-                        inner.lock().await.senders.push(tx);
-                        Sse::new(rx.map(Ok)).keep_alive(Default::default())
+                        let rx = inner.lock().await.broadcast.subscribe();
+                        let s = futures::stream::try_unfold(rx, |mut rx| async {
+                            Ok(Some((rx.recv().await?, rx)))
+                        });
+                        Sse::new(s).keep_alive(Default::default())
                     }
                 }),
             );

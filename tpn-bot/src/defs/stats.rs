@@ -1,5 +1,8 @@
+use std::cmp::Ordering as Ord;
+
 use anyhow::Result;
 use elasticsearch::{CountParts, SearchParts};
+use rustis::commands::StringCommands;
 use serde_json::{Value, json};
 
 use crate::{commands::command, context::cmd::CommandContext, fail};
@@ -101,4 +104,39 @@ async fn first_message(ctx: CommandContext, login: Option<String>) -> Result<()>
         format!("Their first recorded message was: `{message}`")
     })
     .await
+}
+
+/// Get the bless/curse balance for the current run
+#[command(sender_gate = 3s)]
+async fn balance(ctx: CommandContext) -> Result<()> {
+    let [blesses, curses]: [i64; 2] = ctx
+        .storage()
+        .mget(["balance:blesses", "balance:curses"])
+        .await?;
+
+    let balance = blesses - curses;
+
+    match balance.cmp(&0) {
+        Ord::Equal => {
+            if blesses == 0 {
+                ctx.reply("Nothing yet".into()).await?;
+            } else {
+                ctx.reply(format!(
+                    "Perfectly balanced, as all things should be ({blesses}/{curses})"
+                ))
+                .await?;
+            }
+        }
+        Ord::Less => {
+            ctx.reply(format!("This run is cursed PepeHands ({blesses}/{curses})"))
+                .await?;
+        }
+        Ord::Greater => {
+            ctx.reply(format!(
+                "This run is blessed AngelThump ({blesses}/{curses})"
+            ))
+            .await?;
+        }
+    }
+    Ok(())
 }

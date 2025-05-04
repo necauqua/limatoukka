@@ -9,19 +9,31 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail};
 use async_trait::async_trait;
 use axum::{Router, extract::Query, routing::get};
-use helix::{
-    ClientRequestError, HelixRequestDeleteError, HelixRequestGetError, HelixRequestPatchError,
-    HelixRequestPostError, HelixRequestPutError, users::User,
-};
+use futures::StreamExt;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use tokio::{
-    net::TcpListener,
-    sync::{Notify, RwLock, oneshot},
+    net::{TcpListener, TcpStream},
+    sync::{
+        Notify, RwLock,
+        broadcast::{Receiver, Sender},
+        oneshot,
+    },
 };
-use twitch_api::{twitch_oauth2::*, *};
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite};
+use twitch_api::{
+    HelixClient,
+    eventsub::{self, Event, EventsubWebsocketData, ReconnectPayload, SessionData, WelcomePayload},
+    helix::{
+        ClientRequestError, HelixRequestDeleteError, HelixRequestGetError, HelixRequestPatchError,
+        HelixRequestPostError, HelixRequestPutError, Scope, users::User,
+    },
+    twitch_oauth2::{
+        AccessToken, ClientId, ClientSecret, RefreshToken, TwitchToken, UserToken,
+        UserTokenBuilder, url::Url,
+    },
+};
 use twitch_irc::login::{CredentialsPair, LoginCredentials};
-use url::Url;
 
 #[derive(Deserialize)]
 pub struct TwitchApp {
@@ -50,10 +62,309 @@ impl From<&UserToken> for TokenPair {
     }
 }
 
+async fn read_token(config: &TwitchApp, client: &TwitchClient, variant: &str) -> Result<UserToken> {
+    let entry = keyring::Entry::new("limatoukka-the-twitch-bot", variant)?;
+    let token = match entry.get_password() {
+        Ok(p) => {
+            let data: TokenPair = serde_json::from_str(&p)?;
+            UserToken::from_existing_or_refresh_token(
+                client.get_client(),
+                data.at,
+                data.rt,
+                config.client_id.clone(),
+                Some(config.client_secret.clone()),
+            )
+            .await?
+        }
+        Err(keyring::Error::NoEntry) => full_auth(config, client, &entry, variant).await?,
+        Err(e) => bail!(e),
+    };
+    Ok(token)
+}
+
+type TwitchClient = twitch_api::TwitchClient<'static, reqwest::Client>;
+
+struct Inner {
+    client: TwitchClient,
+    token: RwLock<UserToken>,
+    pub target: User,
+    pub bot: String,
+}
+
+pub struct TwitchRefs<'a> {
+    pub helix: &'a HelixClient<'static, reqwest::Client>,
+    pub target: &'a User,
+    pub token: UserToken,
+}
+
+#[derive(Clone)]
+pub struct Twitch {
+    inner: Arc<Inner>,
+}
+
+impl Debug for Twitch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Twitch")
+            .field("bot", &self.inner.bot)
+            .field("target", &self.inner.target.login)
+            .finish()
+    }
+}
+
+#[async_trait]
+impl LoginCredentials for Twitch {
+    type Error = anyhow::Error;
+
+    async fn get_credentials(&self) -> Result<CredentialsPair, Self::Error> {
+        let mut token = self.inner.token.write().await;
+        // idk about the time
+        if token.expires_in() < Duration::from_secs(1800) {
+            tracing::info!("(irc) token close to expiration, refreshing");
+            token
+                .refresh_token(self.inner.client.helix.get_client())
+                .await?;
+        }
+        Ok(CredentialsPair {
+            login: self.inner.bot.to_owned(),
+            token: Some(token.token().clone().take()),
+        })
+    }
+}
+
+impl Twitch {
+    pub fn bot(&self) -> &str {
+        &self.inner.bot
+    }
+
+    pub fn target(&self) -> &User {
+        &self.inner.target
+    }
+
+    pub async fn new(config: &TwitchApp) -> Result<(Self, TwitchEventSub)> {
+        let client = TwitchClient::new();
+
+        let token = read_token(config, &client, "bot").await?;
+        let caster_token = read_token(config, &client, "caster").await?;
+
+        let target = client
+            .helix
+            .get_user_from_login(&config.target_channel, &token)
+            .await?
+            .with_context(|| format!("twitch user {} not found", config.target_channel))?;
+
+        let t = Self {
+            inner: Arc::new(Inner {
+                client,
+                bot: token.login.as_str().into(),
+                token: token.into(),
+                target,
+            }),
+        };
+        let (tx, _) = tokio::sync::broadcast::channel(1);
+
+        let eventsub = TwitchEventSub {
+            twitch: t.clone(),
+            session_id: None,
+            connect_url: twitch_api::TWITCH_EVENTSUB_WEBSOCKET_URL.clone(),
+            caster_token,
+            first_welcome: true,
+            tx,
+        };
+
+        Ok((t, eventsub))
+    }
+
+    // the twitch-api crate is pretty awful, so we have to do things like this,
+    // but eh its way better than not having it, at least we got payload types
+    pub async fn call<'a, F, R, T>(&'a self, mut f: F) -> Result<T>
+    where
+        R: Future<Output = Result<T, ClientRequestError<reqwest::Error>>>,
+        F: FnMut(TwitchRefs<'a>) -> R,
+    {
+        let res = f(TwitchRefs {
+            helix: &self.inner.client.helix,
+            target: &self.inner.target,
+            // clone the token for every request because twitch-api lifetimes are shit
+            //  (also that's what causes the turbo-annoying async move { api.call().await } constructs too)
+            token: self.inner.token.read().await.clone(),
+        })
+        .await;
+
+        let Err(e) = &res else {
+            return Ok(res?);
+        };
+        if !is_auth_error(e) {
+            return Ok(res?);
+        }
+
+        tracing::info!(error = ?e, "token expired, refreshing");
+        let mut token = self.inner.token.write().await;
+        token.refresh_token(self.inner.client.get_client()).await?;
+        let t = token.clone();
+        drop(token);
+
+        Ok(f(TwitchRefs {
+            helix: &self.inner.client.helix,
+            target: &self.inner.target,
+            token: t,
+        })
+        .await?)
+    }
+}
+
+pub struct TwitchEventSub {
+    twitch: Twitch,
+    session_id: Option<String>,
+    connect_url: Url,
+    caster_token: UserToken,
+    first_welcome: bool,
+    tx: Sender<Event>,
+}
+
+impl TwitchEventSub {
+    async fn process_welcome_message(&mut self, data: SessionData<'_>) -> Result<()> {
+        self.session_id = Some(data.id.to_string());
+        if let Some(url) = data.reconnect_url {
+            self.connect_url = url.parse()?;
+        }
+
+        if self.first_welcome {
+            self.first_welcome = false;
+        } else {
+            self.caster_token
+                .validate_token(self.twitch.inner.client.get_client())
+                .await?;
+        }
+
+        let helix = &self.twitch.inner.client.helix;
+
+        let transport = eventsub::Transport::websocket(data.id.clone());
+        macro_rules! subscribe {
+            ($first:ident $(:: $s:ident)* $method:ident) => {
+                helix
+                    .create_eventsub_subscription(
+                        eventsub::$first$(::$s)*::$method(
+                            self.caster_token.user_id.clone(),
+                        ),
+                        transport.clone(),
+                        &self.caster_token,
+                    )
+                    .await?;
+            };
+            ($first:ident $(:: $s:ident)*) => {
+                subscribe!($first $(:: $s)* broadcaster_user_id);
+            };
+            ($($first:ident $(:: $s:ident)* $($method:ident)?),* $(,)?) => {
+                $(
+                    subscribe!($first $(:: $s)* $($method)?);
+                )*
+            };
+        }
+
+        subscribe![
+            channel::ChannelAdBreakBeginV1,
+            channel::ChannelPointsCustomRewardRedemptionAddV1,
+            channel::ChannelSubscribeV1,
+            channel::ChannelSubscriptionGiftV1,
+            channel::ChannelSubscriptionMessageV1,
+            channel::ChannelCheerV1,
+            channel::ChannelRaidV1 to_broadcaster_user_id,
+            channel::ChannelHypeTrainBeginV1,
+            channel::ChannelHypeTrainEndV1,
+        ];
+
+        Ok(())
+    }
+
+    pub fn subscribe(&self) -> Receiver<Event> {
+        self.tx.subscribe()
+    }
+
+    pub async fn run(mut self) -> Result<()> {
+        let mut s = self
+            .connect()
+            .await
+            .context("when establishing connection")?;
+        while let Some(msg) = s.next().await {
+            let msg = match msg {
+                Err(tungstenite::Error::Protocol(
+                    tungstenite::error::ProtocolError::ResetWithoutClosingHandshake,
+                )) => {
+                    tracing::warn!(
+                        "connection was sent an unexpected frame or was reset, reestablishing it"
+                    );
+                    s = self
+                        .connect()
+                        .await
+                        .context("when reestablishing connection")?;
+                    continue;
+                }
+                _ => msg.context("when getting message")?,
+            };
+            self.process_message(msg).await?
+        }
+        Ok(())
+    }
+
+    async fn connect(&self) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {
+        tracing::info!("connecting to twitch");
+        let config = tungstenite::protocol::WebSocketConfig::default()
+            .max_message_size(Some(64 << 20)) // 64 MiB
+            .max_frame_size(Some(16 << 20)) // 16 MiB
+            .accept_unmasked_frames(false);
+        let (socket, _) =
+            tokio_tungstenite::connect_async_with_config(&self.connect_url, Some(config), false)
+                .await
+                .context("Can't connect")?;
+
+        Ok(socket)
+    }
+
+    async fn process_message(&mut self, msg: tungstenite::Message) -> Result<()> {
+        match msg {
+            tungstenite::Message::Text(s) => {
+                tracing::debug!("{s}");
+                match Event::parse_websocket(&s)? {
+                    EventsubWebsocketData::Welcome {
+                        payload: WelcomePayload { session },
+                        ..
+                    }
+                    | EventsubWebsocketData::Reconnect {
+                        payload: ReconnectPayload { session },
+                        ..
+                    } => {
+                        self.process_welcome_message(session).await?;
+                        Ok(())
+                    }
+                    EventsubWebsocketData::Notification {
+                        metadata: _,
+                        payload,
+                    } => {
+                        _ = self.tx.send(payload);
+                        Ok(())
+                    }
+                    EventsubWebsocketData::Revocation {
+                        metadata,
+                        payload: _,
+                    } => bail!("got revocation event: {metadata:?}"),
+                    EventsubWebsocketData::Keepalive {
+                        metadata: _,
+                        payload: _,
+                    } => Ok(()),
+                    _ => Ok(()),
+                }
+            }
+            tungstenite::Message::Close(frame) => bail!("got close message: frame={frame:?}"),
+            _ => Ok(()),
+        }
+    }
+}
+
 async fn full_auth(
     config: &TwitchApp,
     client: &TwitchClient,
     entry: &keyring::Entry,
+    variant: &str,
 ) -> Result<UserToken> {
     let url: Url = config.redirect_url.parse()?;
 
@@ -104,147 +415,12 @@ async fn full_auth(
 
     let (url, _) = builder.generate_url();
 
-    println!("\nFull auth needed, go to: {url}\n");
+    println!("\nFull {variant} auth needed, go to: {url}\n");
 
     let (state, code) = s.await??;
     let token = builder.get_user_token(client, &state, &code).await?;
     entry.set_password(&serde_json::to_string(&TokenPair::from(&token))?)?;
     Ok(token)
-}
-
-async fn read_token(config: &TwitchApp, client: &TwitchClient, variant: &str) -> Result<UserToken> {
-    let entry = keyring::Entry::new("limatoukka-the-twitch-bot", variant)?;
-    let token = match entry.get_password() {
-        Ok(p) => {
-            let data: TokenPair = serde_json::from_str(&p)?;
-            UserToken::from_existing_or_refresh_token(
-                client.get_client(),
-                data.at,
-                data.rt,
-                config.client_id.clone(),
-                Some(config.client_secret.clone()),
-            )
-            .await?
-        }
-        Err(keyring::Error::NoEntry) => full_auth(config, client, &entry).await?,
-        Err(e) => bail!(e),
-    };
-    Ok(token)
-}
-
-type TwitchClient = twitch_api::TwitchClient<'static, reqwest::Client>;
-
-struct Inner {
-    client: TwitchClient,
-    token: RwLock<UserToken>,
-    target: User,
-    bot: String,
-}
-
-#[derive(Clone)]
-pub struct Twitch {
-    inner: Arc<Inner>,
-}
-
-impl Debug for Twitch {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Twitch")
-            .field("bot", &self.bot())
-            .field("target", &self.target().login)
-            .finish()
-    }
-}
-
-#[async_trait]
-impl LoginCredentials for Twitch {
-    type Error = anyhow::Error;
-
-    async fn get_credentials(&self) -> Result<CredentialsPair, Self::Error> {
-        let mut token = self.inner.token.write().await;
-        // idk about the time
-        if token.expires_in() < Duration::from_secs(1800) {
-            tracing::info!("(irc) token close to expiration, refreshing");
-            token
-                .refresh_token(self.inner.client.helix.get_client())
-                .await?;
-        }
-        Ok(CredentialsPair {
-            login: self.inner.bot.to_owned(),
-            token: Some(token.token().clone().take()),
-        })
-    }
-}
-
-pub struct TwitchRefs<'a> {
-    pub helix: &'a HelixClient<'static, reqwest::Client>,
-    pub target: &'a User,
-    pub token: UserToken,
-}
-
-impl Twitch {
-    pub fn bot(&self) -> &str {
-        &self.inner.bot
-    }
-
-    pub fn target(&self) -> &User {
-        &self.inner.target
-    }
-
-    pub async fn new(config: &TwitchApp) -> Result<Self> {
-        let client = TwitchClient::new();
-
-        let token = read_token(config, &client, "bot").await?;
-
-        let target = client
-            .helix
-            .get_user_from_login(&config.target_channel, &token)
-            .await?
-            .with_context(|| format!("twitch user {} not found", config.target_channel))?;
-
-        Ok(Self {
-            inner: Arc::new(Inner {
-                client,
-                bot: token.login.as_str().into(),
-                token: token.into(),
-                target,
-            }),
-        })
-    }
-
-    pub async fn call<'a, F, R, T>(&'a self, mut f: F) -> Result<T>
-    where
-        R: Future<Output = Result<T, ClientRequestError<reqwest::Error>>>,
-        F: FnMut(TwitchRefs<'a>) -> R,
-    {
-        let res = f(TwitchRefs {
-            helix: &self.inner.client.helix,
-            target: &self.inner.target,
-            // clone the token for every request because twitch-api lifetimes are shit
-            //  (also that's what causes the turbo-annoying async move { api.call().await } constructs too)
-            token: self.inner.token.read().await.clone(),
-        })
-        .await;
-
-        let Err(e) = &res else {
-            return Ok(res?);
-        };
-        if !is_auth_error(e) {
-            return Ok(res?);
-        }
-
-        tracing::info!(error = ?e, "token expired, refreshing");
-        let mut token = self.inner.token.write().await;
-        token.refresh_token(self.inner.client.get_client()).await?;
-        let t = token.clone();
-        drop(token);
-
-        Ok(f(TwitchRefs {
-            helix: &self.inner.client.helix,
-            target: &self.inner.target,
-            token: t,
-        })
-        .await?)
-    }
 }
 
 fn is_auth_error(error: &ClientRequestError<reqwest::Error>) -> bool {

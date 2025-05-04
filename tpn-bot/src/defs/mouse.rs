@@ -55,9 +55,7 @@ async fn look(ctx: CommandContext, dx: i32, dy: i32, duration: HoldTime<0>) -> R
     let ticks = ((duration.get().as_millis() as u32) / millis).max(1);
 
     for i in 0..ticks {
-        ctx.holds()
-            .interruptible(interval.tick().map(|_| ()))
-            .await?;
+        ctx.interruptible(interval.tick().map(|_| ())).await?;
 
         let t = (i + 1) as f32 / ticks as f32;
 
@@ -94,9 +92,7 @@ async fn mouse(ctx: CommandContext, x: i32, y: i32, duration: HoldTime<0>) -> Re
     let ticks = ((duration.as_millis() as u32) / millis).max(1);
 
     for i in 0..ticks {
-        ctx.holds()
-            .interruptible(interval.tick().map(|_| ()))
-            .await?;
+        ctx.interruptible(interval.tick().map(|_| ())).await?;
 
         let t = (i + 1) as f32 / ticks as f32;
 
