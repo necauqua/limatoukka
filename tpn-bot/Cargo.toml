@@ -7,8 +7,8 @@ default-run = "tpn-bot"
 
 [dependencies]
 tpn-bot-macros = { path = "macros" }
-neca-cmd = { path = "neca-cmd" }
 noita-engine-reader = { path = "../../noita-utility-box/noita-engine-reader" }
+neca-cmd = "0.2.1"
 
 anyhow = "1.0.97"
 clap = { version = "4.5.31", features = ["derive"] }
@@ -63,6 +63,8 @@ keyring = { version = "3.6.2", features = [
 ] }
 async-trait = "0.1.88"
 elasticsearch = "9.0.0-alpha.1"
+tokio-tungstenite = "0.26.2"
+sysinfo = "0.35.0"
 
 [build-dependencies]
 anyhow = "1.0.97"

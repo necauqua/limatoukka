@@ -19,6 +19,8 @@ use crate::{
     services::status_wall::EntryKey,
 };
 
+use super::chatter_id;
+
 #[derive(Clone, Copy)]
 enum Vote {
     Yes,
@@ -222,14 +224,7 @@ where
     Ok(())
 }
 
-async fn get_id(ctx: &CommandContext, login: &str) -> Result<Option<String>> {
-    Ok(ctx
-        .storage()
-        .get::<_, Option<String>>(format!("twitch-users:{login}"))
-        .await?)
-}
-
-async fn do_banish(ctx: &AppContext, id: String, login: String) -> Result<()> {
+async fn do_banish(ctx: &AppContext, id: &str, login: &str) -> Result<()> {
     // yeet em
     ctx.storage().set(format!("kick:begone:{id}"), "1").await?;
     tracing::info!(id, login, "sent to shadow realm");
@@ -253,9 +248,7 @@ async fn do_banish(ctx: &AppContext, id: String, login: String) -> Result<()> {
 /// large per-user cooldown, so dont waste it.
 #[command(sender_gate = 5m)]
 async fn votekick(ctx: CommandContext, login: String) -> Result<()> {
-    let Some(id) = get_id(&ctx, &login).await? else {
-        fail!("target never typed in chat, lmao")
-    };
+    let id = chatter_id(&ctx, Some(&login)).await?.into_owned();
     if ctx.storage().exists(format!("kick:begone:{id}")).await? != 0 {
         fail!("already banished")
     }
@@ -268,23 +261,20 @@ async fn votekick(ctx: CommandContext, login: String) -> Result<()> {
         html! { "Banish " span style="color: #E38AF0" { (login) } },
         format!("Banish {login}"),
         config,
-        move |ctx| async move { do_banish(&ctx, id, login).await },
+        move |ctx| async move { do_banish(&ctx, &id, &login).await },
     )
     .await
 }
 
-/// Instantly banish a user to the shadow realm. Thin ice rule applies.
+/// Instantly banish a user to the shadow realm.
 #[command(permission = TwitchStaff)]
 async fn banish(ctx: CommandContext, login: String) -> Result<()> {
-    let Some(id) = get_id(&ctx, &login).await? else {
-        ctx.reply("target never typed in chat, lmao".into()).await?;
-        return Ok(());
-    };
+    let id = chatter_id(&ctx, Some(&login)).await?;
     if ctx.storage().exists(format!("kick:begone:{id}")).await? != 0 {
         ctx.reply("already banished".into()).await?;
         return Ok(());
     }
-    do_banish(&ctx, id, login).await?;
+    do_banish(&ctx, &id, &login).await?;
     ctx.reply("whoosh!".to_owned()).await?;
     Ok(())
 }
@@ -293,10 +283,7 @@ async fn banish(ctx: CommandContext, login: String) -> Result<()> {
 /// realm regardless of their crimes.
 #[command(permission = Moderator)]
 async fn unbanish(ctx: CommandContext, login: String) -> Result<()> {
-    let Some(id) = get_id(&ctx, &login).await? else {
-        ctx.reply("target never typed in chat".into()).await?;
-        return Ok(());
-    };
+    let id = chatter_id(&ctx, Some(&login)).await?;
     if ctx.storage().del(format!("kick:begone:{id}")).await? == 0 {
         ctx.reply("was not banished lmao".into()).await?;
     } else {
@@ -312,14 +299,7 @@ async fn unbanish(ctx: CommandContext, login: String) -> Result<()> {
 /// ¯\\\_(ツ)_/¯.
 #[command(sender_gate = 15s)]
 async fn banished(ctx: CommandContext, login: String) -> Result<()> {
-    let Some(id) = ctx
-        .storage()
-        .get::<_, Option<String>>(format!("twitch-users:{login}"))
-        .await?
-    else {
-        return ctx.reply("They never even typed in chat lmao".into()).await;
-    };
-
+    let id = chatter_id(&ctx, Some(&login)).await?;
     let begone = ctx.storage().exists(format!("kick:begone:{id}")).await?;
     if begone != 0 {
         ctx.reply("In the shadow realm xdd".into()).await?;

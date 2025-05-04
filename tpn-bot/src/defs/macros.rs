@@ -321,7 +321,7 @@ async fn lock(ctx: CommandContext, script: String) -> Result<()> {
 /// not limited by the repeat limit.
 ///
 /// The only way to stop a running loop is `interrupt~`, and putting a loop
-/// looinside of a loop is obviously pointless.
+/// inside of a loop is obviously pointless.
 ///
 /// ```tpn
 /// stalling: repeat:5:" wait~ up~ "~

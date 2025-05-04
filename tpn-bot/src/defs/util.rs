@@ -6,9 +6,10 @@ use crate::{
     fail,
     services::messaging::PermissionLevel,
 };
-use anyhow::Result;
+use anyhow::{Result, bail};
 use maud::html;
 use rustis::commands::{GenericCommands, StringCommands};
+use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use tokio::time::sleep;
 
 use super::chatter_id;
@@ -163,5 +164,41 @@ async fn flag(ctx: CommandContext, flag: String) -> Result<()> {
     } else {
         ctx.storage().set(format!("flags:{flag}"), "1").await?;
     }
+    Ok(())
+}
+
+/// Gets the current CPU usage of the game.
+#[command(global_gate = 5s, permission = Subscriber, shortcode = cpu)]
+async fn noita_cpu_usage(ctx: CommandContext) -> Result<()> {
+    let pid = Pid::from(ctx.noita().with(|n| Ok(n.proc().pid())).await? as usize);
+
+    let usage = tokio::task::spawn_blocking(move || {
+        let mut system = System::new();
+        system.refresh_processes_specifics(
+            ProcessesToUpdate::Some(&[pid]),
+            true,
+            ProcessRefreshKind::nothing().with_cpu(),
+        );
+        std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
+        system.refresh_processes_specifics(
+            ProcessesToUpdate::Some(&[pid]),
+            true,
+            ProcessRefreshKind::nothing().with_cpu(),
+        );
+        system.process(pid).map(|p| p.cpu_usage())
+    })
+    .await;
+
+    let Some(usage) = usage.ok().flatten() else {
+        bail!("failed to get CPU usage, noita.exe not running?");
+    };
+
+    ctx.reply(if usage > 100.0 {
+        format!("CPU usage: {usage:.2}% (100% is 1 core)")
+    } else {
+        format!("CPU usage: {usage:.2}%")
+    })
+    .await?;
+
     Ok(())
 }
