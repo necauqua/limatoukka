@@ -1,6 +1,7 @@
 use std::any::Any;
 
 use anyhow::Result;
+use lazy_regex::regex_replace_all;
 use maud::html;
 use neca_cmd::{CommandExpr, CommandMessage};
 use opentelemetry::trace::Status;
@@ -108,7 +109,7 @@ pub async fn prepare_commands(
     Ok(groups)
 }
 
-const RECURSION_LIMIT: u32 = 3;
+const STACK_LIMIT: u32 = 3;
 
 async fn prepare_command(
     ctx: &EvalContext,
@@ -136,11 +137,14 @@ async fn prepare_command(
             }
 
             let mut p = ctx.storage().create_pipeline();
-            p.hexists(format!("macros:{}", ctx.owner), &name).queue();
+            p.hexists(format!("macros:{}", ctx.macro_ctx.owner), &name)
+                .queue();
             p.hexists("macros:global", &name).queue();
 
             match p.execute().await {
                 Ok((personal, global)) if personal || global => {
+                    // empty string for current username, to allow macro args to immediately follow
+                    cmd_expr.args.push_front(String::new());
                     cmd_expr.args.push_front(name);
                     *super::MACRO
                 }
@@ -152,7 +156,7 @@ async fn prepare_command(
         registration,
         token,
     };
-    if ctx.macro_depth > RECURSION_LIMIT {
+    if ctx.macro_depth > STACK_LIMIT {
         return Err(CommandError::RecursionLimit(desc));
     }
     if registration.permission > ctx.message().sender.level {
@@ -160,6 +164,28 @@ async fn prepare_command(
     }
 
     let cmd_ctx = CommandContext::new(ctx.clone(), desc.clone());
+
+    // expand args
+    let macro_args = &cmd_ctx.macro_ctx.args;
+    for arg in &mut cmd_expr.args {
+        *arg = regex_replace_all!(r#"(%?)%(\d+)"#, arg, |_, p: &str, num: &str| {
+            if p.is_empty() {
+                if let Some(arg) = num
+                    .parse::<usize>()
+                    .ok()
+                    .filter(|n| *n != 0)
+                    .and_then(|n| macro_args.get(n - 1))
+                {
+                    arg.clone()
+                } else {
+                    format!("%{num}")
+                }
+            } else {
+                format!("%{num}")
+            }
+        })
+        .into_owned();
+    }
 
     match (registration.handler)(cmd_ctx.clone(), Args::new(cmd_expr.args)) {
         Ok(fut) => Ok((cmd_ctx, fut)),

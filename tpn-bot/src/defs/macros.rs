@@ -1,4 +1,7 @@
-use std::time::{Duration, Instant};
+use std::{
+    collections::VecDeque,
+    time::{Duration, Instant},
+};
 
 use anyhow::{Result, bail};
 use maud::html;
@@ -10,7 +13,7 @@ use rustis::{
 
 use crate::{
     commands::{
-        args::InRange,
+        args::{IgnoreLiteral, InRange},
         command,
         runner::{self, CommandError, CommandInterrupt},
     },
@@ -36,19 +39,26 @@ fn print_inner_errors(errors: &[CommandError]) -> String {
 /// macro-record:hop:"wait~ up~ wait~ up~ wait~ up~ wait~ up~"~
 /// ```
 #[command(shortcode=mr)]
-async fn macro_record(ctx: CommandContext, name: String, script: String) -> Result<()> {
+async fn macro_record(
+    ctx: CommandContext,
+    name: String,
+    script: String,
+    ignore_errors: Option<IgnoreLiteral>,
+) -> Result<()> {
     let name = name.to_lowercase();
 
     let parsed = CommandMessage::parse(&script);
     if parsed.is_empty() {
         fail!("script contained no commands");
     }
-    if let Err(errors) = runner::prepare_commands(&ctx, parsed).await {
-        fail!("script contained errors: {}", print_inner_errors(&errors));
+    if ignore_errors.is_none() {
+        if let Err(errors) = runner::prepare_commands(&ctx, parsed).await {
+            fail!("script contained errors: {}", print_inner_errors(&errors));
+        }
     }
 
     let mut tx = ctx.storage().create_transaction();
-    let key = format!("macros:{}", ctx.owner);
+    let key = format!("macros:{}", ctx.macro_ctx.owner);
     tx.hset(&key, (&name, &script)).forget();
     tx.hlen(&key).queue();
     let len: usize = tx.execute().await?;
@@ -64,7 +74,7 @@ async fn macro_record(ctx: CommandContext, name: String, script: String) -> Resu
 /// Deletes a macro created with `macro-record~`.
 #[command(shortcode=md)]
 async fn macro_delete(ctx: CommandContext, name: String) -> Result<()> {
-    let key = format!("macros:{}", ctx.owner);
+    let key = format!("macros:{}", ctx.macro_ctx.owner);
     if ctx.storage().hdel(key, &name).await? == 0 {
         fail!("no macro named `{name}`");
     } else {
@@ -145,12 +155,12 @@ async fn global_macro_list(ctx: CommandContext) -> Result<()> {
 #[command]
 async fn yoink(
     ctx: CommandContext,
-    login: String,
     name: String,
+    login: String,
     rename: Option<String>,
 ) -> Result<()> {
     let script = macro_get(&ctx, &name, Some(&login)).await?;
-    macro_record(ctx, rename.unwrap_or(name), script).await
+    macro_record(ctx, rename.unwrap_or(name), script, None).await
 }
 
 /// Run the macro.
@@ -160,12 +170,19 @@ async fn yoink(
 /// Also you can run a macro recorded by someone else by appending their login
 /// as the third argument.
 #[command(shortcode=q, no_wall)]
-async fn r#macro(ctx: CommandContext, name: String, login: Option<String>) -> Result<()> {
+async fn r#macro(
+    ctx: CommandContext,
+    name: String,
+    login: Option<String>,
+    rest: VecDeque<String>,
+) -> Result<()> {
     let chatter_id = ctx.chatter_id(login.as_deref()).await?;
+
     let script: Option<String> = ctx
         .storage()
         .hget(format!("macros:{chatter_id}"), &name)
         .await?;
+
     let (script, global) = match script {
         Some(script) => (script, false),
         None => {
@@ -185,7 +202,8 @@ async fn r#macro(ctx: CommandContext, name: String, login: Option<String>) -> Re
     };
     let _guard = ctx.status_wall().push(status).await;
 
-    let errors = runner::eval(&ctx.nest_macro(&chatter_id, global), command_msg).await;
+    let errors = runner::eval(&ctx.nest_macro(&chatter_id, global, rest), command_msg).await;
+
     if !errors.is_empty() {
         if errors.iter().any(|e| matches!(e, CommandError::Interrupt)) {
             bail!(CommandInterrupt);

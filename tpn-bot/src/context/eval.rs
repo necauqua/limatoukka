@@ -1,14 +1,19 @@
-use std::{ops::Deref, sync::Arc};
+use std::{collections::VecDeque, ops::Deref, sync::Arc};
 
 use super::msg::MessageContext;
 
+pub struct MacroContext {
+    pub owner: String,
+    pub args: VecDeque<String>,
+}
+
 #[derive(Clone)]
 pub struct EvalContext {
-    parent: MessageContext,
-    pub owner: Arc<str>,
-    pub depth: u32,
-    pub macro_depth: u32,
+    pub macro_ctx: Arc<MacroContext>,
     pub in_global_macro: bool,
+    pub macro_depth: u32,
+    depth: u32,
+    parent: MessageContext,
 }
 
 impl Deref for EvalContext {
@@ -22,11 +27,14 @@ impl Deref for EvalContext {
 impl EvalContext {
     pub fn new(parent: MessageContext) -> Self {
         Self {
-            owner: (&*parent.message().sender.id).into(),
-            parent,
+            macro_ctx: Arc::new(MacroContext {
+                owner: (&*parent.message().sender.id).into(),
+                args: Default::default(),
+            }),
             depth: 0,
             macro_depth: 0,
             in_global_macro: false,
+            parent,
         }
     }
 
@@ -41,17 +49,20 @@ impl EvalContext {
     pub fn nest(&self) -> Self {
         Self {
             parent: self.parent.clone(),
-            owner: self.owner.clone(),
+            macro_ctx: self.macro_ctx.clone(),
             depth: self.depth + 1,
             macro_depth: self.macro_depth,
             in_global_macro: self.in_global_macro,
         }
     }
 
-    pub fn nest_macro(&self, owner: &str, is_global: bool) -> Self {
+    pub fn nest_macro(&self, owner: &str, is_global: bool, args: VecDeque<String>) -> Self {
         Self {
             parent: self.parent.clone(),
-            owner: owner.into(),
+            macro_ctx: Arc::new(MacroContext {
+                owner: owner.into(),
+                args,
+            }),
             depth: self.depth + 1,
             macro_depth: self.macro_depth + 1,
             in_global_macro: self.in_global_macro || is_global,

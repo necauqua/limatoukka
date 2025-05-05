@@ -87,6 +87,16 @@ impl<T: ArgExtractor> ArgExtractor for Option<T> {
     const OPTIONAL: bool = true;
 }
 
+impl ArgExtractor for VecDeque<String> {
+    fn extract(args: &mut Args) -> ExtractorResult<Self> {
+        Ok(std::mem::take(&mut args.args))
+    }
+
+    fn type_desc() -> Cow<'static, str> {
+        "the rest of the arguments".into()
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum ArgError {
     #[error("wrong argument type, expected {0}")]
@@ -195,5 +205,21 @@ impl<const A: u32, const B: u32> CommandArg for InRange<A, B> {
 
     fn type_desc() -> Cow<'static, str> {
         format!("a number in range from {A} to {B}").into()
+    }
+}
+
+pub struct IgnoreLiteral;
+
+impl CommandArg for IgnoreLiteral {
+    fn parse(input: String) -> ArgResult<Self> {
+        if input == "ignore" {
+            Ok(Self)
+        } else {
+            Err(ArgError::Precondition("was not 'ignore'".into()))
+        }
+    }
+
+    fn type_desc() -> Cow<'static, str> {
+        "a literal string 'ignore'".into()
     }
 }
