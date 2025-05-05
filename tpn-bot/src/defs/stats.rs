@@ -122,18 +122,20 @@ async fn balance(ctx: CommandContext) -> Result<()> {
                 ctx.reply("Nothing yet".into()).await?;
             } else {
                 ctx.reply(format!(
-                    "Perfectly balanced, as all things should be ({blesses}/{curses})"
+                    "Perfectly balanced, as all things should be (↑{blesses}/{curses}↓)"
                 ))
                 .await?;
             }
         }
         Ord::Less => {
-            ctx.reply(format!("This run is cursed PepeHands ({blesses}/{curses})"))
-                .await?;
+            ctx.reply(format!(
+                "This run is cursed PepeHands (↑{blesses}/{curses}↓)"
+            ))
+            .await?;
         }
         Ord::Greater => {
             ctx.reply(format!(
-                "This run is blessed AngelThump ({blesses}/{curses})"
+                "This run is blessed AngelThump (↑{blesses}/{curses}↓)"
             ))
             .await?;
         }
