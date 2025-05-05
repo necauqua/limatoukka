@@ -277,46 +277,39 @@ impl TwitchEventSub {
         self.tx.subscribe()
     }
 
-    pub async fn run(mut self) -> Result<()> {
-        let mut s = self.connect().await;
+    pub async fn run(mut self) -> ! {
+        loop {
+            if let Err(e) = self.run_iteration().await {
+                tracing::warn!(error=?e, "twitch eventsub fail");
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    }
+
+    async fn run_iteration(&mut self) -> Result<()> {
+        let mut s = self.connect().await?;
         while let Some(msg) = s.next().await {
-            match msg {
-                Ok(msg) => {
-                    if !self.process_message(msg).await? {
-                        s = self.connect().await;
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(error=?e, "websocket error");
-                    s = self.connect().await;
-                }
+            if !self.process_message(msg?).await? {
+                s = self.connect().await?;
             }
         }
         Ok(())
     }
 
-    async fn connect(&self) -> WebSocketStream<MaybeTlsStream<TcpStream>> {
-        loop {
-            tracing::info!("connecting to twitch");
-            let config = tungstenite::protocol::WebSocketConfig::default()
-                .max_message_size(Some(64 << 20)) // 64 MiB
-                .max_frame_size(Some(16 << 20)) // 16 MiB
-                .accept_unmasked_frames(false);
-            match tokio_tungstenite::connect_async_with_config(
-                &self.connect_url,
-                Some(config),
-                false,
-            )
-            .await
-            {
-                Ok((socket, _)) => break socket,
-                Err(e) => {
-                    tracing::warn!(error=?e, "failure during connection attempt");
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                    continue;
-                }
-            };
-        }
+    async fn connect(&self) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {
+        tracing::info!("connecting to twitch");
+        let (stream, _) = tokio_tungstenite::connect_async_with_config(
+            &self.connect_url,
+            Some(
+                tungstenite::protocol::WebSocketConfig::default()
+                    .max_message_size(Some(64 << 20)) // 64 MiB
+                    .max_frame_size(Some(16 << 20)) // 16 MiB
+                    .accept_unmasked_frames(false),
+            ),
+            false,
+        )
+        .await?;
+        Ok(stream)
     }
 
     /// Should reconnect if Ok(false) is returned

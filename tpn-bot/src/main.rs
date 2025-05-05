@@ -26,12 +26,7 @@ async fn run(config: Config) -> Result<()> {
     let (mut incoming, messaging) = messaging::connect_to_twitch(twitch.clone());
 
     let mut eventsub_rx = eventsub.subscribe();
-
-    tokio::spawn(async {
-        if let Err(e) = eventsub.run().await {
-            tracing::error!(error=?e, "twitch eventsub fail");
-        }
-    });
+    tokio::spawn(eventsub.run());
 
     let ctx = AppContext::new(
         messaging,
