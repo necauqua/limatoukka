@@ -164,7 +164,6 @@ impl Twitch {
 
         let eventsub = TwitchEventSub {
             twitch: t.clone(),
-            session_id: None,
             connect_url: twitch_api::TWITCH_EVENTSUB_WEBSOCKET_URL.clone(),
             caster_token,
             first_welcome: true,
@@ -214,7 +213,6 @@ impl Twitch {
 
 pub struct TwitchEventSub {
     twitch: Twitch,
-    session_id: Option<String>,
     connect_url: Url,
     caster_token: UserToken,
     first_welcome: bool,
@@ -223,7 +221,6 @@ pub struct TwitchEventSub {
 
 impl TwitchEventSub {
     async fn process_welcome_message(&mut self, data: SessionData<'_>) -> Result<()> {
-        self.session_id = Some(data.id.to_string());
         if let Some(url) = data.reconnect_url {
             self.connect_url = url.parse()?;
         }
@@ -281,46 +278,49 @@ impl TwitchEventSub {
     }
 
     pub async fn run(mut self) -> Result<()> {
-        let mut s = self
-            .connect()
-            .await
-            .context("when establishing connection")?;
+        let mut s = self.connect().await;
         while let Some(msg) = s.next().await {
-            let msg = match msg {
-                Err(tungstenite::Error::Protocol(
-                    tungstenite::error::ProtocolError::ResetWithoutClosingHandshake,
-                )) => {
-                    tracing::warn!(
-                        "connection was sent an unexpected frame or was reset, reestablishing it"
-                    );
-                    s = self
-                        .connect()
-                        .await
-                        .context("when reestablishing connection")?;
-                    continue;
+            match msg {
+                Ok(msg) => {
+                    if !self.process_message(msg).await? {
+                        s = self.connect().await;
+                    }
                 }
-                _ => msg.context("when getting message")?,
-            };
-            self.process_message(msg).await?
+                Err(e) => {
+                    tracing::warn!(error=?e, "websocket error");
+                    s = self.connect().await;
+                }
+            }
         }
         Ok(())
     }
 
-    async fn connect(&self) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {
-        tracing::info!("connecting to twitch");
-        let config = tungstenite::protocol::WebSocketConfig::default()
-            .max_message_size(Some(64 << 20)) // 64 MiB
-            .max_frame_size(Some(16 << 20)) // 16 MiB
-            .accept_unmasked_frames(false);
-        let (socket, _) =
-            tokio_tungstenite::connect_async_with_config(&self.connect_url, Some(config), false)
-                .await
-                .context("Can't connect")?;
-
-        Ok(socket)
+    async fn connect(&self) -> WebSocketStream<MaybeTlsStream<TcpStream>> {
+        loop {
+            tracing::info!("connecting to twitch");
+            let config = tungstenite::protocol::WebSocketConfig::default()
+                .max_message_size(Some(64 << 20)) // 64 MiB
+                .max_frame_size(Some(16 << 20)) // 16 MiB
+                .accept_unmasked_frames(false);
+            match tokio_tungstenite::connect_async_with_config(
+                &self.connect_url,
+                Some(config),
+                false,
+            )
+            .await
+            {
+                Ok((socket, _)) => break socket,
+                Err(e) => {
+                    tracing::warn!(error=?e, "failure during connection attempt");
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    continue;
+                }
+            };
+        }
     }
 
-    async fn process_message(&mut self, msg: tungstenite::Message) -> Result<()> {
+    /// Should reconnect if Ok(false) is returned
+    async fn process_message(&mut self, msg: tungstenite::Message) -> Result<bool> {
         match msg {
             tungstenite::Message::Text(s) => {
                 tracing::debug!("{s}");
@@ -328,34 +328,41 @@ impl TwitchEventSub {
                     EventsubWebsocketData::Welcome {
                         payload: WelcomePayload { session },
                         ..
+                    } => {
+                        self.process_welcome_message(session).await?;
+                        Ok(true)
                     }
-                    | EventsubWebsocketData::Reconnect {
+                    EventsubWebsocketData::Reconnect {
                         payload: ReconnectPayload { session },
                         ..
                     } => {
-                        self.process_welcome_message(session).await?;
-                        Ok(())
+                        if let Some(url) = session.reconnect_url {
+                            self.connect_url = url.parse()?;
+                        }
+                        Ok(false)
                     }
                     EventsubWebsocketData::Notification {
                         metadata: _,
                         payload,
                     } => {
                         _ = self.tx.send(payload);
-                        Ok(())
+                        Ok(true)
                     }
                     EventsubWebsocketData::Revocation {
                         metadata,
                         payload: _,
-                    } => bail!("got revocation event: {metadata:?}"),
-                    EventsubWebsocketData::Keepalive {
-                        metadata: _,
-                        payload: _,
-                    } => Ok(()),
-                    _ => Ok(()),
+                    } => {
+                        tracing::warn!(?metadata, "got revocation event");
+                        Ok(false)
+                    }
+                    _ => Ok(true),
                 }
             }
-            tungstenite::Message::Close(frame) => bail!("got close message: frame={frame:?}"),
-            _ => Ok(()),
+            tungstenite::Message::Close(frame) => {
+                tracing::warn!(?frame, "received a close frame");
+                Ok(false)
+            }
+            _ => Ok(true),
         }
     }
 }
