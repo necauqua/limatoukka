@@ -45,16 +45,6 @@ pub async fn receive_message(ctx: AppContext, message: Message) -> Result<()> {
         }
     }
 
-    // ughh, just keep a login -> id mapping to avoid having to hook up twitch
-    // api just to make votekick work with usernames *and* prevent them from
-    // changing the username to avoid the shadow realm once
-    //
-    // well, as a bonus this allows us to check if user being voteckicked ever
-    // typed in chat
-    ctx.storage()
-        .set(format!("twitch-users:{}", s.login), &s.id)
-        .await?;
-
     tracing::debug!("processing message");
 
     let command_msg = CommandMessage::parse(&message.text);

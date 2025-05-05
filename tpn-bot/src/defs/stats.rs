@@ -7,8 +7,6 @@ use serde_json::{Value, json};
 
 use crate::{commands::command, context::cmd::CommandContext, fail};
 
-use super::chatter_id;
-
 const INDEX: &str = "twitch-logs";
 
 async fn stat_impl(
@@ -49,7 +47,7 @@ async fn stat_impl(
 /// Login defaults to the sender (you can do `stat::word~` too).
 #[command(sender_gate = 3s)]
 async fn stat(ctx: CommandContext, login: Option<String>, word: Option<String>) -> Result<()> {
-    let id = chatter_id(&ctx, login.as_deref()).await?;
+    let id = ctx.chatter_id(login.as_deref()).await?;
     stat_impl(&ctx, Some(&id), word).await
 }
 
@@ -67,7 +65,7 @@ async fn stat_global(ctx: CommandContext, word: Option<String>) -> Result<()> {
 /// Get the first message sent by a user (or you) in chat.
 #[command(sender_gate = 3s)]
 async fn first_message(ctx: CommandContext, login: Option<String>) -> Result<()> {
-    let id = chatter_id(&ctx, login.as_deref()).await?;
+    let id = ctx.chatter_id(login.as_deref()).await?;
 
     let response = ctx
         .storage()

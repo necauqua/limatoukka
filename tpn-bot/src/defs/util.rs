@@ -12,8 +12,6 @@ use rustis::commands::{GenericCommands, StringCommands};
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use tokio::time::sleep;
 
-use super::chatter_id;
-
 /// Respond with "pong!".
 ///
 /// I heard that scarcity creates value, so getting a pong is very _cool_ and
@@ -44,7 +42,7 @@ async fn echo(ctx: CommandContext, text: String) -> Result<()> {
 /// message id - please send it to me to look at logs and fix the issue.
 #[command(sender_gate = 3s)]
 async fn last_error(ctx: CommandContext, login: Option<String>) -> Result<()> {
-    let id = chatter_id(&ctx, login.as_deref()).await?;
+    let id = ctx.chatter_id(login.as_deref()).await?;
     let status: Option<String> = ctx.storage().get(format!("last-error:{id}")).await?;
     if let Some(status) = status {
         ctx.reply(status).await?;

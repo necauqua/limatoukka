@@ -19,8 +19,6 @@ use crate::{
     services::status_wall::EntryKey,
 };
 
-use super::chatter_id;
-
 #[derive(Clone, Copy)]
 enum Vote {
     Yes,
@@ -224,13 +222,6 @@ where
     Ok(())
 }
 
-async fn do_banish(ctx: &AppContext, id: &str, login: &str) -> Result<()> {
-    // yeet em
-    ctx.storage().set(format!("kick:begone:{id}"), "1").await?;
-    tracing::info!(id, login, "sent to shadow realm");
-    Ok(())
-}
-
 /// If several(!) people run this command with the same Twitch **login** (this
 /// is important, use their login, not display name) as an argument - this will
 /// start a vote to send that user to the shadow realm.
@@ -248,7 +239,7 @@ async fn do_banish(ctx: &AppContext, id: &str, login: &str) -> Result<()> {
 /// large per-user cooldown, so dont waste it.
 #[command(sender_gate = 5m)]
 async fn votekick(ctx: CommandContext, login: String) -> Result<()> {
-    let id = chatter_id(&ctx, Some(&login)).await?.into_owned();
+    let id = ctx.chatter_id(Some(&login)).await?.into_owned();
     if ctx.storage().exists(format!("kick:begone:{id}")).await? != 0 {
         fail!("already banished")
     }
@@ -261,53 +252,9 @@ async fn votekick(ctx: CommandContext, login: String) -> Result<()> {
         html! { "Banish " span style="color: #E38AF0" { (login) } },
         format!("Banish {login}"),
         config,
-        move |ctx| async move { do_banish(&ctx, &id, &login).await },
+        move |ctx| async move { super::moderation::do_banish(&ctx, &id, &login).await },
     )
     .await
-}
-
-/// Instantly banish a user to the shadow realm.
-#[command(permission = TwitchStaff)]
-async fn banish(ctx: CommandContext, login: String) -> Result<()> {
-    let id = chatter_id(&ctx, Some(&login)).await?;
-    if ctx.storage().exists(format!("kick:begone:{id}")).await? != 0 {
-        ctx.reply("already banished".into()).await?;
-        return Ok(());
-    }
-    do_banish(&ctx, &id, &login).await?;
-    ctx.reply("whoosh!".to_owned()).await?;
-    Ok(())
-}
-
-/// Restore users ability to use the bot, bringing them back from the shadow
-/// realm regardless of their crimes.
-#[command(permission = Moderator)]
-async fn unbanish(ctx: CommandContext, login: String) -> Result<()> {
-    let id = chatter_id(&ctx, Some(&login)).await?;
-    if ctx.storage().del(format!("kick:begone:{id}")).await? == 0 {
-        ctx.reply("was not banished lmao".into()).await?;
-    } else {
-        ctx.reply("the deed is done".to_owned()).await?;
-    }
-    Ok(())
-}
-
-/// Check if a user was yeeted into the shadow realm. Per-user 15 second
-/// cooldown.
-///
-/// If _you_ are yeeted, the bot ignores you utterly, so this won't work
-/// ¯\\\_(ツ)_/¯.
-#[command(sender_gate = 15s)]
-async fn banished(ctx: CommandContext, login: String) -> Result<()> {
-    let id = chatter_id(&ctx, Some(&login)).await?;
-    let begone = ctx.storage().exists(format!("kick:begone:{id}")).await?;
-    if begone != 0 {
-        ctx.reply("In the shadow realm xdd".into()).await?;
-    } else {
-        ctx.reply("They're good".into()).await?;
-    }
-
-    Ok(())
 }
 
 /// This allows to start a vote to restart the game in case it crashed or got

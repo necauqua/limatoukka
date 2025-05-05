@@ -1,5 +1,4 @@
 use std::{
-    borrow::Cow,
     process::Stdio,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -15,10 +14,6 @@ use tokio::{
     time::sleep,
 };
 use tracing::Instrument;
-use twitch_api::{
-    eventsub::{Event, Message, Payload},
-    helix::chat::SendAShoutoutRequest,
-};
 
 use crate::{
     commands::runner::CommandInterrupt,
@@ -287,132 +282,6 @@ impl AppContext {
             .await?;
 
         Self::restart().await?;
-        Ok(())
-    }
-
-    pub async fn handle_event(&self, event: Event) -> Result<()> {
-        match event {
-            Event::ChannelPointsCustomRewardRedemptionAddV1(Payload {
-                message: Message::Notification(data),
-                ..
-            }) => match data.reward.id.as_str() {
-                // hello
-                "7d046898-3594-45ec-ae58-d3dae0c68187" => {
-                    self.send("hiii".into()).await?;
-                }
-                // bless
-                "f2a54ce8-5c8a-4ed0-ab52-fe9fd11c41c9" => {
-                    self.storage().incr("balance:blesses").await?;
-                }
-                // curse
-                "5716f47f-f8df-4fef-baf0-6b6a2b24ef76" => {
-                    self.storage().incr("balance:curses").await?;
-                }
-                _ => {}
-            },
-            Event::ChannelAdBreakBeginV1(Payload {
-                message: Message::Notification(data),
-                ..
-            }) => {
-                self.send(
-                    "ADS ! I enabled auto-ads to avoid prerolls, so people can check on TPN without getting blasted. You can sub or get turbo xdd".into(),
-                )
-                .await?;
-                self.schedule(
-                    Duration::from_secs(data.duration_seconds as _),
-                    |ctx| async move { ctx.send("ADS over".into()).await },
-                );
-            }
-            Event::ChannelSubscribeV1(Payload {
-                message: Message::Notification(data),
-                ..
-            }) => {
-                if !data.is_gift {
-                    self.send(format!(
-                        "Yoooo, thanks for subscribing @{} <3",
-                        data.user_name
-                    ))
-                    .await?;
-                }
-            }
-            Event::ChannelSubscriptionGiftV1(Payload {
-                message: Message::Notification(data),
-                ..
-            }) => {
-                let name = data
-                    .user_name
-                    .map_or(Cow::Borrowed("anon"), |n| Cow::Owned(format!("@{n}")));
-                self.send(match data.total {
-                    1 => format!("Thanks for the gifted sub, {name} <3"),
-                    _ => format!("Thanks for {} gifted subs {name} <3", data.total),
-                })
-                .await?;
-            }
-            Event::ChannelSubscriptionMessageV1(Payload {
-                message: Message::Notification(_data),
-                ..
-            }) => {
-                // todo this is resubs, right?
-            }
-            Event::ChannelCheerV1(Payload {
-                message: Message::Notification(_data),
-                ..
-            }) => {
-                // todo something with cheers
-            }
-            Event::ChannelRaidV1(Payload {
-                message: Message::Notification(data),
-                ..
-            }) => {
-                self.send(format!(
-                    "VoHiYo Thanks for the raid @{}, and welcome raiders TwitchUnity",
-                    data.from_broadcaster_user_name
-                ))
-                .await?;
-                self.twitch()
-                    .call(move |t| {
-                        let user_id = data.from_broadcaster_user_id.clone();
-                        async move {
-                            let request = SendAShoutoutRequest::new(
-                                t.target.id.clone(),
-                                user_id,
-                                t.token.user_id.clone(),
-                            );
-                            t.helix
-                                .req_post(request, Default::default(), &t.token)
-                                .await?;
-                            Ok(())
-                        }
-                    })
-                    .await?;
-            }
-            Event::ChannelHypeTrainBeginV1(Payload {
-                message: Message::Notification(_),
-                ..
-            }) => {
-                self.send("Scam train ICANT".into()).await?;
-            }
-            Event::ChannelHypeTrainEndV1(Payload {
-                message: Message::Notification(data),
-                ..
-            }) => {
-                let plural = match data.top_contributions.len() {
-                    1 => " was",
-                    _ => "s were",
-                };
-                let top = data
-                    .top_contributions
-                    .into_iter()
-                    .map(|c| c.user_name)
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                self.send(format!(
-                    "Scam train over, pfew.. Top contributor{plural} {top}"
-                ))
-                .await?;
-            }
-            e => tracing::info!(event = ?e, "unhandled eventsub event"),
-        }
         Ok(())
     }
 }

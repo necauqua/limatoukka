@@ -18,8 +18,6 @@ use crate::{
     fail,
 };
 
-use super::chatter_id;
-
 fn print_inner_errors(errors: &[CommandError]) -> String {
     format!(
         "{{ {} }}",
@@ -100,7 +98,7 @@ async fn global_macro_delete(ctx: CommandContext, name: String) -> Result<()> {
 }
 
 async fn macro_get(ctx: &CommandContext, name: &str, login: Option<&str>) -> Result<String> {
-    let id = chatter_id(ctx, login).await?;
+    let id = ctx.chatter_id(login).await?;
     let script: Option<String> = ctx.storage().hget(format!("macros:{id}"), name).await?;
     match script {
         Some(script) => Ok(script),
@@ -131,7 +129,7 @@ async fn global_macro_print(ctx: CommandContext, name: String) -> Result<()> {
 /// List macros you/given chatter has recorded.
 #[command(sender_gate=5s, shortcode=ml)]
 async fn macro_list(ctx: CommandContext, login: Option<String>) -> Result<()> {
-    let id = chatter_id(&ctx, login.as_deref()).await?;
+    let id = ctx.chatter_id(login.as_deref()).await?;
     let keys: Vec<String> = ctx.storage().hkeys(format!("macros:{id}")).await?;
     ctx.reply(keys.join(", ")).await
 }
@@ -163,7 +161,7 @@ async fn yoink(
 /// as the third argument.
 #[command(shortcode=q, no_wall)]
 async fn r#macro(ctx: CommandContext, name: String, login: Option<String>) -> Result<()> {
-    let chatter_id = chatter_id(&ctx, login.as_deref()).await?;
+    let chatter_id = ctx.chatter_id(login.as_deref()).await?;
     let script: Option<String> = ctx
         .storage()
         .hget(format!("macros:{chatter_id}"), &name)
