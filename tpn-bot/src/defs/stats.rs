@@ -89,7 +89,7 @@ async fn first_message(ctx: CommandContext, login: Option<String>) -> Result<()>
     let response = response.error_for_status_code()?.json::<Value>().await?;
 
     let Some(found) = response.pointer("/hits/hits/0/_source") else {
-        fail!("not found");
+        fail!("they never typed in chat");
     };
     let message = found
         .get("message")

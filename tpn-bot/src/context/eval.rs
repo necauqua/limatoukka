@@ -1,4 +1,9 @@
-use std::{collections::VecDeque, ops::Deref, sync::Arc};
+use std::{borrow::Cow, collections::VecDeque, ops::Deref, sync::Arc};
+
+use anyhow::Result;
+use rustis::commands::{SetCondition, SetExpiration, StringCommands};
+
+use crate::fail;
 
 use super::msg::MessageContext;
 
@@ -67,5 +72,37 @@ impl EvalContext {
             macro_depth: self.macro_depth + 1,
             in_global_macro: self.in_global_macro || is_global,
         }
+    }
+
+    pub async fn chatter_id(&self, login: Option<&str>) -> Result<Cow<'_, str>> {
+        let Some(login) = login else {
+            return Ok(Cow::Borrowed(&self.macro_ctx.owner));
+        };
+
+        let key = format!("chatter:{login}");
+        let cached: Option<String> = self.storage().get(&key).await?;
+        if let Some(cached) = cached {
+            return Ok(cached.into());
+        }
+
+        let full = self
+            .twitch()
+            .call(|t| async move { t.helix.get_user_from_login(login, &t.token).await })
+            .await?;
+        let Some(user) = full else {
+            fail!("this user does not exist");
+        };
+
+        self.storage()
+            .set_with_options(
+                key,
+                user.id.as_str(),
+                SetCondition::None,
+                SetExpiration::Ex(3600),
+                false,
+            )
+            .await?;
+
+        Ok(user.id.take().into())
     }
 }
