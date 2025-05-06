@@ -26,7 +26,7 @@ use crate::{
 };
 
 use super::{
-    CommandContext, CommandFuture,
+    CommandContext, CommandFuture, CommandRegistration,
     args::{Args, ExtractorError},
 };
 
@@ -110,6 +110,33 @@ pub async fn prepare_commands(
     Ok(groups)
 }
 
+async fn find_command(
+    ctx: &EvalContext,
+    name: &str,
+    expr: &mut CommandExpr,
+) -> Option<&'static CommandRegistration> {
+    tracing::trace!(name, "looking up command");
+
+    if let Some(reg) = super::find(name) {
+        return Some(reg);
+    }
+
+    let mut p = ctx.storage().create_pipeline();
+    p.hexists(format!("macros:{}", ctx.macro_ctx.owner), name)
+        .queue();
+    p.hexists("macros:global", name).queue();
+
+    match p.execute().await {
+        Ok((personal, global)) if personal || global => {
+            // empty string for current username, to allow macro args to immediately follow
+            expr.args.push_front(String::new());
+            expr.args.push_front(name.to_owned());
+            Some(*super::MACRO)
+        }
+        _ => None,
+    }
+}
+
 const STACK_LIMIT: u32 = 3;
 
 async fn prepare_command(
@@ -124,35 +151,19 @@ async fn prepare_command(
         group: group_idx,
         idx: cmd_idx,
     };
-    let registration = match super::find(&token.name) {
-        Some(r) => r,
-        None => {
-            let mut name = (*token.name).to_owned();
 
-            // very cringe lmao
-            if let Some(arg) = cmd_expr.args.front() {
-                if lazy_regex::regex_is_match!(r"\d+s?", arg) {
-                    name.push_str(arg);
-                    cmd_expr.args.pop_front();
-                }
-            }
-
-            let mut p = ctx.storage().create_pipeline();
-            p.hexists(format!("macros:{}", ctx.macro_ctx.owner), &name)
-                .queue();
-            p.hexists("macros:global", &name).queue();
-
-            match p.execute().await {
-                Ok((personal, global)) if personal || global => {
-                    // empty string for current username, to allow macro args to immediately follow
-                    cmd_expr.args.push_front(String::new());
-                    cmd_expr.args.push_front(name);
-                    *super::MACRO
-                }
-                _ => return Err(CommandError::UnknownCommand(token)),
-            }
-        }
+    let found = match find_command(ctx, &token.name, &mut cmd_expr).await {
+        Some(r) => Some(r),
+        None => lazy_regex::regex_if!(r#"^(?<name>.*?)(?<n>\d+s?)$"#, &*token.name, {
+            cmd_expr.args.push_front(n.to_owned());
+            find_command(ctx, name, &mut cmd_expr).await
+        })
+        .flatten(),
     };
+    let Some(registration) = found else {
+        return Err(CommandError::UnknownCommand(token));
+    };
+
     let desc = CommandDescriptor {
         registration,
         token,

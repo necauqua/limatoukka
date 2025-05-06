@@ -125,7 +125,10 @@ impl CommandArg for String {
 
 impl CommandArg for i32 {
     fn parse(input: String) -> ArgResult<Self> {
-        input.parse().map_err(|_| ArgError::WrongType("a number"))
+        input
+            .trim_start_matches("--") // allow double negatives coming from concatenation
+            .parse()
+            .map_err(|_| ArgError::WrongType("a number"))
     }
 
     fn type_desc() -> Cow<'static, str> {
