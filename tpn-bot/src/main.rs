@@ -50,6 +50,8 @@ async fn run(config: Config) -> Result<()> {
 
     let mut found_items = ctx.noita().subscribe_to_found_items();
 
+    let eventsub_span = tracing::info_span!(parent: None, "eventsub");
+
     loop {
         let res = tokio::select! {
             Some(msg) = incoming.recv() => {
@@ -73,8 +75,8 @@ async fn run(config: Config) -> Result<()> {
                 Ok(())
             }
             _ = ctx.noita().wait_for_player_death() => ctx.next_run().await,
-            Ok(item) = found_items.recv() => found_item(&ctx, item).await,
-            Ok(event) = eventsub_rx.recv() => eventsub_event(&ctx, event).await,
+            Ok(item) = found_items.recv() => found_item(&ctx, item).in_current_span().await,
+            Ok(event) = eventsub_rx.recv() => eventsub_event(&ctx, event).instrument(eventsub_span.clone()).await,
             else => return Ok(()),
         };
         if let Err(e) = res {
@@ -121,7 +123,6 @@ async fn eventsub_event(ctx: &AppContext, event: Event) -> Result<()> {
             ..
         }) => {
             tracing::info!(
-                target: "eventsub",
                 user = ?user!(data),
                 reward = data.reward.id.as_str(),
                 "reward redemption"
@@ -147,7 +148,6 @@ async fn eventsub_event(ctx: &AppContext, event: Event) -> Result<()> {
             ..
         }) => {
             tracing::info!(
-                target: "eventsub",
                 duration = data.duration_seconds,
                 auto = data.is_automatic,
                 "ad start"
@@ -166,7 +166,6 @@ async fn eventsub_event(ctx: &AppContext, event: Event) -> Result<()> {
             ..
         }) => {
             tracing::info!(
-                target: "eventsub",
                 user = ?user!(data),
                 tier = ?data.tier,
                 gifted = data.is_gift,
@@ -212,7 +211,6 @@ async fn eventsub_event(ctx: &AppContext, event: Event) -> Result<()> {
             ..
         }) => {
             tracing::info!(
-                target: "eventsub",
                 user = ?user!(opt data),
                 tier = ?data.tier,
                 amount = data.total,
@@ -233,7 +231,6 @@ async fn eventsub_event(ctx: &AppContext, event: Event) -> Result<()> {
             ..
         }) => {
             tracing::info!(
-                target: "eventsub",
                 user = ?user!(data),
                 tier = ?data.tier,
                 total = data.cumulative_months,
@@ -247,7 +244,6 @@ async fn eventsub_event(ctx: &AppContext, event: Event) -> Result<()> {
             ..
         }) => {
             tracing::info!(
-                target: "eventsub",
                 user = ?user!(opt data),
                 amount = data.bits,
                 text = data.message,
@@ -259,7 +255,6 @@ async fn eventsub_event(ctx: &AppContext, event: Event) -> Result<()> {
             ..
         }) => {
             tracing::info!(
-                target: "eventsub",
                 user = ?(data.from_broadcaster_user_id.as_str(), data.from_broadcaster_user_login.as_str()),
                 viewers = data.viewers,
                 "raid"
@@ -290,14 +285,14 @@ async fn eventsub_event(ctx: &AppContext, event: Event) -> Result<()> {
             message: Message::Notification(_),
             ..
         }) => {
-            tracing::info!(target: "eventsub", "hype train start");
+            tracing::info!("hype train start");
             ctx.send("Scam train ICANT".into()).await?;
         }
         Event::ChannelHypeTrainEndV1(Payload {
             message: Message::Notification(data),
             ..
         }) => {
-            tracing::info!(target: "eventsub", "hype train end");
+            tracing::info!("hype train end");
             let plural = match data.top_contributions.len() {
                 1 => " was",
                 _ => "s were",

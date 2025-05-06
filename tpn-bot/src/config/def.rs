@@ -35,6 +35,15 @@ pub struct Elastic {
     pub api_key: String,
 }
 
+#[derive(Deserialize /*, JsonSchema*/, Default, Clone)]
+#[serde(rename_all = "kebab-case")]
+pub struct Otel {
+    /// The URL of the OTEL-compatible server
+    pub url: String,
+    /// Optional value for the Authorization header
+    pub auth_header: Option<String>,
+}
+
 #[derive(Deserialize /*, JsonSchema*/)]
 #[serde(rename_all = "kebab-case")]
 pub struct Config {
@@ -48,15 +57,11 @@ pub struct Config {
 
     pub valkey: String,
     pub elastic: Elastic,
-
-    pub loki: Option<String>,
-    pub otel: Option<String>,
+    pub otel: Option<Otel>,
 
     pub browser_source_bind: String,
 
     pub kick_votes: Voting,
-    #[serde(with = "humantime_serde")]
-    pub first_time_kick: Duration,
 
     pub restart_votes: Voting,
     pub reset_votes: Voting,

@@ -6,12 +6,8 @@ target = "necauqua"
 display = ":17"
 
 valkey = "redis://localhost:6379"
-loki = "http://localhost:3030"
-otel = "http://localhost:4318/v1/traces"
 
 browser-source-bind = "localhost:7456"
-
-first-time-kick = "1h"
 
 vote-min-ratio = 0.7
 vote-trigger-people = 2

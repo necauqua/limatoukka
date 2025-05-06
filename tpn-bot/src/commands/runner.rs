@@ -221,8 +221,8 @@ async fn run_command_sequence(sequence: Vec<(CommandContext, CommandFuture)>) ->
     let mut result = Vec::new();
     for (ctx, fut) in sequence {
         // spawn a task for each command to catch panics
-        let tok = &ctx.command.token;
-        let cmd_span = debug_span!("command", %tok.name, ?tok.tpe, tok.group, tok.idx);
+        let cmd = &ctx.command.token;
+        let cmd_span = debug_span!("command", %cmd.name, ?cmd.tpe, cmd.group, cmd.idx);
         let cmd_span_inner = cmd_span.clone();
         let cmd = ctx.command.clone();
         let cmd_inner = cmd.clone();

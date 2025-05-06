@@ -36,6 +36,7 @@ use twitch_api::{
 use twitch_irc::login::{CredentialsPair, LoginCredentials};
 
 #[derive(Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct TwitchApp {
     pub client_id: ClientId,
     pub client_secret: ClientSecret,
