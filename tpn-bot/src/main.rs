@@ -18,7 +18,7 @@ use tpn_bot::{
     },
 };
 
-use tracing::{Instrument, Span, field::Empty};
+use tracing::{Instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use twitch_api::{
     eventsub::{Event, Message, Payload},
@@ -79,8 +79,8 @@ async fn run(config: Config) -> Result<()> {
             Ok(event) = eventsub_rx.recv() => eventsub_event(&ctx, event).instrument(eventsub_span.clone()).await,
             else => return Ok(()),
         };
-        if let Err(e) = res {
-            tracing::error!(error = ?e, "main loop error");
+        if let Err(error) = res {
+            tracing::error!(?error, "main loop error");
         }
     }
 }
@@ -103,19 +103,6 @@ async fn found_item(ctx: &AppContext, item: ItemFound) -> Result<()> {
     }.into()).await
 }
 
-macro_rules! user {
-    ($data:ident) => {
-        ($data.user_login.as_str(), $data.user_id.as_str())
-    };
-    (opt $data:ident) => {
-        $data
-            .user_login
-            .as_deref()
-            .zip($data.user_id.as_deref())
-            .map(|(login, id)| (login.as_str(), id.as_str()))
-    };
-}
-
 async fn eventsub_event(ctx: &AppContext, event: Event) -> Result<()> {
     match event {
         Event::ChannelPointsCustomRewardRedemptionAddV1(Payload {
@@ -123,8 +110,10 @@ async fn eventsub_event(ctx: &AppContext, event: Event) -> Result<()> {
             ..
         }) => {
             tracing::info!(
-                user = ?user!(data),
-                reward = data.reward.id.as_str(),
+                user.id = data.user_id.as_str(),
+                user.login = data.user_login.as_str(),
+                reward.name = data.reward.title.as_str(),
+                reward.id = data.reward.id.as_str(),
                 "reward redemption"
             );
             match data.reward.id.as_str() {
@@ -166,7 +155,8 @@ async fn eventsub_event(ctx: &AppContext, event: Event) -> Result<()> {
             ..
         }) => {
             tracing::info!(
-                user = ?user!(data),
+                user.id = data.user_id.as_str(),
+                user.login = data.user_login.as_str(),
                 tier = ?data.tier,
                 gifted = data.is_gift,
                 "sub"
@@ -211,7 +201,8 @@ async fn eventsub_event(ctx: &AppContext, event: Event) -> Result<()> {
             ..
         }) => {
             tracing::info!(
-                user = ?user!(opt data),
+                user.id = data.user_id.as_deref().map(|u| u.as_str()),
+                user.login = data.user_id.as_deref().map(|u| u.as_str()),
                 tier = ?data.tier,
                 amount = data.total,
                 total = data.cumulative_total,
@@ -231,7 +222,8 @@ async fn eventsub_event(ctx: &AppContext, event: Event) -> Result<()> {
             ..
         }) => {
             tracing::info!(
-                user = ?user!(data),
+                user.id = data.user_id.as_str(),
+                user.login = data.user_login.as_str(),
                 tier = ?data.tier,
                 total = data.cumulative_months,
                 streak = data.streak_months,
@@ -244,7 +236,8 @@ async fn eventsub_event(ctx: &AppContext, event: Event) -> Result<()> {
             ..
         }) => {
             tracing::info!(
-                user = ?user!(opt data),
+                user.id = data.user_id.as_deref().map(|u| u.as_str()),
+                user.login = data.user_id.as_deref().map(|u| u.as_str()),
                 amount = data.bits,
                 text = data.message,
                 "cheer"
@@ -255,7 +248,8 @@ async fn eventsub_event(ctx: &AppContext, event: Event) -> Result<()> {
             ..
         }) => {
             tracing::info!(
-                user = ?(data.from_broadcaster_user_id.as_str(), data.from_broadcaster_user_login.as_str()),
+                user.id = data.from_broadcaster_user_id.as_str(),
+                user.login = data.from_broadcaster_user_login.as_str(),
                 viewers = data.viewers,
                 "raid"
             );
@@ -308,7 +302,7 @@ async fn eventsub_event(ctx: &AppContext, event: Event) -> Result<()> {
             ))
             .await?;
         }
-        e => tracing::info!(event = ?e, "unhandled eventsub event"),
+        event => tracing::info!(?event, "unhandled eventsub event"),
     }
     Ok(())
 }
@@ -320,7 +314,5 @@ async fn main() -> Result<()> {
 
     tracing::info!("started");
 
-    run(config)
-        .instrument(tracing::info_span!("run", run.seed = Empty))
-        .await
+    run(config).await
 }

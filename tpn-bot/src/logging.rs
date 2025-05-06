@@ -13,6 +13,9 @@ use crate::config::Config;
 
 // send traces to local elastic apm via OpenTelemetry
 pub fn init(config: &Config) -> Result<()> {
+    // to be expanded
+    let actual_noise = EnvFilter::new("trace").add_directive("mio::poll=off".parse().unwrap());
+
     let otel_tracing = match &config.otel {
         None => None,
         Some(otel) => {
@@ -22,10 +25,7 @@ pub fn init(config: &Config) -> Result<()> {
                     "deployment.environment",
                     config.env.to_string(),
                 ))
-                .with_attribute(KeyValue::new(
-                    "agent.ephemeral_id",
-                    Uuid::now_v7().to_string(),
-                ))
+                .with_attribute(KeyValue::new("session_id", Uuid::now_v7().to_string()))
                 .build();
 
             let trace_provider = SdkTracerProvider::builder()
@@ -48,7 +48,11 @@ pub fn init(config: &Config) -> Result<()> {
                 )
                 .build();
 
-            Some(tracing_opentelemetry::layer().with_tracer(trace_provider.tracer("")))
+            Some(
+                tracing_opentelemetry::layer()
+                    .with_tracer(trace_provider.tracer(""))
+                    .with_filter(actual_noise),
+            )
         }
     };
 

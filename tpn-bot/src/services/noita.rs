@@ -23,7 +23,6 @@ use tokio::{
     },
     time::sleep,
 };
-use tracing::Span;
 
 pub struct NoitaHandle {
     noita: Mutex<Option<Noita>>,
@@ -161,9 +160,7 @@ impl NoitaHandle {
 
             let seed = state.and_then(|(_, _, s)| s);
             if seed != prev_seed {
-                if let Some(seed) = seed {
-                    Span::current().record("run.seed", seed.to_string());
-                }
+                tracing::info!(seed = seed.map(|s| s.to_string()), "new seed");
                 *self.seed.lock().await = seed;
                 prev_seed = seed;
             }
