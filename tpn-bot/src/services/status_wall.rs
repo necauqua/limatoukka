@@ -39,7 +39,7 @@ impl Inner {
 
 impl Default for Inner {
     fn default() -> Self {
-        let (tx, _) = broadcast::channel(1);
+        let (tx, _) = broadcast::channel(16);
         Self {
             entries: IndexMap::new(),
             counter: 0,

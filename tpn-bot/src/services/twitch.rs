@@ -163,7 +163,8 @@ impl Twitch {
                 target,
             }),
         };
-        let (tx, _) = tokio::sync::broadcast::channel(1);
+
+        let (tx, _) = tokio::sync::broadcast::channel(16);
 
         let eventsub = TwitchEventSub {
             twitch: t.clone(),
