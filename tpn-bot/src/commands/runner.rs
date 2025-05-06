@@ -1,6 +1,7 @@
 use std::any::Any;
 
 use anyhow::Result;
+use humantime_serde::re::humantime;
 use lazy_regex::regex_replace_all;
 use maud::html;
 use neca_cmd::{CommandExpr, CommandMessage};
@@ -291,12 +292,18 @@ async fn run_command(ctx: CommandContext, fut: CommandFuture) -> Result<()> {
     let r = ctx.command.registration;
     if let Some(global_gate) = &r.global_gate {
         if !ctx.gate(r.name, *global_gate).await? {
-            fail!("global timeout {global_gate:?}");
+            fail!(
+                "global timeout {}",
+                humantime::format_duration(*global_gate)
+            );
         }
     }
     if let Some(sender_gate) = &r.sender_gate {
         if !ctx.sender_gate(r.name, *sender_gate).await? {
-            fail!("sender timeout {sender_gate:?}");
+            fail!(
+                "sender timeout {}",
+                humantime::format_duration(*sender_gate)
+            );
         }
     }
 

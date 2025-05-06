@@ -36,7 +36,7 @@ pub struct NoitaHandle {
     reset_items: AtomicBool,
 }
 
-#[derive(EnumCount, Clone, Copy)]
+#[derive(Debug, EnumCount, Clone, Copy)]
 #[repr(u8)]
 pub enum ItemFound {
     TreeTablet,
@@ -53,10 +53,6 @@ fn is_dead(noita: &Noita) -> Result<bool> {
         .read::<PadBool<3>>(noita.proc())?
         .get()
         .as_bool())
-}
-
-fn read_death_count(noita: &Noita) -> Result<u32> {
-    Ok(noita.read_stats().map(|stats| stats.global.death_count)?)
 }
 
 fn is_inventory_open(noita: &Noita) -> Result<bool> {
@@ -94,14 +90,6 @@ impl Default for NoitaHandle {
 impl NoitaHandle {
     pub fn is_inventory_open(&self) -> bool {
         self.inventory_open.load(Ordering::Relaxed)
-    }
-
-    pub async fn get_death_count(&self) -> Option<u32> {
-        self.noita
-            .lock()
-            .await
-            .as_ref()
-            .and_then(|noita| read_death_count(noita).ok())
     }
 
     pub async fn get_seed(&self) -> Option<Seed> {

@@ -84,6 +84,7 @@ async fn run(config: Config) -> Result<()> {
 }
 
 async fn found_item(ctx: &AppContext, item: ItemFound) -> Result<()> {
+    tracing::info!(?item, "found item");
     ctx.send(match item {
         ItemFound::TreeTablet => "The best TABLET in the game acquired!",
         ItemFound::OtherTablet => "TABLET acquired",
@@ -100,30 +101,57 @@ async fn found_item(ctx: &AppContext, item: ItemFound) -> Result<()> {
     }.into()).await
 }
 
+macro_rules! user {
+    ($data:ident) => {
+        ($data.user_login.as_str(), $data.user_id.as_str())
+    };
+    (opt $data:ident) => {
+        $data
+            .user_login
+            .as_deref()
+            .zip($data.user_id.as_deref())
+            .map(|(login, id)| (login.as_str(), id.as_str()))
+    };
+}
+
 async fn eventsub_event(ctx: &AppContext, event: Event) -> Result<()> {
     match event {
         Event::ChannelPointsCustomRewardRedemptionAddV1(Payload {
             message: Message::Notification(data),
             ..
-        }) => match data.reward.id.as_str() {
-            // hello
-            "7d046898-3594-45ec-ae58-d3dae0c68187" => {
-                ctx.send("hiii".into()).await?;
+        }) => {
+            tracing::info!(
+                target: "eventsub",
+                user = ?user!(data),
+                reward = data.reward.id.as_str(),
+                "reward redemption"
+            );
+            match data.reward.id.as_str() {
+                // hello
+                "7d046898-3594-45ec-ae58-d3dae0c68187" => {
+                    ctx.send("hiii".into()).await?;
+                }
+                // bless
+                "f2a54ce8-5c8a-4ed0-ab52-fe9fd11c41c9" => {
+                    ctx.storage().incr("balance:blesses").await?;
+                }
+                // curse
+                "5716f47f-f8df-4fef-baf0-6b6a2b24ef76" => {
+                    ctx.storage().incr("balance:curses").await?;
+                }
+                _ => {}
             }
-            // bless
-            "f2a54ce8-5c8a-4ed0-ab52-fe9fd11c41c9" => {
-                ctx.storage().incr("balance:blesses").await?;
-            }
-            // curse
-            "5716f47f-f8df-4fef-baf0-6b6a2b24ef76" => {
-                ctx.storage().incr("balance:curses").await?;
-            }
-            _ => {}
-        },
+        }
         Event::ChannelAdBreakBeginV1(Payload {
             message: Message::Notification(data),
             ..
         }) => {
+            tracing::info!(
+                target: "eventsub",
+                duration = data.duration_seconds,
+                auto = data.is_automatic,
+                "ad start"
+            );
             ctx.send(
                 "ADS TIME! Avoiding prerolls so people can check the stream without getting blasted. You can sub or get turbo xdd".into(),
             )
@@ -137,6 +165,13 @@ async fn eventsub_event(ctx: &AppContext, event: Event) -> Result<()> {
             message: Message::Notification(data),
             ..
         }) => {
+            tracing::info!(
+                target: "eventsub",
+                user = ?user!(data),
+                tier = ?data.tier,
+                gifted = data.is_gift,
+                "sub"
+            );
             if data.is_gift {
                 return Ok(());
             }
@@ -176,6 +211,14 @@ async fn eventsub_event(ctx: &AppContext, event: Event) -> Result<()> {
             message: Message::Notification(data),
             ..
         }) => {
+            tracing::info!(
+                target: "eventsub",
+                user = ?user!(opt data),
+                tier = ?data.tier,
+                amount = data.total,
+                total = data.cumulative_total,
+                "sub gift"
+            );
             let name = data
                 .user_name
                 .map_or(Cow::Borrowed("anon"), |n| Cow::Owned(format!("@{n}")));
@@ -186,21 +229,41 @@ async fn eventsub_event(ctx: &AppContext, event: Event) -> Result<()> {
             .await?;
         }
         Event::ChannelSubscriptionMessageV1(Payload {
-            message: Message::Notification(_data),
+            message: Message::Notification(data),
             ..
         }) => {
-            // todo this is resubs, right?
+            tracing::info!(
+                target: "eventsub",
+                user = ?user!(data),
+                tier = ?data.tier,
+                total = data.cumulative_months,
+                streak = data.streak_months,
+                text = data.message.text,
+                "resub"
+            );
         }
         Event::ChannelCheerV1(Payload {
-            message: Message::Notification(_data),
+            message: Message::Notification(data),
             ..
         }) => {
-            // todo something with cheers
+            tracing::info!(
+                target: "eventsub",
+                user = ?user!(opt data),
+                amount = data.bits,
+                text = data.message,
+                "cheer"
+            );
         }
         Event::ChannelRaidV1(Payload {
             message: Message::Notification(data),
             ..
         }) => {
+            tracing::info!(
+                target: "eventsub",
+                user = ?(data.from_broadcaster_user_id.as_str(), data.from_broadcaster_user_login.as_str()),
+                viewers = data.viewers,
+                "raid"
+            );
             ctx.send(format!(
                 "VoHiYo Thanks for the raid @{}, and welcome raiders TwitchUnity",
                 data.from_broadcaster_user_name
@@ -227,12 +290,14 @@ async fn eventsub_event(ctx: &AppContext, event: Event) -> Result<()> {
             message: Message::Notification(_),
             ..
         }) => {
+            tracing::info!(target: "eventsub", "hype train start");
             ctx.send("Scam train ICANT".into()).await?;
         }
         Event::ChannelHypeTrainEndV1(Payload {
             message: Message::Notification(data),
             ..
         }) => {
+            tracing::info!(target: "eventsub", "hype train end");
             let plural = match data.top_contributions.len() {
                 1 => " was",
                 _ => "s were",

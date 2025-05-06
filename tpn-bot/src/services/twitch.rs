@@ -64,6 +64,7 @@ impl From<&UserToken> for TokenPair {
 
 async fn read_token(config: &TwitchApp, client: &TwitchClient, variant: &str) -> Result<UserToken> {
     let entry = keyring::Entry::new("limatoukka-the-twitch-bot", variant)?;
+    tracing::info!("reading {variant} token");
     let token = match entry.get_password() {
         Ok(p) => {
             let data: TokenPair = serde_json::from_str(&p)?;
@@ -151,6 +152,8 @@ impl Twitch {
             .get_user_from_login(&config.target_channel, &token)
             .await?
             .with_context(|| format!("twitch user {} not found", config.target_channel))?;
+
+        tracing::info!("{} is {}", target.display_name, target.id);
 
         let t = Self {
             inner: Arc::new(Inner {

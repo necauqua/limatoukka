@@ -3,7 +3,7 @@ use opentelemetry::trace::TracerProvider;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{Resource, trace::SdkTracerProvider};
 use tracing_loki::url::Url;
-use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{Layer, layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
 use crate::config::Config;
@@ -11,7 +11,15 @@ use crate::config::Config;
 // we persist logs in loki, but also send them to an opentelemetry collector for nice trace visualization
 pub fn init(config: &Config) -> Result<()> {
     tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::Layer::new().with_filter(EnvFilter::from_default_env()))
+        .with(
+            tracing_subscriber::fmt::Layer::new().with_filter(
+                tracing_subscriber::EnvFilter::builder().parse(
+                    std::env::var(tracing_subscriber::EnvFilter::DEFAULT_ENV)
+                        .as_deref()
+                        .unwrap_or("tpn_bot=info"),
+                )?,
+            ),
+        )
         .with(match config.loki.as_deref() {
             Some(loki) => {
                 let session_id = Uuid::now_v7();
