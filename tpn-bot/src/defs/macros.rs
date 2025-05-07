@@ -4,6 +4,7 @@ use std::{
 };
 
 use anyhow::{Result, bail};
+use lazy_regex::regex_is_match;
 use maud::html;
 use neca_cmd::CommandMessage;
 use rustis::{
@@ -13,7 +14,7 @@ use rustis::{
 
 use crate::{
     commands::{
-        args::{IgnoreLiteral, InRange},
+        args::InRange,
         command,
         runner::{self, CommandError, CommandInterrupt},
     },
@@ -39,20 +40,22 @@ fn print_inner_errors(errors: &[CommandError]) -> String {
 /// macro-record:hop:"wait~ up~ wait~ up~ wait~ up~ wait~ up~"~
 /// ```
 #[command(shortcode=mr)]
-async fn macro_record(
-    ctx: CommandContext,
-    name: String,
-    script: String,
-    ignore_errors: Option<IgnoreLiteral>,
-) -> Result<()> {
+async fn macro_record(ctx: CommandContext, name: String, script: String) -> Result<()> {
     let name = name.to_lowercase();
 
     let parsed = CommandMessage::parse(&script);
     if parsed.is_empty() {
         fail!("script contained no commands");
     }
-    if ignore_errors.is_none() {
-        if let Err(errors) = runner::prepare_commands(&ctx, parsed).await {
+
+    if !parsed
+        .parallel
+        .iter()
+        .flat_map(|s| s.iter())
+        .flat_map(|c| c.args.iter())
+        .any(|a| regex_is_match!(r#"(?:^|[^%])%\d+"#, &a))
+    {
+        if let Err(errors) = runner::prepare_commands(&ctx, &parsed).await {
             fail!("script contained errors: {}", print_inner_errors(&errors));
         }
     }
@@ -160,7 +163,7 @@ async fn yoink(
     rename: Option<String>,
 ) -> Result<()> {
     let script = macro_get(&ctx, &name, Some(&login)).await?;
-    macro_record(ctx, rename.unwrap_or(name), script, None).await
+    macro_record(ctx, rename.unwrap_or(name), script).await
 }
 
 /// Run the macro.
