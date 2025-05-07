@@ -14,8 +14,7 @@ use crate::config::Config;
 
 // send traces to local elastic apm via OpenTelemetry
 pub fn init(config: &Config) -> Result<()> {
-    // to be expanded
-    let actual_noise = || EnvFilter::new("trace").add_directive("mio::poll=off".parse().unwrap());
+    let filter = || EnvFilter::new("warn,tpn_bot=trace");
 
     let (otel_tracing, otel_logging) = match &config.otel {
         None => Default::default(),
@@ -56,7 +55,7 @@ pub fn init(config: &Config) -> Result<()> {
                 .build();
 
             // see https://github.com/open-telemetry/opentelemetry-rust/blob/1d9bd25ec8974296b86770a016725ccce64a39b2/opentelemetry-appender-tracing/examples/basic.rs#L19-L37
-            let filter_otel = actual_noise()
+            let filter_otel = filter()
                 .add_directive("hyper=off".parse().unwrap())
                 .add_directive("opentelemetry=off".parse().unwrap())
                 .add_directive("tonic=off".parse().unwrap())
@@ -67,7 +66,7 @@ pub fn init(config: &Config) -> Result<()> {
                 Some(
                     tracing_opentelemetry::layer()
                         .with_tracer(trace_provider.tracer(""))
-                        .with_filter(actual_noise()),
+                        .with_filter(filter()),
                 ),
                 Some(OpenTelemetryTracingBridge::new(&logger_provider).with_filter(filter_otel)),
             )
