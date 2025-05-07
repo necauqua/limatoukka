@@ -2,6 +2,8 @@ use std::{borrow::Cow, collections::VecDeque, fmt::Debug, time::Duration};
 
 use thiserror::Error;
 
+use super::calculator::{Calculator, CalculatorError};
+
 #[derive(Debug, Error)]
 pub enum ExtractorError {
     #[error("missing argument #{}", .0 + 1)]
@@ -105,6 +107,12 @@ pub enum ArgError {
     Precondition(String),
 }
 
+impl From<CalculatorError> for ArgError {
+    fn from(value: CalculatorError) -> Self {
+        Self::Precondition(value.to_string())
+    }
+}
+
 pub type ArgResult<T> = Result<T, ArgError>;
 
 pub trait CommandArg: Sized {
@@ -125,9 +133,8 @@ impl CommandArg for String {
 
 impl CommandArg for i32 {
     fn parse(input: String) -> ArgResult<Self> {
-        input
-            .trim_start_matches("--") // allow double negatives coming from concatenation
-            .parse()
+        Calculator::eval(&input)?
+            .try_into()
             .map_err(|_| ArgError::WrongType("a number"))
     }
 
@@ -138,8 +145,8 @@ impl CommandArg for i32 {
 
 impl CommandArg for u32 {
     fn parse(input: String) -> ArgResult<Self> {
-        input
-            .parse()
+        Calculator::eval(&input)?
+            .try_into()
             .map_err(|_| ArgError::WrongType("a non-negative number"))
     }
 
@@ -208,21 +215,5 @@ impl<const A: u32, const B: u32> CommandArg for InRange<A, B> {
 
     fn type_desc() -> Cow<'static, str> {
         format!("a number in range from {A} to {B}").into()
-    }
-}
-
-pub struct IgnoreLiteral;
-
-impl CommandArg for IgnoreLiteral {
-    fn parse(input: String) -> ArgResult<Self> {
-        if input == "ignore" {
-            Ok(Self)
-        } else {
-            Err(ArgError::Precondition("was not 'ignore'".into()))
-        }
-    }
-
-    fn type_desc() -> Cow<'static, str> {
-        "a literal string 'ignore'".into()
     }
 }
