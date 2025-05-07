@@ -1,14 +1,16 @@
 use anyhow::Result;
-use rustis::commands::{GenericCommands, StringCommands};
+use twitch_api::helix::channels::modify_channel_information::*;
 
 use crate::{
     commands::command,
     context::{app::AppContext, cmd::CommandContext},
+    storage,
 };
 
 pub async fn do_banish(ctx: &AppContext, id: &str, login: &str) -> Result<()> {
     // yeet em
-    ctx.storage().set(format!("kick:begone:{id}"), "1").await?;
+    storage!(ctx, set, "kick:begone:{id}", { 1 });
+    // ctx.storage().set(format!("kick:begone:{id}"), "1").await?;
     tracing::info!(id, login, "sent to shadow realm");
     Ok(())
 }
@@ -17,7 +19,7 @@ pub async fn do_banish(ctx: &AppContext, id: &str, login: &str) -> Result<()> {
 #[command(permission = TwitchStaff)]
 async fn banish(ctx: CommandContext, login: String) -> Result<()> {
     let id = ctx.chatter_id(Some(&login)).await?;
-    if ctx.storage().exists(format!("kick:begone:{id}")).await? != 0 {
+    if storage!(ctx, exists, "kick:begone:{id}") != 0 {
         ctx.reply("already banished".into()).await?;
         return Ok(());
     }
@@ -31,7 +33,7 @@ async fn banish(ctx: CommandContext, login: String) -> Result<()> {
 #[command(permission = Moderator)]
 async fn unbanish(ctx: CommandContext, login: String) -> Result<()> {
     let id = ctx.chatter_id(Some(&login)).await?;
-    if ctx.storage().del(format!("kick:begone:{id}")).await? == 0 {
+    if storage!(ctx, del, "kick:begone:{id}") == 0 {
         ctx.reply("was not banished lmao".into()).await?;
     } else {
         ctx.reply("the deed is done".to_owned()).await?;
@@ -47,12 +49,32 @@ async fn unbanish(ctx: CommandContext, login: String) -> Result<()> {
 #[command(sender_gate = 15s)]
 async fn banished(ctx: CommandContext, login: String) -> Result<()> {
     let id = ctx.chatter_id(Some(&login)).await?;
-    let begone = ctx.storage().exists(format!("kick:begone:{id}")).await?;
-    if begone != 0 {
+    if storage![ctx, exists, "kick:begone:{id}"] != 0 {
         ctx.reply("In the shadow realm xdd".into()).await?;
     } else {
         ctx.reply("They're good".into()).await?;
     }
+
+    Ok(())
+}
+
+/// Set the stream title, common moderation command, nothing special here.
+#[command(permission = Moderator, global_gate = 5s, hidden)]
+async fn set_title(ctx: CommandContext, title: String) -> Result<()> {
+    let title = &*title;
+
+    ctx.twitch()
+        .call(move |t| async move {
+            let request = ModifyChannelInformationRequest::broadcaster_id(&t.target.id);
+            let mut body = ModifyChannelInformationBody::new();
+            body.title(title);
+
+            let response: ModifyChannelInformation =
+                t.helix.req_patch(request, body, &t.token).await?.data;
+
+            Ok(response)
+        })
+        .await?;
 
     Ok(())
 }
