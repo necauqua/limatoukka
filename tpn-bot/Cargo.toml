@@ -32,7 +32,8 @@ libxdo = "0.6.0"
 opentelemetry = "0.29"
 opentelemetry_sdk = "0.29"
 opentelemetry-otlp = "0.29"
-tracing-opentelemetry = "0.30" # ugh it's +1 I guess?
+opentelemetry-appender-tracing = "0.29"
+tracing-opentelemetry = "0.30"          # ugh it's +1 I guess?
 
 tokio-metrics = "0.4.0"
 tiny-xlib = "0.2.4"

@@ -23,6 +23,7 @@ use tokio::{
     },
     time::sleep,
 };
+use tracing::instrument;
 
 pub struct NoitaHandle {
     noita: Mutex<Option<Noita>>,
@@ -207,6 +208,7 @@ impl NoitaHandle {
     }
 
     // todo this should be part of noita-engine-reader lol
+    #[instrument(name = "noita-call", level = "trace", skip_all)]
     pub async fn with<T, F>(&self, mut f: F) -> Result<T>
     where
         T: Send + 'static,

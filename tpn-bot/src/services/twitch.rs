@@ -21,6 +21,7 @@ use tokio::{
     },
 };
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite};
+use tracing::instrument;
 use twitch_api::{
     HelixClient,
     eventsub::{self, Event, EventsubWebsocketData, ReconnectPayload, SessionData, WelcomePayload},
@@ -180,6 +181,7 @@ impl Twitch {
 
     // the twitch-api crate is pretty awful, so we have to do things like this,
     // but eh its way better than not having it, at least we got payload types
+    #[instrument(name = "twitch-api-call", level = "debug", skip_all)]
     pub async fn call<'a, F, R, T>(&'a self, mut f: F) -> Result<T>
     where
         R: Future<Output = Result<T, ClientRequestError<reqwest::Error>>>,
