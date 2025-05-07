@@ -7,6 +7,7 @@ use crate::{
     services::messaging::PermissionLevel,
 };
 use anyhow::{Context, Result, bail};
+use humantime_serde::re::humantime;
 use maud::html;
 use noita_engine_reader::{
     memory::MemoryStorage,
@@ -193,7 +194,11 @@ async fn fix_obs_sound() -> Result<()> {
 #[command(shortcode=w, no_wall)]
 async fn wait(ctx: CommandContext, duration: HoldTime) -> Result<()> {
     let duration = duration.get();
-    tracing::debug!(?duration, "waiting");
+    tracing::debug!(
+        duration.ms = duration.as_millis(),
+        "waiting for {}",
+        humantime::format_duration(duration)
+    );
 
     let entry = ctx.status_wall().allocate().await;
     let inner_ctx = ctx.clone();

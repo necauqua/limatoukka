@@ -47,12 +47,12 @@ pub async fn receive_message(ctx: AppContext, message: Message) -> Result<()> {
         }
     }
 
-    tracing::debug!("processing message");
-
     let command_msg = CommandMessage::parse(&message.text);
     if command_msg.is_empty() {
-        tracing::trace!("no commands");
+        tracing::trace!("no commands in message: {}", message.text);
         return Ok(());
+    } else {
+        tracing::debug!("processing message: {}", message.text);
     }
 
     let ctx = EvalContext::new(MessageContext::new(ctx.clone(), message));
@@ -87,15 +87,15 @@ type PreparedCommands = Vec<Vec<(CommandContext, CommandFuture)>>;
 
 pub async fn prepare_commands(
     ctx: &EvalContext,
-    command_msg: CommandMessage,
+    command_msg: &CommandMessage,
 ) -> Result<PreparedCommands, Vec<CommandError>> {
     let mut errors = vec![];
     let mut groups = vec![];
 
-    for (group_idx, group) in command_msg.parallel.into_iter().enumerate() {
+    for (group_idx, group) in command_msg.parallel.iter().enumerate() {
         let mut prepared = vec![];
-        for (cmd_idx, cmd_expr) in group.into_iter().enumerate() {
-            match prepare_command(ctx, cmd_expr, group_idx, cmd_idx).await {
+        for (cmd_idx, cmd_expr) in group.iter().enumerate() {
+            match prepare_command(ctx, cmd_expr.clone(), group_idx, cmd_idx).await {
                 Ok(p) => prepared.push(p),
                 Err(e) => errors.push(e),
             }
@@ -104,6 +104,7 @@ pub async fn prepare_commands(
     }
 
     if !errors.is_empty() {
+        tracing::trace!("prepare fail: {errors:?}");
         return Err(errors);
     }
 
@@ -115,8 +116,6 @@ async fn find_command(
     name: &str,
     expr: &mut CommandExpr,
 ) -> Option<&'static CommandRegistration> {
-    tracing::trace!(name, "looking up command");
-
     if let Some(reg) = super::find(name) {
         return Some(reg);
     }
@@ -206,12 +205,12 @@ async fn prepare_command(
 }
 
 pub async fn eval(ctx: &EvalContext, command_msg: CommandMessage) -> Vec<CommandError> {
-    let commands = match prepare_commands(ctx, command_msg).await {
+    let commands = match prepare_commands(ctx, &command_msg).await {
         Ok(prepared) => prepared,
         Err(errors) => return errors,
     };
 
-    tracing::trace!("running commands");
+    tracing::trace!("eval: {command_msg}");
 
     let mut parallel = JoinSet::new();
     for group in commands {
@@ -246,7 +245,7 @@ async fn run_command_sequence(sequence: Vec<(CommandContext, CommandFuture)>) ->
                     }
                     Err(error) => match error.downcast::<CommandFailure>() {
                         Ok(CommandFailure(failure)) => {
-                            tracing::debug!(failure);
+                            tracing::debug!(failure, "command failure: {failure}");
                             cmd_span_inner.set_status(Status::error("failure"));
                             Err(CommandError::Failure(cmd_inner, failure))
                         }
@@ -278,7 +277,7 @@ async fn run_command_sequence(sequence: Vec<(CommandContext, CommandFuture)>) ->
             Err(e) => {
                 cmd_span.set_status(Status::error("panic"));
                 let panic = e.into_panic();
-                cmd_span.in_scope(|| tracing::error!(panic = panic_string(&panic), "task panic"));
+                cmd_span.in_scope(|| tracing::error!("task panic: {}", panic_string(&panic)));
                 result.push(CommandError::Panic(cmd, panic));
             }
         }
@@ -286,10 +285,12 @@ async fn run_command_sequence(sequence: Vec<(CommandContext, CommandFuture)>) ->
     result
 }
 
-fn panic_string(payload: &Box<dyn Any + Send>) -> Option<&str> {
-    payload.downcast_ref::<String>()?;
-    payload.downcast_ref::<&'static str>()?;
-    None
+fn panic_string(payload: &Box<dyn Any + Send>) -> &str {
+    payload
+        .downcast_ref::<String>()
+        .map(|s| &**s)
+        .or_else(|| payload.downcast_ref::<&'static str>().copied())
+        .unwrap_or("<no panic message>")
 }
 
 #[macro_export]
@@ -327,7 +328,7 @@ async fn run_command(ctx: CommandContext, fut: CommandFuture) -> Result<()> {
         Some(ctx.status_wall().push(status).await)
     };
 
-    tracing::trace!("running command");
+    tracing::trace!("running: {}", ctx.command);
     fut.await
 }
 
