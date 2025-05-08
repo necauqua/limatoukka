@@ -162,7 +162,7 @@ impl AppContext {
                 handle.xdo().keyup("d"),
                 handle.xdo().mouseup(1),
             );
-            handle.noita().poll_state_updates().await;
+            NoitaHandle::poll_state_updates(handle).await;
         });
     }
 

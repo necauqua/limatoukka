@@ -174,6 +174,7 @@ impl Twitch {
             caster_token,
             first_welcome: true,
             tx,
+            backoff: Duration::ZERO,
         };
 
         Ok((t, eventsub))
@@ -224,14 +225,11 @@ pub struct TwitchEventSub {
     caster_token: UserToken,
     first_welcome: bool,
     tx: Sender<Event>,
+    backoff: Duration,
 }
 
 impl TwitchEventSub {
     async fn process_welcome_message(&mut self, data: SessionData<'_>) -> Result<()> {
-        if let Some(url) = data.reconnect_url {
-            self.connect_url = url.parse()?;
-        }
-
         if self.first_welcome {
             self.first_welcome = false;
         } else {
@@ -240,27 +238,31 @@ impl TwitchEventSub {
                 .await?;
         }
 
+        // successfully connected and even got the welcome
+        self.backoff = Duration::ZERO;
+
         let helix = &self.twitch.inner.client.helix;
 
         let transport = eventsub::Transport::websocket(data.id.clone());
         macro_rules! subscribe {
-            ($first:ident $(:: $s:ident)* $method:ident) => {
+            ($group:ident::$event:ident $method:ident) => {
                 helix
                     .create_eventsub_subscription(
-                        eventsub::$first$(::$s)*::$method(
+                        eventsub::$group::$event::$method(
                             self.caster_token.user_id.clone(),
                         ),
                         transport.clone(),
                         &self.caster_token,
                     )
                     .await?;
+                tracing::info!("subscribing to {}", stringify!($event));
             };
-            ($first:ident $(:: $s:ident)*) => {
-                subscribe!($first $(:: $s)* broadcaster_user_id);
+            ($group:ident::$event:ident) => {
+                subscribe!($group::$event broadcaster_user_id);
             };
-            ($($first:ident $(:: $s:ident)* $($method:ident)?),* $(,)?) => {
+            ($($group:ident::$event:ident $($method:ident)?),* $(,)?) => {
                 $(
-                    subscribe!($first $(:: $s)* $($method)?);
+                    subscribe!($group::$event $($method)?);
                 )*
             };
         }
@@ -289,7 +291,16 @@ impl TwitchEventSub {
             if let Err(e) = self.run_iteration().await {
                 tracing::warn!(error=?e, "twitch eventsub fail");
             }
-            tokio::time::sleep(Duration::from_secs(1)).await;
+            if self.backoff == Duration::ZERO {
+                self.backoff = Duration::from_secs(1);
+                continue;
+            }
+            if self.backoff.as_secs() < 60 {
+                self.backoff *= 2;
+            } else {
+                tracing::warn!("reached max backoff");
+            }
+            tokio::time::sleep(self.backoff).await;
         }
     }
 
@@ -304,7 +315,7 @@ impl TwitchEventSub {
     }
 
     async fn connect(&self) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {
-        tracing::info!("connecting to twitch");
+        tracing::info!("connecting to twitch, {}", self.connect_url);
         let (stream, _) = tokio_tungstenite::connect_async_with_config(
             &self.connect_url,
             Some(
@@ -322,42 +333,42 @@ impl TwitchEventSub {
     /// Should reconnect if Ok(false) is returned
     async fn process_message(&mut self, msg: tungstenite::Message) -> Result<bool> {
         match msg {
-            tungstenite::Message::Text(s) => {
-                tracing::debug!("{s}");
-                match Event::parse_websocket(&s)? {
-                    EventsubWebsocketData::Welcome {
-                        payload: WelcomePayload { session },
-                        ..
-                    } => {
-                        self.process_welcome_message(session).await?;
-                        Ok(true)
-                    }
-                    EventsubWebsocketData::Reconnect {
-                        payload: ReconnectPayload { session },
-                        ..
-                    } => {
-                        if let Some(url) = session.reconnect_url {
-                            self.connect_url = url.parse()?;
-                        }
-                        Ok(false)
-                    }
-                    EventsubWebsocketData::Notification {
-                        metadata: _,
-                        payload,
-                    } => {
-                        _ = self.tx.send(payload);
-                        Ok(true)
-                    }
-                    EventsubWebsocketData::Revocation {
-                        metadata,
-                        payload: _,
-                    } => {
-                        tracing::warn!(?metadata, "got revocation event");
-                        Ok(false)
-                    }
-                    _ => Ok(true),
+            tungstenite::Message::Text(s) => match Event::parse_websocket(&s)? {
+                EventsubWebsocketData::Welcome {
+                    payload: WelcomePayload { session },
+                    ..
+                } => {
+                    self.process_welcome_message(session).await?;
+                    Ok(true)
                 }
-            }
+                EventsubWebsocketData::Reconnect {
+                    payload: ReconnectPayload { session },
+                    ..
+                } => {
+                    if let Some(url) = session.reconnect_url {
+                        tracing::info!("get a reconnect event, new url: {url}");
+                        self.connect_url = url.parse()?;
+                    } else {
+                        tracing::info!("get a reconnect event");
+                    }
+                    Ok(false)
+                }
+                EventsubWebsocketData::Notification {
+                    metadata: _,
+                    payload,
+                } => {
+                    _ = self.tx.send(payload);
+                    Ok(true)
+                }
+                EventsubWebsocketData::Revocation {
+                    metadata,
+                    payload: _,
+                } => {
+                    tracing::warn!(?metadata, "got a revocation event");
+                    Ok(false)
+                }
+                _ => Ok(true),
+            },
             tungstenite::Message::Close(frame) => {
                 tracing::warn!(?frame, "received a close frame");
                 Ok(false)

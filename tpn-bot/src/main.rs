@@ -2,7 +2,6 @@ use std::{borrow::Cow, time::Duration};
 
 use anyhow::Result;
 use opentelemetry::trace::Status;
-use rustis::commands::StringCommands;
 use tpn_bot::{
     commands::runner,
     config::Config,
@@ -10,15 +9,16 @@ use tpn_bot::{
     logging,
     services::{
         messaging,
-        noita::{ItemFound, NoitaHandle},
+        noita::{Inventory, ItemFound, NoitaHandle},
         status_wall::StatusWall,
         storage::Storage,
         twitch::Twitch,
         xdo::XDoClient,
     },
+    storage,
 };
 
-use tracing::{Instrument, Span};
+use tracing::{Instrument, Span, instrument};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use twitch_api::{
     eventsub::{Event, Message, Payload},
@@ -50,17 +50,14 @@ async fn run(config: Config) -> Result<()> {
 
     let mut found_items = ctx.noita().subscribe_to_found_items();
 
-    let eventsub_span = tracing::info_span!(parent: None, "eventsub");
-
     loop {
         let res = tokio::select! {
             Some(msg) = incoming.recv() => {
                 let span = tracing::info_span!(
                     "message",
                     msg.id,
-                    msg.text,
-                    msg.sender = msg.sender.login,
                     msg.sender.id = msg.sender.id,
+                    otel.name = format!("{}: {}", msg.sender.login, msg.text)
                 );
                 let ctx = ctx.clone();
                 tokio::spawn(
@@ -75,8 +72,8 @@ async fn run(config: Config) -> Result<()> {
                 Ok(())
             }
             _ = ctx.noita().wait_for_player_death() => ctx.next_run().await,
-            Ok(item) = found_items.recv() => found_item(&ctx, item).in_current_span().await,
-            Ok(event) = eventsub_rx.recv() => eventsub_event(&ctx, event).instrument(eventsub_span.clone()).await,
+            Ok((best_inv, item)) = found_items.recv() => found_item(&ctx, best_inv, item).await,
+            Ok(event) = eventsub_rx.recv() => eventsub_event(&ctx, event).await,
             else => return Ok(()),
         };
         if let Err(error) = res {
@@ -85,8 +82,11 @@ async fn run(config: Config) -> Result<()> {
     }
 }
 
-async fn found_item(ctx: &AppContext, item: ItemFound) -> Result<()> {
-    tracing::info!(?item, "found item");
+async fn found_item(ctx: &AppContext, best_inv: Inventory, item: ItemFound) -> Result<()> {
+    storage!(ctx, set, "best-inventory", { best_inv.bits() })?;
+
+    tracing::info!("found item {item:?}");
+
     ctx.send(match item {
         ItemFound::TreeTablet => "The best TABLET in the game acquired!",
         ItemFound::OtherTablet => "TABLET acquired",
@@ -103,6 +103,7 @@ async fn found_item(ctx: &AppContext, item: ItemFound) -> Result<()> {
     }.into()).await
 }
 
+#[instrument(skip_all)]
 async fn eventsub_event(ctx: &AppContext, event: Event) -> Result<()> {
     match event {
         Event::ChannelPointsCustomRewardRedemptionAddV1(Payload {
@@ -123,11 +124,11 @@ async fn eventsub_event(ctx: &AppContext, event: Event) -> Result<()> {
                 }
                 // bless
                 "f2a54ce8-5c8a-4ed0-ab52-fe9fd11c41c9" => {
-                    ctx.storage().incr("balance:blesses").await?;
+                    storage!(ctx, incr, "balance:blesses")?;
                 }
                 // curse
                 "5716f47f-f8df-4fef-baf0-6b6a2b24ef76" => {
-                    ctx.storage().incr("balance:curses").await?;
+                    storage!(ctx, incr, "balance:curses")?;
                 }
                 _ => {}
             }

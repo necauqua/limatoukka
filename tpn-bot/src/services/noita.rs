@@ -25,6 +25,8 @@ use tokio::{
 };
 use tracing::instrument;
 
+use crate::{context::app::AppContext, storage};
+
 pub struct NoitaHandle {
     noita: Mutex<Option<Noita>>,
     seed: Mutex<Option<Seed>>,
@@ -32,7 +34,7 @@ pub struct NoitaHandle {
     on_inventory_open: Notify,
     on_inventory_close: Notify,
     on_player_death: Notify,
-    found_items: Arc<Sender<ItemFound>>,
+    found_items: Arc<Sender<(Inventory, ItemFound)>>,
     reset_items: AtomicBool,
 }
 
@@ -108,7 +110,7 @@ impl NoitaHandle {
         self.on_player_death.notified()
     }
 
-    pub fn subscribe_to_found_items(&self) -> Receiver<ItemFound> {
+    pub fn subscribe_to_found_items(&self) -> Receiver<(Inventory, ItemFound)> {
         self.found_items.subscribe()
     }
 
@@ -116,18 +118,21 @@ impl NoitaHandle {
         self.reset_items.store(true, Ordering::Relaxed);
     }
 
-    pub async fn poll_state_updates(&self) {
+    pub async fn poll_state_updates(ctx: AppContext) {
         let mut prev_dead = None;
         let mut prev_inventory = None;
         let mut prev_seed = None;
-        let mut best_inv = None;
+
+        let best_inv = storage!(ctx, get, "best-inventory").unwrap_or_default();
+        let mut best_inv = Inventory::from_bits_truncate(best_inv);
 
         let mut last_inv_update = Instant::now();
 
         loop {
             sleep(Duration::from_millis(30)).await;
 
-            let state = self
+            let state = ctx
+                .noita()
                 .with(|n| Ok((is_dead(n)?, is_inventory_open(n)?, get_seed(n)?)))
                 .await
                 .ok();
@@ -137,32 +142,37 @@ impl NoitaHandle {
                 let dead_bool = dead.unwrap_or_default();
                 if dead_bool {
                     tracing::debug!("died");
-                    best_inv = None;
-                    self.on_player_death.notify_waiters();
+                    best_inv = Inventory::empty();
+                    ctx.noita().on_player_death.notify_waiters();
                 }
                 prev_dead = dead;
             }
-            if self.reset_items.swap(false, Ordering::Relaxed) {
-                best_inv = None;
+            if ctx.noita().reset_items.swap(false, Ordering::Relaxed) {
+                best_inv = Inventory::empty();
             }
 
             let inventory = state.map(|(_, i, _)| i);
             if inventory != prev_inventory {
-                tracing::debug!(open = ?inventory, "inventory change");
                 let inventory_bool = inventory.unwrap_or_default();
-                self.inventory_open.store(inventory_bool, Ordering::Relaxed);
+                tracing::debug!("inventory change, open = {inventory_bool}");
+                ctx.noita()
+                    .inventory_open
+                    .store(inventory_bool, Ordering::Relaxed);
                 if inventory_bool {
-                    self.on_inventory_open.notify_waiters()
+                    ctx.noita().on_inventory_open.notify_waiters()
                 } else {
-                    self.on_inventory_close.notify_waiters()
+                    ctx.noita().on_inventory_close.notify_waiters()
                 }
                 prev_inventory = inventory;
             }
 
             let seed = state.and_then(|(_, _, s)| s);
             if seed != prev_seed {
-                tracing::info!(seed = seed.map(|s| s.to_string()), "new seed");
-                *self.seed.lock().await = seed;
+                tracing::info!(
+                    "seed change, seed = {}",
+                    seed.map(|s| s.to_string()).unwrap_or_default()
+                );
+                *ctx.noita().seed.lock().await = seed;
                 prev_seed = seed;
             }
 
@@ -171,39 +181,52 @@ impl NoitaHandle {
             }
             last_inv_update = Instant::now();
 
-            let inv = match self.with(Inventory::read).await {
+            let inv = match ctx.noita().with(Inventory::read).await {
                 Ok(inv) => inv,
                 Err(error) => {
                     tracing::warn!(?error, "failed to read player inventory");
                     continue;
                 }
             };
-            let Some(best_inv) = &mut best_inv else {
-                best_inv = Some(inv);
-                continue;
-            };
 
-            let diff = inv.difference(*best_inv);
+            let diff = inv.difference(best_inv);
 
-            if diff.contains(Inventory::BEST_TABLET) {
-                _ = self.found_items.send(ItemFound::TreeTablet);
-            } else if diff.contains(Inventory::TABLET) {
-                _ = self.found_items.send(ItemFound::OtherTablet);
-            }
-            if diff.contains(Inventory::EVIL_EYE) {
-                _ = self.found_items.send(ItemFound::EvilEye);
-            }
-            if diff.contains(Inventory::EARTH_STONE) {
-                _ = self.found_items.send(ItemFound::EarthStone);
-            }
-            if diff.contains(Inventory::TAIKASAUVA) {
-                _ = self.found_items.send(ItemFound::Taikasauva);
-            }
-            if diff.contains(Inventory::TOUCH_OF_GOLD) {
-                _ = self.found_items.send(ItemFound::TouchOfGold);
-            }
+            if !diff.is_empty() {
+                best_inv |= inv;
 
-            *best_inv |= inv;
+                if diff.contains(Inventory::BEST_TABLET) {
+                    _ = ctx
+                        .noita()
+                        .found_items
+                        .send((best_inv, ItemFound::TreeTablet));
+                } else if diff.contains(Inventory::TABLET) {
+                    _ = ctx
+                        .noita()
+                        .found_items
+                        .send((best_inv, ItemFound::OtherTablet));
+                }
+                if diff.contains(Inventory::EVIL_EYE) {
+                    _ = ctx.noita().found_items.send((best_inv, ItemFound::EvilEye));
+                }
+                if diff.contains(Inventory::EARTH_STONE) {
+                    _ = ctx
+                        .noita()
+                        .found_items
+                        .send((best_inv, ItemFound::EarthStone));
+                }
+                if diff.contains(Inventory::TAIKASAUVA) {
+                    _ = ctx
+                        .noita()
+                        .found_items
+                        .send((best_inv, ItemFound::Taikasauva));
+                }
+                if diff.contains(Inventory::TOUCH_OF_GOLD) {
+                    _ = ctx
+                        .noita()
+                        .found_items
+                        .send((best_inv, ItemFound::TouchOfGold));
+                }
+            }
         }
     }
 
@@ -226,7 +249,7 @@ impl NoitaHandle {
         };
         let elapsed = measure.elapsed();
         if elapsed.as_millis() > 100 {
-            tracing::warn!(?elapsed, "slow noita call");
+            tracing::warn!("slow noita call, took {elapsed:?}");
         }
 
         // if the process died we re-lookup (3 is libc::ESRCH, has no ErrorKind variant)
@@ -240,7 +263,7 @@ impl NoitaHandle {
             let res = f(noita.as_mut().context("noita.exe not found")?);
             let elapsed = measure.elapsed();
             if elapsed.as_millis() > 100 {
-                tracing::warn!(?elapsed, "slow noita call");
+                tracing::warn!("slow noita call, took {elapsed:?}");
             }
             res
         } else {

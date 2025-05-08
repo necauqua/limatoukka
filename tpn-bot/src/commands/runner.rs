@@ -60,7 +60,7 @@ pub async fn receive_message(ctx: AppContext, message: Message) -> Result<()> {
     let errors = eval(&ctx, command_msg).await;
     let error_key = format!("last-error:{}", ctx.message().sender.id);
 
-    if errors.is_empty() {
+    if errors.iter().all(|e| matches!(e, CommandError::Interrupt)) {
         Span::current().set_status(Status::Ok);
         ctx.storage().del(error_key).await?;
         return Ok(());
@@ -232,7 +232,7 @@ async fn run_command_sequence(sequence: Vec<(CommandContext, CommandFuture)>) ->
     for (ctx, fut) in sequence {
         // spawn a task for each command to catch panics
         let cmd = &ctx.command.token;
-        let cmd_span = debug_span!("command", %cmd.name, ?cmd.tpe, cmd.group, cmd.idx);
+        let cmd_span = debug_span!("command", %cmd.name, ?cmd.tpe, cmd.group, cmd.idx, otel.name=format!("{cmd}"));
         let cmd_span_inner = cmd_span.clone();
         let cmd = ctx.command.clone();
         let cmd_inner = cmd.clone();

@@ -9,8 +9,7 @@ use crate::{
 
 pub async fn do_banish(ctx: &AppContext, id: &str, login: &str) -> Result<()> {
     // yeet em
-    storage!(ctx, set, "kick:begone:{id}", { 1 });
-    // ctx.storage().set(format!("kick:begone:{id}"), "1").await?;
+    storage!(ctx, set, "kick:begone:{id}", { 1 })?;
     tracing::info!(id, login, "sent to shadow realm");
     Ok(())
 }
@@ -19,7 +18,7 @@ pub async fn do_banish(ctx: &AppContext, id: &str, login: &str) -> Result<()> {
 #[command(permission = TwitchStaff)]
 async fn banish(ctx: CommandContext, login: String) -> Result<()> {
     let id = ctx.chatter_id(Some(&login)).await?;
-    if storage!(ctx, exists, "kick:begone:{id}") != 0 {
+    if storage!(ctx, exists, "kick:begone:{id}")? != 0 {
         ctx.reply("already banished".into()).await?;
         return Ok(());
     }
@@ -33,7 +32,7 @@ async fn banish(ctx: CommandContext, login: String) -> Result<()> {
 #[command(permission = Moderator)]
 async fn unbanish(ctx: CommandContext, login: String) -> Result<()> {
     let id = ctx.chatter_id(Some(&login)).await?;
-    if storage!(ctx, del, "kick:begone:{id}") == 0 {
+    if storage!(ctx, del, "kick:begone:{id}")? == 0 {
         ctx.reply("was not banished lmao".into()).await?;
     } else {
         ctx.reply("the deed is done".to_owned()).await?;
@@ -49,7 +48,7 @@ async fn unbanish(ctx: CommandContext, login: String) -> Result<()> {
 #[command(sender_gate = 15s)]
 async fn banished(ctx: CommandContext, login: String) -> Result<()> {
     let id = ctx.chatter_id(Some(&login)).await?;
-    if storage![ctx, exists, "kick:begone:{id}"] != 0 {
+    if storage!(ctx, exists, "kick:begone:{id}")? != 0 {
         ctx.reply("In the shadow realm xdd".into()).await?;
     } else {
         ctx.reply("They're good".into()).await?;

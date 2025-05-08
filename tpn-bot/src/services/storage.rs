@@ -13,7 +13,7 @@ pub struct Storage {
 
 impl Storage {
     pub async fn new(config: &Config) -> Result<Self> {
-        let transport = Transport::single_node("https://elastic.necauq.ua")?;
+        let transport = Transport::single_node(&config.elastic.url)?;
         transport.set_auth(Credentials::EncodedApiKey(config.elastic.api_key.clone()));
 
         Ok(Self {
@@ -41,7 +41,7 @@ macro_rules! storage {
         {
             #[allow(unused_imports)]
             use rustis::commands::{GenericCommands as _, StringCommands as _};
-            $ctx.storage().$call($(storage!(_ $args)),*).await?
+            $ctx.storage().$call($(storage!(_ $args)),*).await
         }
     };
     (_ $key:literal) => {
