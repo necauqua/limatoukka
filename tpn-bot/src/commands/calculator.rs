@@ -130,6 +130,14 @@ impl<'a> Calculator<'a> {
                     }
                     value = value.binary(self.unary()?, i64::wrapping_div)?;
                 }
+                '%' => {
+                    self.next();
+                    let divisor = self.unary()?;
+                    if divisor.magnitude == 0 {
+                        return Err(CalculatorError::DivisionByZero);
+                    }
+                    value = value.binary(divisor, i64::wrapping_rem)?;
+                }
                 _ => break,
             }
         }
