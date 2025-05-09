@@ -2,8 +2,7 @@ use std::time::Duration;
 
 use schemars::JsonSchema;
 use serde::Deserialize;
-
-use crate::services::twitch::TwitchApp;
+use twitch_api::twitch_oauth2::{ClientId, ClientSecret};
 
 // This file is `include!`d into the buildscript to generate the schema for the configuration file.
 
@@ -13,6 +12,15 @@ pub enum Env {
     #[default]
     Dev,
     Prod,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct Twitch {
+    pub client_id: ClientId,
+    pub client_secret: ClientSecret,
+    pub redirect_url: String,
+    pub target_channel: String,
 }
 
 #[derive(Deserialize /*, JsonSchema*/, Default, Clone)]
@@ -53,7 +61,7 @@ pub struct Config {
     /// X server display to which the bot should send inputs
     pub display: Option<String>,
     /// Twitch app credentials
-    pub twitch: TwitchApp,
+    pub twitch: Twitch,
 
     pub valkey: String,
     pub elastic: Elastic,

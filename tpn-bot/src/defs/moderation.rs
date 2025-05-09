@@ -63,8 +63,8 @@ async fn set_title(ctx: CommandContext, title: String) -> Result<()> {
     let title = &*title;
 
     ctx.twitch()
-        .call(move |t| async move {
-            let request = ModifyChannelInformationRequest::broadcaster_id(&t.target.id);
+        .caster_call(move |t| async move {
+            let request = ModifyChannelInformationRequest::broadcaster_id(t.caster_id);
             let mut body = ModifyChannelInformationBody::new();
             body.title(title);
 

@@ -30,7 +30,7 @@ async fn run(config: Config) -> Result<()> {
     let storage = Storage::new(&config).await?;
     let xdo = XDoClient::new(config.display.clone());
 
-    let (twitch, eventsub) = Twitch::new(&config.twitch).await?;
+    let (twitch, eventsub) = Twitch::new(&config).await?;
     let (mut incoming, messaging) = messaging::connect_to_twitch(twitch.clone());
 
     let mut eventsub_rx = eventsub.subscribe();
@@ -264,7 +264,7 @@ async fn eventsub_event(ctx: &AppContext, event: Event) -> Result<()> {
                     let user_id = data.from_broadcaster_user_id.clone();
                     async move {
                         let request = SendAShoutoutRequest::new(
-                            t.target.id.clone(),
+                            t.caster_id,
                             user_id,
                             t.token.user_id.clone(),
                         );

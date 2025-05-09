@@ -33,11 +33,11 @@ use super::{
 pub async fn receive_message(ctx: AppContext, message: Message) -> Result<()> {
     let s = &message.sender;
 
-    if s.login == ctx.twitch().bot() {
+    if s.id == ctx.twitch().bot_id() {
         return Ok(());
     }
 
-    if message.sender.level < PermissionLevel::Moderator {
+    if s.level < PermissionLevel::Moderator {
         let stop_count = ctx
             .storage()
             .exists(["flags:full-stop", &format!("kick:begone:{}", s.id)])

@@ -31,7 +31,7 @@ pub struct Message {
 }
 
 pub fn connect_to_twitch(twitch: Twitch) -> (MessageSource, MessagingClient) {
-    let channel = twitch.target().login.to_string();
+    let channel = twitch.caster_login().to_owned();
     let (incoming, client) = TwitchIRCClient::new(ClientConfig::new_simple(twitch));
     client.join(channel.clone()).unwrap(); // panic on invalid channel
     (
