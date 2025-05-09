@@ -1,5 +1,6 @@
 use std::{
     collections::VecDeque,
+    num::NonZero,
     time::{Duration, Instant},
 };
 
@@ -241,7 +242,13 @@ async fn repeat(ctx: CommandContext, times: InRange<0, 1000>, script: String) ->
         entry.set(html! {
             span style="color: #E38AF0" { (ctx.message().sender.name) } ": repeat:" (i) " " (ctx.nesting_str())
         }).await;
-        let errors = runner::eval(&ctx.nest(), command_msg.clone()).await;
+
+        let errors = runner::eval(
+            &ctx.nest_repeat(NonZero::new(times - i + 1).unwrap()),
+            command_msg.clone(),
+        )
+        .await;
+
         if !errors.is_empty() {
             if errors.iter().any(|e| matches!(e, CommandError::Interrupt)) {
                 bail!(CommandInterrupt);
@@ -389,7 +396,11 @@ async fn r#loop(ctx: CommandContext, script: String) -> Result<()> {
             span style="color: #E38AF0" { (ctx.message().sender.name) } ": loop:" (i) " " (ctx.nesting_str())
         }).await;
         let start = Instant::now();
-        let errors = runner::eval(&ctx.nest(), command_msg.clone()).await;
+        let errors = runner::eval(
+            &ctx.nest_repeat(NonZero::new(i).unwrap()),
+            command_msg.clone(),
+        )
+        .await;
         if !errors.is_empty() {
             if errors.iter().any(|e| matches!(e, CommandError::Interrupt)) {
                 bail!(CommandInterrupt);

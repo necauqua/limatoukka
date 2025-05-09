@@ -181,23 +181,26 @@ async fn prepare_command(
         let macro_args = &cmd_ctx.macro_ctx.args;
 
         for arg in &mut cmd_expr.args {
-            *arg = regex_replace_all!(r#"(%?)%(\d+)"#, arg, |_, p: &str, num: &str| {
-                if p.is_empty() {
-                    if let Some(arg) = num
-                        .parse::<usize>()
-                        .ok()
-                        .filter(|n| *n != 0)
-                        .and_then(|n| macro_args.get(n - 1))
-                    {
-                        arg.clone()
-                    } else {
-                        "".into()
-                    }
-                } else {
-                    format!("%{num}")
+            *arg = regex_replace_all!(r#"(%?)%(\d+)"#, arg, |_, p: &str, n: &str| {
+                if !p.is_empty() {
+                    return format!("%{n}");
+                }
+                match n.parse::<usize>().ok() {
+                    Some(n) if n != 0 => macro_args.get(n - 1).map_or(String::new(), |s| s.clone()),
+                    _ => format!("%{n}"),
                 }
             })
             .into_owned();
+            if let Some(i) = cmd_ctx.repeat_i {
+                *arg = regex_replace_all!(r#"(%?)%i"#, arg, |_, p: &str| {
+                    if p.is_empty() {
+                        i.to_string()
+                    } else {
+                        "%i".into()
+                    }
+                })
+                .into_owned();
+            }
         }
     }
 

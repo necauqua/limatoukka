@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::VecDeque, ops::Deref, sync::Arc};
+use std::{borrow::Cow, collections::VecDeque, num::NonZero, ops::Deref, sync::Arc};
 
 use anyhow::Result;
 use rustis::commands::{SetCondition, SetExpiration, StringCommands};
@@ -17,6 +17,7 @@ pub struct EvalContext {
     pub macro_ctx: Arc<MacroContext>,
     pub in_global_macro: bool,
     pub macro_depth: u32,
+    pub repeat_i: Option<NonZero<u32>>,
     depth: u32,
     parent: MessageContext,
 }
@@ -36,9 +37,10 @@ impl EvalContext {
                 owner: (&*parent.message().sender.id).into(),
                 args: Default::default(),
             }),
-            depth: 0,
-            macro_depth: 0,
             in_global_macro: false,
+            macro_depth: 0,
+            repeat_i: None,
+            depth: 0,
             parent,
         }
     }
@@ -52,25 +54,28 @@ impl EvalContext {
     }
 
     pub fn nest(&self) -> Self {
-        Self {
-            parent: self.parent.clone(),
-            macro_ctx: self.macro_ctx.clone(),
-            depth: self.depth + 1,
-            macro_depth: self.macro_depth,
-            in_global_macro: self.in_global_macro,
-        }
+        let mut clone = self.clone();
+        clone.depth += 1;
+        clone
+    }
+
+    pub fn nest_repeat(&self, i: NonZero<u32>) -> Self {
+        let mut clone = self.nest();
+        clone.repeat_i = Some(i);
+        clone
     }
 
     pub fn nest_macro(&self, owner: &str, is_global: bool, args: VecDeque<String>) -> Self {
         Self {
-            parent: self.parent.clone(),
             macro_ctx: Arc::new(MacroContext {
                 owner: owner.into(),
                 args,
             }),
-            depth: self.depth + 1,
-            macro_depth: self.macro_depth + 1,
             in_global_macro: self.in_global_macro || is_global,
+            macro_depth: self.macro_depth + 1,
+            repeat_i: self.repeat_i,
+            depth: self.depth + 1,
+            parent: self.parent.clone(),
         }
     }
 
