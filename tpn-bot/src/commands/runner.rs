@@ -177,25 +177,28 @@ async fn prepare_command(
     let cmd_ctx = CommandContext::new(ctx.clone(), desc.clone());
 
     // expand args
-    let macro_args = &cmd_ctx.macro_ctx.args;
-    for arg in &mut cmd_expr.args {
-        *arg = regex_replace_all!(r#"(%?)%(\d+)"#, arg, |_, p: &str, num: &str| {
-            if p.is_empty() {
-                if let Some(arg) = num
-                    .parse::<usize>()
-                    .ok()
-                    .filter(|n| *n != 0)
-                    .and_then(|n| macro_args.get(n - 1))
-                {
-                    arg.clone()
+    if cmd_ctx.macro_depth != 0 {
+        let macro_args = &cmd_ctx.macro_ctx.args;
+
+        for arg in &mut cmd_expr.args {
+            *arg = regex_replace_all!(r#"(%?)%(\d+)"#, arg, |_, p: &str, num: &str| {
+                if p.is_empty() {
+                    if let Some(arg) = num
+                        .parse::<usize>()
+                        .ok()
+                        .filter(|n| *n != 0)
+                        .and_then(|n| macro_args.get(n - 1))
+                    {
+                        arg.clone()
+                    } else {
+                        "".into()
+                    }
                 } else {
                     format!("%{num}")
                 }
-            } else {
-                format!("%{num}")
-            }
-        })
-        .into_owned();
+            })
+            .into_owned();
+        }
     }
 
     match (registration.handler)(cmd_ctx.clone(), Args::new(cmd_expr.args)) {

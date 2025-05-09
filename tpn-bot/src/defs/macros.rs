@@ -225,10 +225,10 @@ const REPEAT_LIMIT: u32 = 1000;
 /// ```
 ///
 /// The total limit of repetitions in a given message is 1000! This counts all
-/// repetitions, nested or inside of macros etc. Once the limit is reached, the
-/// command will error out.
+/// repetitions, nested in each other or inside of macros etc etc. Once the
+/// limit is reached, the command will error out.
 #[command(no_wall)]
-async fn repeat(ctx: CommandContext, times: InRange<2, 15>, script: String) -> Result<()> {
+async fn repeat(ctx: CommandContext, times: InRange<0, 1000>, script: String) -> Result<()> {
     let command_msg = CommandMessage::parse(&script);
     let times = times.get();
 
@@ -236,7 +236,7 @@ async fn repeat(ctx: CommandContext, times: InRange<2, 15>, script: String) -> R
 
     for i in (1..=times).rev() {
         if ctx.inc_repeats() > REPEAT_LIMIT {
-            fail!("repeat limit exceeded");
+            fail!("total repeat limit exceeded");
         }
         entry.set(html! {
             span style="color: #E38AF0" { (ctx.message().sender.name) } ": repeat:" (i) " " (ctx.nesting_str())
@@ -286,6 +286,36 @@ async fn group(
         }
         fail!("script errors: {}", print_inner_errors(&errors));
     }
+    Ok(())
+}
+
+/// Similarly to `group`, executes a given string without counting towards
+/// limits.
+///
+/// The difference is that any script errors are ignored, and this command
+/// always succeeds, without preventing the repeats from continuing or setting
+/// last-error.
+#[command(no_wall)]
+async fn r#try(ctx: CommandContext, script: String) -> Result<()> {
+    let command_msg = CommandMessage::parse(&script);
+
+    let status = html! {
+        span style="color: #E38AF0" { (ctx.message().sender.name) } ": " (ctx.command) " " (ctx.nesting_str())
+    };
+    let _guard = ctx.status_wall().push(status).await;
+
+    let errors = runner::eval(&ctx.nest(), command_msg).await;
+    if errors.iter().any(|e| matches!(e, CommandError::Interrupt)) {
+        bail!(CommandInterrupt);
+    }
+    let internal = errors.iter().filter(|e| e.internal()).collect::<Vec<_>>();
+    if !internal.is_empty() {
+        fail!(
+            "script had internal errors: {}",
+            print_inner_errors(&errors)
+        );
+    }
+
     Ok(())
 }
 
