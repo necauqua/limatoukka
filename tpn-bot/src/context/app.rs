@@ -263,20 +263,21 @@ impl AppContext {
 
     // eh I couldnt be bothered lol
     async fn just(script: &str) -> Result<()> {
-        let res = Command::new("setsid")
+        // we just send it and *dont* wait for like noita.exe to finish
+        let _res = Command::new("setsid")
             .args(["just", script])
             .env_remove("RUST_LOG")
             .stderr(Stdio::piped())
             .stdout(Stdio::null())
-            .spawn()?
-            .wait_with_output()
-            .await?;
-        if !res.status.success() {
-            bail!(
-                "just command failed: {}",
-                String::from_utf8_lossy(&res.stderr)
-            )
-        }
+            .spawn()?;
+        //     .wait_with_output()
+        //     .await?;
+        // if !res.status.success() {
+        //     bail!(
+        //         "just command failed: {}",
+        //         String::from_utf8_lossy(&res.stderr)
+        //     )
+        // }
         Ok(())
     }
 
