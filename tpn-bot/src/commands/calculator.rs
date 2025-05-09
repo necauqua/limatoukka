@@ -1,3 +1,5 @@
+use std::fmt::{self, Debug};
+
 use thiserror::Error;
 
 pub struct Calculator<'a> {
@@ -7,17 +9,61 @@ pub struct Calculator<'a> {
 
 #[derive(Debug, Error)]
 pub enum CalculatorError {
-    #[error("Expected end of expression")]
+    #[error("expected end of math expr")]
     ExpectedEnd,
-    #[error("Expected a number")]
+    #[error("expected a number")]
     ExpectedNumber,
-    #[error("Division by zero")]
+    #[error("division by zero")]
     DivisionByZero,
-    #[error("Missing ')'")]
+    #[error("missing ')'")]
     MissingClosingParen,
 }
 
-type Result = std::result::Result<i64, CalculatorError>;
+#[derive(PartialEq, Eq, Clone, Copy)]
+pub enum Unit {
+    None,
+    Seconds,
+}
+
+impl Unit {
+    pub fn combine(self, other: Self) -> std::result::Result<Self, CalculatorError> {
+        match (self, other) {
+            (a, Unit::None) => Ok(a),
+            (Unit::None, b) => Ok(b),
+            (Self::Seconds, Self::Seconds) => Ok(Self::Seconds),
+        }
+    }
+}
+
+#[derive(PartialEq, Eq, Clone, Copy)]
+pub struct Value {
+    pub magnitude: i64,
+    pub unit: Unit,
+}
+
+impl Debug for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.unit {
+            Unit::None => write!(f, "{}", self.magnitude),
+            Unit::Seconds => write!(f, "{}s", self.magnitude),
+        }
+    }
+}
+
+impl Value {
+    pub fn new(magnitude: i64, unit: Unit) -> Self {
+        Self { magnitude, unit }
+    }
+
+    pub fn binary(self, rhs: Self, f: fn(i64, i64) -> i64) -> Result {
+        Ok(Self {
+            magnitude: f(self.magnitude, rhs.magnitude),
+            unit: self.unit.combine(rhs.unit)?,
+        })
+    }
+}
+
+type Result = std::result::Result<Value, CalculatorError>;
 
 impl<'a> Calculator<'a> {
     pub fn eval(expr: &'a str) -> Result {
@@ -56,11 +102,11 @@ impl<'a> Calculator<'a> {
             match op {
                 '+' => {
                     self.next();
-                    value += self.term()?;
+                    value = value.binary(self.term()?, i64::wrapping_add)?;
                 }
                 '-' => {
                     self.next();
-                    value -= self.term()?;
+                    value = value.binary(self.term()?, i64::wrapping_sub)?;
                 }
                 _ => break,
             }
@@ -74,15 +120,15 @@ impl<'a> Calculator<'a> {
             match op {
                 '*' => {
                     self.next();
-                    value *= self.unary()?;
+                    value = value.binary(self.unary()?, i64::wrapping_mul)?;
                 }
                 '/' => {
                     self.next();
                     let divisor = self.unary()?;
-                    if divisor == 0 {
+                    if divisor.magnitude == 0 {
                         return Err(CalculatorError::DivisionByZero);
                     }
-                    value /= divisor;
+                    value = value.binary(self.unary()?, i64::wrapping_div)?;
                 }
                 _ => break,
             }
@@ -92,7 +138,11 @@ impl<'a> Calculator<'a> {
 
     fn unary(&mut self) -> Result {
         if self.take('-') {
-            Ok(-self.unary()?)
+            let term = self.unary()?;
+            Ok(Value {
+                magnitude: -term.magnitude,
+                unit: term.unit,
+            })
         } else {
             self.primary()
         }
@@ -106,11 +156,11 @@ impl<'a> Calculator<'a> {
             }
             Ok(val)
         } else {
-            self.number()
+            self.value()
         }
     }
 
-    fn number(&mut self) -> Result {
+    fn value(&mut self) -> Result {
         let mut num = 0i64;
         let mut found = false;
         while let Some(c) = self.curr {
@@ -123,7 +173,14 @@ impl<'a> Calculator<'a> {
             }
         }
         if found {
-            Ok(num)
+            Ok(Value {
+                magnitude: num,
+                unit: if self.take('s') {
+                    Unit::Seconds
+                } else {
+                    Unit::None
+                },
+            })
         } else {
             Err(CalculatorError::ExpectedNumber)
         }
@@ -135,7 +192,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test() {
-        assert_eq!(Calculator::eval("2 + 2 * 2").unwrap(), 6);
+    fn unitless() {
+        assert_eq!(
+            Calculator::eval("2 + 2 * 2").unwrap(),
+            Value::new(6, Unit::None)
+        );
+    }
+
+    #[test]
+    fn seconds() {
+        assert_eq!(
+            Calculator::eval("2s + 2 * 2").unwrap(),
+            Value::new(6, Unit::Seconds)
+        );
+    }
+
+    #[test]
+    fn more_seconds() {
+        assert_eq!(
+            Calculator::eval("2 + 2s * 2s").unwrap(),
+            Value::new(6, Unit::Seconds)
+        );
     }
 }

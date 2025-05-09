@@ -2,7 +2,7 @@ use std::{borrow::Cow, collections::VecDeque, fmt::Debug, time::Duration};
 
 use thiserror::Error;
 
-use super::calculator::{Calculator, CalculatorError};
+use super::calculator::{Calculator, CalculatorError, Unit};
 
 #[derive(Debug, Error)]
 pub enum ExtractorError {
@@ -133,7 +133,12 @@ impl CommandArg for String {
 
 impl CommandArg for i32 {
     fn parse(input: String) -> ArgResult<Self> {
-        Calculator::eval(&input)?
+        let value = Calculator::eval(&input)?;
+        if !matches!(value.unit, Unit::None) {
+            return Err(ArgError::WrongType("a number"));
+        }
+        value
+            .magnitude
             .try_into()
             .map_err(|_| ArgError::WrongType("a number"))
     }
@@ -145,7 +150,12 @@ impl CommandArg for i32 {
 
 impl CommandArg for u32 {
     fn parse(input: String) -> ArgResult<Self> {
-        Calculator::eval(&input)?
+        let value = Calculator::eval(&input)?;
+        if !matches!(value.unit, Unit::None) {
+            return Err(ArgError::WrongType("a non-negative number"));
+        }
+        value
+            .magnitude
             .try_into()
             .map_err(|_| ArgError::WrongType("a non-negative number"))
     }
@@ -169,12 +179,25 @@ impl<const DEFAULT: u32, const MAX: u32> ArgExtractor for HoldTime<DEFAULT, MAX>
         let Some((pos, input)) = args.pop() else {
             return Ok(Self(Duration::from_millis(DEFAULT as _)));
         };
-        let millis = match input.strip_suffix("s") {
-            Some(seconds) => {
-                u32::parse(seconds.into()).map_err(|e| ExtractorError::BadArgument(pos, e))? * 1000
+
+        let value =
+            Calculator::eval(&input).map_err(|e| ExtractorError::BadArgument(pos, e.into()))?;
+
+        let millis = match value.unit {
+            Unit::None => value.magnitude,
+            Unit::Seconds => value.magnitude * 1000,
+            #[allow(unreachable_patterns)] // maybe will add more units in the future
+            _ => {
+                return Err(ExtractorError::BadArgument(
+                    pos,
+                    ArgError::WrongType("a number or amount of seconds"),
+                ));
             }
-            None => u32::parse(input).map_err(|e| ExtractorError::BadArgument(pos, e))?,
         };
+        let millis: u32 = millis.try_into().map_err(|_| {
+            ExtractorError::BadArgument(pos, ArgError::WrongType("a number or amount of seconds"))
+        })?;
+
         if millis > MAX {
             Err(ExtractorError::BadArgument(
                 pos,
