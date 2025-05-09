@@ -18,7 +18,7 @@ pub struct EvalContext {
     pub in_global_macro: bool,
     pub macro_depth: u32,
     pub repeat_i: Option<NonZero<u32>>,
-    depth: u32,
+    pub depth: u32,
     parent: MessageContext,
 }
 

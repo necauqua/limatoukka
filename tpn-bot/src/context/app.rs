@@ -85,7 +85,7 @@ impl AppStateInner {
 
 #[derive(Clone)]
 pub struct AppContext {
-    inner: Arc<Inner>,
+    inner: Option<Arc<Inner>>,
 }
 
 impl AppContext {
@@ -100,7 +100,7 @@ impl AppContext {
         twitch: Twitch,
     ) -> Self {
         Self {
-            inner: Arc::new(Inner {
+            inner: Some(Arc::new(Inner {
                 messaging,
                 config,
                 storage,
@@ -109,40 +109,44 @@ impl AppContext {
                 status_wall,
                 twitch,
                 state: Default::default(),
-            }),
+            })),
         }
     }
 
+    pub fn mock() -> Self {
+        Self { inner: None }
+    }
+
     pub fn config(&self) -> &Config {
-        &self.inner.config
+        &self.inner.as_deref().unwrap().config
     }
 
     pub fn messaging(&self) -> &MessagingClient {
-        &self.inner.messaging
+        &self.inner.as_deref().unwrap().messaging
     }
 
     pub fn storage(&self) -> &Storage {
-        &self.inner.storage
+        &self.inner.as_deref().unwrap().storage
     }
 
     pub fn xdo(&self) -> &XDoClient {
-        &self.inner.xdo
+        &self.inner.as_deref().unwrap().xdo
     }
 
     pub fn noita(&self) -> &NoitaHandle {
-        &self.inner.noita
+        &self.inner.as_deref().unwrap().noita
     }
 
     pub fn status_wall(&self) -> &StatusWall {
-        &self.inner.status_wall
+        &self.inner.as_deref().unwrap().status_wall
     }
 
     pub fn twitch(&self) -> &Twitch {
-        &self.inner.twitch
+        &self.inner.as_deref().unwrap().twitch
     }
 
     pub fn state(&self) -> &AppState {
-        &self.inner.state
+        &self.inner.as_deref().unwrap().state
     }
 
     pub fn init(&self) {
@@ -188,7 +192,12 @@ impl AppContext {
 
     pub async fn send(&self, message: String) -> Result<()> {
         tracing::debug!(text = message, "sending");
-        self.inner.messaging.send(message).await?;
+        self.inner
+            .as_deref()
+            .unwrap()
+            .messaging
+            .send(message)
+            .await?;
         Ok(())
     }
 
@@ -214,18 +223,41 @@ impl AppContext {
     }
 
     pub async fn break_holds(&self) {
-        self.inner.state.inner.lock().unwrap().break_holds();
+        self.inner
+            .as_deref()
+            .unwrap()
+            .state
+            .inner
+            .lock()
+            .unwrap()
+            .break_holds();
     }
 
     pub async fn interrupt_holds(&self) {
-        self.inner.state.inner.lock().unwrap().interrupt_holds();
+        self.inner
+            .as_deref()
+            .unwrap()
+            .state
+            .inner
+            .lock()
+            .unwrap()
+            .interrupt_holds();
     }
 
     pub async fn interruptible<F>(&self, f: F) -> Result<(), CommandInterrupt>
     where
         F: Future<Output = ()>,
     {
-        let fut = { self.inner.state.inner.lock().unwrap().interruptible(f) };
+        let fut = {
+            self.inner
+                .as_deref()
+                .unwrap()
+                .state
+                .inner
+                .lock()
+                .unwrap()
+                .interruptible(f)
+        };
         fut.await
     }
 

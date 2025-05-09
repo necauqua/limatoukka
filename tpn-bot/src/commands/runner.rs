@@ -177,7 +177,7 @@ async fn prepare_command(
     let cmd_ctx = CommandContext::new(ctx.clone(), desc.clone());
 
     // expand args
-    if cmd_ctx.macro_depth != 0 {
+    if cmd_ctx.depth != 0 {
         let macro_args = &cmd_ctx.macro_ctx.args;
 
         for arg in &mut cmd_expr.args {
