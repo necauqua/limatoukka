@@ -178,9 +178,8 @@ impl Twitch {
 
         let eventsub = TwitchEventSub {
             twitch: t.clone(),
-            connect_url: TWITCH_EVENTSUB_WEBSOCKET_URL.clone(),
             tx,
-            backoff: Duration::ZERO,
+            prev: None,
         };
 
         Ok((t, eventsub))
@@ -217,15 +216,18 @@ impl Twitch {
 
 pub struct TwitchEventSub {
     twitch: Twitch,
-    connect_url: Url,
     tx: Sender<Event>,
-    backoff: Duration,
+    prev: Option<WebSocketStream<MaybeTlsStream<TcpStream>>>,
 }
 
 impl TwitchEventSub {
     async fn process_welcome_message(&mut self, data: SessionData<'_>) -> Result<()> {
-        // successfully connected and even got the welcome
-        self.backoff = Duration::ZERO;
+        tracing::info!("got a welcome message");
+
+        if let Some(mut prev) = self.prev.take() {
+            prev.close(None).await?;
+            return Ok(());
+        }
 
         let transport = eventsub::Transport::websocket(data.id.clone());
 
@@ -279,92 +281,83 @@ impl TwitchEventSub {
             if let Err(e) = self.run_iteration().await {
                 tracing::warn!(error=?e, "twitch eventsub fail");
             }
-            if self.backoff == Duration::ZERO {
-                self.backoff = Duration::from_secs(1);
-                continue;
-            }
-            if self.backoff.as_secs() < 60 {
-                self.backoff *= 2;
-            } else {
-                tracing::warn!("reached max backoff");
-            }
-            tokio::time::sleep(self.backoff).await;
+            self.prev = None;
+            tokio::time::sleep(Duration::from_secs(1)).await;
         }
     }
 
     async fn run_iteration(&mut self) -> Result<()> {
-        let mut s = self.connect().await?;
+        let mut s = websocket_connect(&TWITCH_EVENTSUB_WEBSOCKET_URL).await?;
+
         while let Some(msg) = s.next().await {
-            if !self.process_message(msg?).await? {
-                s = self.connect().await?;
+            match self.process_message(msg?).await? {
+                MessageResult::Ok => {}
+                MessageResult::Reconnect { url } => {
+                    self.prev = Some(std::mem::replace(&mut s, websocket_connect(&url).await?));
+                }
             }
         }
-        Ok(())
+        bail!("websocket closed without reconnect event")
     }
 
-    async fn connect(&mut self) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {
-        tracing::info!("connecting to twitch, {}", self.connect_url);
-        let (stream, _) = tokio_tungstenite::connect_async_with_config(
-            &self.connect_url,
-            Some(
-                tungstenite::protocol::WebSocketConfig::default()
-                    .max_message_size(Some(64 << 20)) // 64 MiB
-                    .max_frame_size(Some(16 << 20)) // 16 MiB
-                    .accept_unmasked_frames(false),
-            ),
-            false,
-        )
-        .await?;
-        self.connect_url = twitch_api::TWITCH_EVENTSUB_WEBSOCKET_URL.clone();
-        Ok(stream)
-    }
-
-    /// Should reconnect if Ok(false) is returned
-    async fn process_message(&mut self, msg: tungstenite::Message) -> Result<bool> {
+    /// Ok(false) = reconnect is requested
+    async fn process_message(&mut self, msg: tungstenite::Message) -> Result<MessageResult> {
         match msg {
             tungstenite::Message::Text(s) => match Event::parse_websocket(&s)? {
                 EventsubWebsocketData::Welcome {
                     payload: WelcomePayload { session },
                     ..
-                } => {
-                    self.process_welcome_message(session).await?;
-                    Ok(true)
-                }
+                } => self.process_welcome_message(session).await?,
                 EventsubWebsocketData::Reconnect {
                     payload: ReconnectPayload { session },
                     ..
                 } => {
-                    if let Some(url) = session.reconnect_url {
-                        tracing::info!("get a reconnect event, new url: {url}");
-                        self.connect_url = url.parse()?;
-                    } else {
-                        tracing::info!("get a reconnect event");
-                    }
-                    Ok(false)
+                    let url = session
+                        .reconnect_url
+                        .as_deref()
+                        .and_then(|url| url.parse().ok())
+                        .unwrap_or_else(|| TWITCH_EVENTSUB_WEBSOCKET_URL.clone());
+                    tracing::info!("got a reconnect event, url: {url}");
+                    return Ok(MessageResult::Reconnect { url });
                 }
                 EventsubWebsocketData::Notification {
                     metadata: _,
                     payload,
-                } => {
-                    _ = self.tx.send(payload);
-                    Ok(true)
-                }
+                } => _ = self.tx.send(payload),
                 EventsubWebsocketData::Revocation {
                     metadata,
                     payload: _,
-                } => {
-                    tracing::warn!(?metadata, "got a revocation event");
-                    Ok(false)
-                }
-                _ => Ok(true),
+                } => tracing::warn!(?metadata, "got a revocation event!"),
+                _ => {}
             },
             tungstenite::Message::Close(frame) => {
-                tracing::warn!(?frame, "received a close frame");
-                Ok(false)
+                tracing::warn!("websocket closed by twitch, frame={frame:?}")
             }
-            _ => Ok(true),
+            _ => {}
         }
+        Ok(MessageResult::Ok)
     }
+}
+
+async fn websocket_connect(url: &Url) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {
+    tracing::info!("connecting to twitch, {url}");
+    let (stream, _) = tokio_tungstenite::connect_async_with_config(
+        url.clone(),
+        Some(
+            tungstenite::protocol::WebSocketConfig::default()
+                .max_message_size(Some(64 << 20)) // 64 MiB
+                .max_frame_size(Some(16 << 20)) // 16 MiB
+                .accept_unmasked_frames(false),
+        ),
+        false,
+    )
+    .await?;
+    Ok(stream)
+}
+
+enum MessageResult {
+    Ok,
+    Reconnect { url: Url },
 }
 
 #[derive(Serialize, Deserialize)]
