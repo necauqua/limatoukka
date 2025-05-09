@@ -304,7 +304,7 @@ impl AppContext {
         }
 
         self.storage()
-            .del(["balance:blesses", "balance:curses"])
+            .del(["balance:blesses", "balance:curses", "best-inventory"])
             .await?;
 
         Self::restart().await?;
