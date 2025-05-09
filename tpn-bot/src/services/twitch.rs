@@ -23,7 +23,7 @@ use tokio::{
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite};
 use tracing::instrument;
 use twitch_api::{
-    HelixClient,
+    HelixClient, TWITCH_EVENTSUB_WEBSOCKET_URL,
     eventsub::{self, Event, EventsubWebsocketData, ReconnectPayload, SessionData, WelcomePayload},
     helix::{
         ClientRequestError, HelixRequestDeleteError, HelixRequestGetError, HelixRequestPatchError,
@@ -178,7 +178,7 @@ impl Twitch {
 
         let eventsub = TwitchEventSub {
             twitch: t.clone(),
-            connect_url: twitch_api::TWITCH_EVENTSUB_WEBSOCKET_URL.clone(),
+            connect_url: TWITCH_EVENTSUB_WEBSOCKET_URL.clone(),
             tx,
             backoff: Duration::ZERO,
         };
@@ -302,7 +302,7 @@ impl TwitchEventSub {
         Ok(())
     }
 
-    async fn connect(&self) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {
+    async fn connect(&mut self) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {
         tracing::info!("connecting to twitch, {}", self.connect_url);
         let (stream, _) = tokio_tungstenite::connect_async_with_config(
             &self.connect_url,
@@ -315,6 +315,7 @@ impl TwitchEventSub {
             false,
         )
         .await?;
+        self.connect_url = twitch_api::TWITCH_EVENTSUB_WEBSOCKET_URL.clone();
         Ok(stream)
     }
 
