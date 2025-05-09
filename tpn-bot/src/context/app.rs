@@ -4,7 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use maud::html;
 use rustis::commands::{GenericCommands, SetCondition, SetExpiration, StringCommands};
 use tokio::{
@@ -231,12 +231,38 @@ impl AppContext {
 
     // eh I couldnt be bothered lol
     async fn just(script: &str) -> Result<()> {
-        Command::new("setsid")
+        let res = Command::new("setsid")
             .args(["just", script])
             .env_remove("RUST_LOG")
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .stdout(Stdio::null())
-            .spawn()?;
+            .spawn()?
+            .wait_with_output()
+            .await?;
+        if !res.status.success() {
+            bail!(
+                "just command failed: {}",
+                String::from_utf8_lossy(&res.stderr)
+            )
+        }
+        Ok(())
+    }
+
+    pub async fn cringe_scp_large_reply(msg: &str) -> Result<()> {
+        let res = Command::new("setsid")
+            .args(["just", "cringe-scp-large-reply", msg])
+            .env_remove("RUST_LOG")
+            .stderr(Stdio::piped())
+            .stdout(Stdio::null())
+            .spawn()?
+            .wait_with_output()
+            .await?;
+        if !res.status.success() {
+            bail!(
+                "just command failed: {}",
+                String::from_utf8_lossy(&res.stderr)
+            )
+        }
         Ok(())
     }
 

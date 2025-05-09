@@ -142,3 +142,7 @@ start-funny-rotation:
 
 stop-funny-rotation:
     pkill -f ./rotate-lol.fish
+
+cringe-scp-large-reply msg:
+    echo {{quote(msg)}} > /tmp/last-reply.html
+    rsync /tmp/last-reply.html main-deployer@necauq.ua:.

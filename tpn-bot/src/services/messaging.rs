@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use anyhow::Result;
+use maud::{DOCTYPE, html};
 use strum::{EnumIter, EnumMessage, IntoStaticStr};
 use tokio::{
     fs::File,
@@ -12,6 +13,8 @@ use twitch_irc::{
     ClientConfig, SecureTCPTransport, TwitchIRCClient,
     message::{Badge, ServerMessage},
 };
+
+use crate::context::app::AppContext;
 
 use super::twitch::Twitch;
 
@@ -181,12 +184,34 @@ impl MessagingClient {
             MessagingClient::Twitch {
                 client, channel, ..
             } => {
-                send_chunked(text, |chunk| async {
-                    Ok(client
-                        .say_in_reply_to(&(channel, &message.id), chunk)
-                        .await?)
-                })
-                .await?
+                if text.len() > 250 {
+                    let html = html! {
+                        (DOCTYPE)
+                        html lang="en" {
+                            head {
+                                meta charset="utf-8";
+                                title { "Chonky TPN reply" }
+                            }
+                            body {
+                                div style="font-family:'JetBrains Mono',mono;margin:auto;max-width: 60%" {
+                                    h3 { "Reply to @"(message.sender.name) ": " (message.text) }
+                                    div style="white-space: pre-wrap" { (text) }
+                                }
+                            }
+                        }
+                    };
+                    AppContext::cringe_scp_large_reply(&html.0).await?;
+                    client
+                        .say_in_reply_to(
+                            &(channel, &message.id),
+                            "reply too large, sent to necauq.ua/last-reply".into(),
+                        )
+                        .await?;
+                } else {
+                    client
+                        .say_in_reply_to(&(channel, &message.id), text)
+                        .await?;
+                }
             }
             MessagingClient::Mock => tracing::info!(message = text, "mock reply"),
         }
