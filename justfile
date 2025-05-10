@@ -145,4 +145,4 @@ stop-funny-rotation:
 
 cringe-scp-large-reply msg:
     echo {{quote(msg)}} > /tmp/last-reply.html
-    rsync /tmp/last-reply.html main-deployer@necauq.ua:.
+    rsync -e 'ssh -o IdentitiesOnly=yes -i ~/.ssh/main-deployer' /tmp/last-reply.html main-deployer@necauq.ua:.
