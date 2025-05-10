@@ -6,7 +6,10 @@ use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_otlp::{LogExporter, SpanExporter, WithExportConfig, WithHttpConfig};
 use opentelemetry_sdk::{Resource, logs::SdkLoggerProvider, trace::SdkTracerProvider};
 use tracing_subscriber::{
-    EnvFilter, Layer as _, fmt::Layer, layer::SubscriberExt, util::SubscriberInitExt,
+    EnvFilter, Layer as _,
+    fmt::{Layer, time::LocalTime},
+    layer::SubscriberExt,
+    util::SubscriberInitExt,
 };
 use uuid::Uuid;
 
@@ -74,11 +77,13 @@ pub fn init(config: &Config) -> Result<()> {
     };
 
     // show our >=info in the terminal
-    let fmt_layer = Layer::new().with_filter(EnvFilter::new(
-        env::var(tracing_subscriber::EnvFilter::DEFAULT_ENV)
-            .as_deref()
-            .unwrap_or("tpn_bot=info"),
-    ));
+    let fmt_layer = Layer::new()
+        .with_timer(LocalTime::rfc_3339())
+        .with_filter(EnvFilter::new(
+            env::var(tracing_subscriber::EnvFilter::DEFAULT_ENV)
+                .as_deref()
+                .unwrap_or("tpn_bot=info"),
+        ));
 
     tracing_subscriber::registry()
         .with(fmt_layer)
