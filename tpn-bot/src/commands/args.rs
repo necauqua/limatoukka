@@ -134,11 +134,13 @@ impl CommandArg for String {
 impl CommandArg for i32 {
     fn parse(input: String) -> ArgResult<Self> {
         let value = Calculator::eval(&input)?;
-        if !matches!(value.unit, Unit::None) {
-            return Err(ArgError::WrongType("a number"));
-        }
-        value
-            .magnitude
+        let mult = match value.unit {
+            Unit::None => 1,
+            Unit::Seconds => 1000,
+            #[allow(unreachable_patterns)]
+            _ => return Err(ArgError::WrongType("a number")),
+        };
+        (value.magnitude * mult)
             .try_into()
             .map_err(|_| ArgError::WrongType("a number"))
     }
@@ -151,11 +153,13 @@ impl CommandArg for i32 {
 impl CommandArg for u32 {
     fn parse(input: String) -> ArgResult<Self> {
         let value = Calculator::eval(&input)?;
-        if !matches!(value.unit, Unit::None) {
-            return Err(ArgError::WrongType("a non-negative number"));
-        }
-        value
-            .magnitude
+        let mult = match value.unit {
+            Unit::None => 1,
+            Unit::Seconds => 1000,
+            #[allow(unreachable_patterns)]
+            _ => return Err(ArgError::WrongType("a non-negative number")),
+        };
+        (value.magnitude * mult)
             .try_into()
             .map_err(|_| ArgError::WrongType("a non-negative number"))
     }

@@ -19,7 +19,7 @@ pub enum CalculatorError {
     MissingClosingParen,
 }
 
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Unit {
     None,
     Seconds,
@@ -128,7 +128,7 @@ impl<'a> Calculator<'a> {
                     if divisor.magnitude == 0 {
                         return Err(CalculatorError::DivisionByZero);
                     }
-                    value = value.binary(self.unary()?, i64::wrapping_div)?;
+                    value = value.binary(divisor, i64::wrapping_div)?;
                 }
                 '%' => {
                     self.next();
@@ -220,6 +220,14 @@ mod tests {
         assert_eq!(
             Calculator::eval("2 + 2s * 2s").unwrap(),
             Value::new(6, Unit::Seconds)
+        );
+    }
+
+    #[test]
+    fn division() {
+        assert_eq!(
+            Calculator::eval("10000 / 2").unwrap(),
+            Value::new(5000, Unit::None)
         );
     }
 }
