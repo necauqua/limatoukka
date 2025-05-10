@@ -184,16 +184,17 @@ impl MessagingClient {
             MessagingClient::Twitch {
                 client, channel, ..
             } => {
-                if text.len() > 250 {
+                if text.len() > 420 {
                     let html = html! {
                         (DOCTYPE)
-                        html lang="en" {
+                        html lang="en" style="background: #1d1f21; color: #c9cacc; height: 100%;" {
                             head {
                                 meta charset="utf-8";
+                                meta name="viewport" content="width=device-width, initial-scale=1.0";
                                 title { "Chonky TPN reply" }
                             }
-                            body {
-                                div style="font-family:'JetBrains Mono',mono;margin:auto;max-width: 60%" {
+                            body style="height: 100%; margin:0; display: flex" {
+                                div style="font-family: 'JetBrains Mono',mono; margin: auto; padding: 2rem; max-width: 40rem" {
                                     h3 { "Reply to @"(message.sender.name) ": " (message.text) }
                                     div style="white-space: pre-wrap" { (text) }
                                 }
@@ -204,7 +205,7 @@ impl MessagingClient {
                     client
                         .say_in_reply_to(
                             &(channel, &message.id),
-                            "reply too large, sent to necauq.ua/last-reply".into(),
+                            "reply too large, sent to uq.rs/tpn-reply".into(),
                         )
                         .await?;
                 } else {
