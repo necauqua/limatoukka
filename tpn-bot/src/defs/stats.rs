@@ -1,11 +1,15 @@
 use std::cmp::Ordering as Ord;
 
-use anyhow::Result;
+use anyhow::{Context, Result, bail};
 use elasticsearch::{CountParts, SearchParts};
 use rustis::commands::StringCommands;
 use serde_json::{Value, json};
 
-use crate::{commands::command, context::cmd::CommandContext, fail};
+use crate::{
+    commands::{args::InRange, command},
+    context::cmd::CommandContext,
+    fail,
+};
 
 const INDEX: &str = "twitch-logs";
 
@@ -62,46 +66,126 @@ async fn stat_global(ctx: CommandContext, word: Option<String>) -> Result<()> {
     stat_impl(&ctx, None, word).await
 }
 
-/// Get the first message sent by a user (or you) in chat.
-#[command(sender_gate = 3s)]
-async fn first_message(ctx: CommandContext, login: Option<String>) -> Result<()> {
-    let id = ctx.chatter_id(login.as_deref()).await?;
+async fn edge_message(
+    ctx: &CommandContext,
+    id: &str,
+    sort: &str,
+    exclude: Option<&str>,
+) -> Result<Option<(String, bool)>> {
+    let mut bool = serde_json::Map::new();
+    bool.insert(
+        "must".into(),
+        json!([
+            { "term": { "irc.cmd": "PRIVMSG" } },
+            { "term": { "tags.user-id": id } },
+        ]),
+    );
+
+    if let Some(exclude) = exclude {
+        bool.insert(
+            "must_not".into(),
+            json!([{
+                "term": { "_id": exclude }
+            }]),
+        );
+    }
 
     let response = ctx
         .storage()
         .stats()
         .search(SearchParts::Index(&[INDEX]))
         .body(json!({
-            "query": {
-                "bool": {
-                    "must": [
-                        { "term": { "irc.cmd": "PRIVMSG" } },
-                        { "term": { "tags.user-id": id } },
-                    ]
-                }
-            },
-            "sort": [{ "@timestamp": "asc" }],
+            "query": { "bool": bool },
+            "sort": [{ "@timestamp": sort }],
             "size": 1,
         }))
         .send()
         .await?;
-
     let response = response.error_for_status_code()?.json::<Value>().await?;
 
     let Some(found) = response.pointer("/hits/hits/0/_source") else {
-        fail!("they never typed in chat");
+        return Ok(None);
     };
     let message = found
         .get("message")
         .and_then(|v| v.as_str())
+        .map(|s| s.to_owned())
         .unwrap_or_default();
+    let first = found.pointer("/tags/first-msg") == Some(&json!(1));
+    Ok(Some((message, first)))
+}
 
-    ctx.reply(if found.pointer("/tags/first-msg") == Some(&json!(1)) {
-        format!("Their first message was: `{message}`")
-    } else {
-        format!("Their first recorded message was: `{message}`")
-    })
-    .await
+/// Get the first message sent by a user (or you) in chat.
+#[command(sender_gate = 3s)]
+async fn first_message(ctx: CommandContext, login: Option<String>) -> Result<()> {
+    let id = ctx.chatter_id(login.as_deref()).await?;
+
+    let response = match edge_message(&ctx, &id, "asc", None).await? {
+        Some((message, true)) => format!("Their first message was: {message}"),
+        Some((message, false)) => format!("Their first recorded message was: {message}"),
+        None => fail!("they never typed in chat"),
+    };
+    ctx.reply(response).await
+}
+
+/// Get the last message sent by a user (or you) in chat.
+#[command(sender_gate = 3s)]
+async fn last_message(ctx: CommandContext, login: Option<String>) -> Result<()> {
+    let id = ctx.chatter_id(login.as_deref()).await?;
+
+    let response = match edge_message(&ctx, &id, "desc", Some(&ctx.message().id)).await? {
+        Some((message, _)) => format!("Their last message was: {message}"),
+        None => fail!("they never typed in chat"),
+    };
+    ctx.reply(response).await
+}
+
+/// Get a list of top-N chatters of all time, by number of sent messages.
+#[command(sender_gate = 3s)]
+async fn top(ctx: CommandContext, n: Option<InRange<1, 15>>) -> Result<()> {
+    let n = n.map_or(5, |n| n.get());
+
+    let response = ctx
+        .storage()
+        .stats()
+        .search(SearchParts::Index(&[INDEX]))
+        .body(json!({
+            "size": 0,
+            "aggs": {
+              "top": {
+                "terms": { "field": "tags.user-id", "size": n },
+                "aggs": {
+                  "name": {
+                    "top_hits": { "size": 1, "_source": ["name"] }
+                  }
+                }
+              }
+            }
+        }))
+        .send()
+        .await?;
+    let response = response.error_for_status_code()?.json::<Value>().await?;
+
+    let buckets = response
+        .pointer("/aggregations/top/buckets")
+        .and_then(|v| v.as_array())
+        .context("malformed aggregation reply")?;
+
+    let results = buckets
+        .iter()
+        .filter_map(|b| {
+            let name = b
+                .pointer("/name/hits/hits/0/_source/name")
+                .and_then(|n| n.as_str());
+            let count = b.get("doc_count").and_then(|c| c.as_i64());
+            name.zip(count)
+        })
+        .map(|(name, count)| format!("{name}: {count}"))
+        .collect::<Vec<_>>();
+    if results.is_empty() {
+        bail!("malformed aggregation reply");
+    }
+    ctx.reply(results.join("; ")).await
 }
 
 /// Get the bless/curse balance for the current run
