@@ -9,7 +9,7 @@ use tpn_bot::{
     logging,
     services::{
         messaging,
-        noita::{Inventory, ItemFound, NoitaHandle},
+        noita::{ItemFound, NoitaHandle},
         status_wall::StatusWall,
         storage::Storage,
         twitch::Twitch,
@@ -46,7 +46,8 @@ async fn run(config: Config) -> Result<()> {
         twitch,
     );
 
-    ctx.init();
+    tokio::spawn(ctx.status_wall().start(&ctx.config().browser_source_bind));
+    tokio::spawn(NoitaHandle::poll_state_updates(ctx.clone()));
 
     let mut found_items = ctx.noita().subscribe_to_found_items();
 
@@ -72,7 +73,7 @@ async fn run(config: Config) -> Result<()> {
                 Ok(())
             }
             _ = ctx.noita().wait_for_player_death() => ctx.next_run().await,
-            Ok((best_inv, item)) = found_items.recv() => found_item(&ctx, best_inv, item).await,
+            Ok(item) = found_items.recv() => found_item(&ctx, item).await,
             Ok(event) = eventsub_rx.recv() => eventsub_event(&ctx, event).await,
             else => return Ok(()),
         };
@@ -82,9 +83,7 @@ async fn run(config: Config) -> Result<()> {
     }
 }
 
-async fn found_item(ctx: &AppContext, best_inv: Inventory, item: ItemFound) -> Result<()> {
-    storage!(ctx, set, "best-inventory", { best_inv.bits() })?;
-
+async fn found_item(ctx: &AppContext, item: ItemFound) -> Result<()> {
     tracing::info!("found item {item:?}");
 
     ctx.send(match item {

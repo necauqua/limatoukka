@@ -34,7 +34,7 @@ pub struct NoitaHandle {
     on_inventory_open: Notify,
     on_inventory_close: Notify,
     on_player_death: Notify,
-    found_items: Arc<Sender<(Inventory, ItemFound)>>,
+    found_items: Arc<Sender<ItemFound>>,
     reset_items: AtomicBool,
 }
 
@@ -110,7 +110,7 @@ impl NoitaHandle {
         self.on_player_death.notified()
     }
 
-    pub fn subscribe_to_found_items(&self) -> Receiver<(Inventory, ItemFound)> {
+    pub fn subscribe_to_found_items(&self) -> Receiver<ItemFound> {
         self.found_items.subscribe()
     }
 
@@ -195,36 +195,25 @@ impl NoitaHandle {
                 best_inv |= inv;
 
                 if diff.contains(Inventory::BEST_TABLET) {
-                    _ = ctx
-                        .noita()
-                        .found_items
-                        .send((best_inv, ItemFound::TreeTablet));
+                    _ = ctx.noita().found_items.send(ItemFound::TreeTablet);
                 } else if diff.contains(Inventory::TABLET) {
-                    _ = ctx
-                        .noita()
-                        .found_items
-                        .send((best_inv, ItemFound::OtherTablet));
+                    _ = ctx.noita().found_items.send(ItemFound::OtherTablet);
                 }
                 if diff.contains(Inventory::EVIL_EYE) {
-                    _ = ctx.noita().found_items.send((best_inv, ItemFound::EvilEye));
+                    _ = ctx.noita().found_items.send(ItemFound::EvilEye);
                 }
                 if diff.contains(Inventory::EARTH_STONE) {
-                    _ = ctx
-                        .noita()
-                        .found_items
-                        .send((best_inv, ItemFound::EarthStone));
+                    _ = ctx.noita().found_items.send(ItemFound::EarthStone);
                 }
                 if diff.contains(Inventory::TAIKASAUVA) {
-                    _ = ctx
-                        .noita()
-                        .found_items
-                        .send((best_inv, ItemFound::Taikasauva));
+                    _ = ctx.noita().found_items.send(ItemFound::Taikasauva);
                 }
                 if diff.contains(Inventory::TOUCH_OF_GOLD) {
-                    _ = ctx
-                        .noita()
-                        .found_items
-                        .send((best_inv, ItemFound::TouchOfGold));
+                    _ = ctx.noita().found_items.send(ItemFound::TouchOfGold);
+                }
+
+                if let Err(e) = storage!(ctx, set, "best-inventory", { best_inv.bits() }) {
+                    tracing::error!(error=?e, "failed to save best-inventory");
                 }
             }
         }

@@ -149,27 +149,6 @@ impl AppContext {
         &self.inner.as_deref().unwrap().state
     }
 
-    pub fn init(&self) {
-        let handle = self.clone();
-        tokio::spawn(
-            handle
-                .status_wall()
-                .start(&handle.config().browser_source_bind),
-        );
-
-        tokio::spawn(async move {
-            // fix any stuck holds
-            _ = tokio::join!(
-                handle.xdo().keyup("w"),
-                handle.xdo().keyup("a"),
-                handle.xdo().keyup("s"),
-                handle.xdo().keyup("d"),
-                handle.xdo().mouseup(1),
-            );
-            NoitaHandle::poll_state_updates(handle).await;
-        });
-    }
-
     /// Returns true once (atomically) in the given period - per key.
     pub async fn gate(&self, key: &str, period: Duration) -> Result<bool> {
         let gate: Option<String> = self
