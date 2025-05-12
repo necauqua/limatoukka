@@ -305,14 +305,26 @@ impl TwitchEventSub {
     async fn run_iteration(&mut self, ctx: &AppContext) -> Result<()> {
         let mut s = websocket_connect(&TWITCH_EVENTSUB_WEBSOCKET_URL).await?;
 
-        while let Some(msg) = s.next().await {
-            match self.process_message(msg?, ctx).await? {
-                MessageResult::Ok => {}
-                MessageResult::Reconnect { url } => {
-                    self.prev = Some(std::mem::replace(&mut s, websocket_connect(&url).await?));
+        loop {
+            tokio::select! {
+                Some(msg) = async {
+                    if let Some(prev) = &mut self.prev {
+                        prev.next().await
+                    } else {
+                        std::future::pending().await
+                    }
+                } => {
+                    self.process_message(msg?, ctx).await?;
                 }
+                Some(msg) = s.next() => {
+                    if let MessageResult::Reconnect { url } = self.process_message(msg?, ctx).await? {
+                        self.prev = Some(std::mem::replace(&mut s, websocket_connect(&url).await?));
+                    }
+                }
+                else => break,
             }
         }
+
         bail!("websocket closed without reconnect event")
     }
 
