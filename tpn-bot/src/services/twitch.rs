@@ -11,6 +11,7 @@ use async_trait::async_trait;
 use axum::{Router, extract::Query, routing::get};
 use futures::StreamExt;
 use reqwest::StatusCode;
+use rustis::commands::{SetCondition, SetExpiration, StringCommands};
 use serde::{Deserialize, Serialize};
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -35,7 +36,7 @@ use twitch_api::{
 };
 use twitch_irc::login::{CredentialsPair, LoginCredentials};
 
-use crate::config::Config;
+use crate::{config::Config, context::app::AppContext};
 
 type TwitchClient = twitch_api::TwitchClient<'static, reqwest::Client>;
 
@@ -180,6 +181,7 @@ impl Twitch {
             twitch: t.clone(),
             tx,
             prev: None,
+            on_subscribed: Some(Default::default()),
         };
 
         Ok((t, eventsub))
@@ -218,6 +220,7 @@ pub struct TwitchEventSub {
     twitch: Twitch,
     tx: Sender<Event>,
     prev: Option<WebSocketStream<MaybeTlsStream<TcpStream>>>,
+    on_subscribed: Option<Arc<Notify>>,
 }
 
 impl TwitchEventSub {
@@ -269,16 +272,29 @@ impl TwitchEventSub {
             channel::ChannelHypeTrainEndV1,
         ];
 
+        if let Some(on_subscribed) = self.on_subscribed.take() {
+            on_subscribed.notify_waiters();
+        }
+
         Ok(())
+    }
+
+    pub fn wait_for_full_init(&self) -> impl Future<Output = ()> + use<> {
+        let notif = self.on_subscribed.clone();
+        async {
+            if let Some(notif) = notif {
+                notif.notified().await;
+            }
+        }
     }
 
     pub fn subscribe(&self) -> Receiver<Event> {
         self.tx.subscribe()
     }
 
-    pub async fn run(mut self) -> ! {
+    pub async fn run(mut self, ctx: AppContext) -> ! {
         loop {
-            if let Err(e) = self.run_iteration().await {
+            if let Err(e) = self.run_iteration(&ctx).await {
                 tracing::warn!(error=?e, "twitch eventsub fail");
             }
             self.prev = None;
@@ -286,11 +302,11 @@ impl TwitchEventSub {
         }
     }
 
-    async fn run_iteration(&mut self) -> Result<()> {
+    async fn run_iteration(&mut self, ctx: &AppContext) -> Result<()> {
         let mut s = websocket_connect(&TWITCH_EVENTSUB_WEBSOCKET_URL).await?;
 
         while let Some(msg) = s.next().await {
-            match self.process_message(msg?).await? {
+            match self.process_message(msg?, ctx).await? {
                 MessageResult::Ok => {}
                 MessageResult::Reconnect { url } => {
                     self.prev = Some(std::mem::replace(&mut s, websocket_connect(&url).await?));
@@ -300,8 +316,11 @@ impl TwitchEventSub {
         bail!("websocket closed without reconnect event")
     }
 
-    /// Ok(false) = reconnect is requested
-    async fn process_message(&mut self, msg: tungstenite::Message) -> Result<MessageResult> {
+    async fn process_message(
+        &mut self,
+        msg: tungstenite::Message,
+        ctx: &AppContext,
+    ) -> Result<MessageResult> {
         match msg {
             tungstenite::Message::Text(s) => match Event::parse_websocket(&s)? {
                 EventsubWebsocketData::Welcome {
@@ -320,10 +339,23 @@ impl TwitchEventSub {
                     tracing::info!("got a reconnect event, url: {url}");
                     return Ok(MessageResult::Reconnect { url });
                 }
-                EventsubWebsocketData::Notification {
-                    metadata: _,
-                    payload,
-                } => _ = self.tx.send(payload),
+                EventsubWebsocketData::Notification { metadata, payload } => {
+                    let new = ctx
+                        .storage()
+                        .set_with_options(
+                            format!("seen:eventsub:{}", metadata.message_id),
+                            "1",
+                            SetCondition::NX,
+                            SetExpiration::Ex(600),
+                            false,
+                        )
+                        .await?;
+                    if new {
+                        _ = self.tx.send(payload);
+                    } else {
+                        tracing::info!("received duplicate eventsub event, payload: {payload:?}");
+                    }
+                }
                 EventsubWebsocketData::Revocation {
                     metadata,
                     payload: _,

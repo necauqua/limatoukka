@@ -3,7 +3,7 @@ use std::{borrow::Cow, time::Duration};
 use anyhow::Result;
 use futures::StreamExt;
 use opentelemetry::trace::Status;
-use rustis::commands::PubSubCommands;
+use rustis::commands::{PubSubCommands, SetCondition, SetExpiration, StringCommands};
 use tokio::task::JoinSet;
 use tpn_bot::{
     commands::runner,
@@ -37,7 +37,7 @@ async fn run(config: Config) -> Result<()> {
     let (mut incoming, messaging) = messaging::connect_to_twitch(twitch.clone());
 
     let mut eventsub_rx = eventsub.subscribe();
-    tokio::spawn(eventsub.run());
+    let eventsub_init = eventsub.wait_for_full_init();
 
     let ctx = AppContext::new(
         messaging,
@@ -49,10 +49,13 @@ async fn run(config: Config) -> Result<()> {
         twitch,
     );
 
+    tokio::spawn(eventsub.run(ctx.clone()));
     tokio::spawn(ctx.status_wall().start(&ctx.config().browser_source_bind));
     tokio::spawn(NoitaHandle::poll_state_updates(ctx.clone()));
 
     let mut found_items = ctx.noita().subscribe_to_found_items();
+
+    eventsub_init.await;
 
     ctx.storage().publish("bot-restart", "1").await?;
 
@@ -63,6 +66,21 @@ async fn run(config: Config) -> Result<()> {
         tokio::select! {
             _ = stop_signal.next() => break,
             Some(msg) = incoming.recv() => {
+                let new = ctx
+                    .storage()
+                    .set_with_options(
+                        format!("seen:irc:{}", msg.id),
+                        "1",
+                        SetCondition::NX,
+                        SetExpiration::Ex(600),
+                        false,
+                    )
+                    .await?;
+                if !new {
+                    tracing::info!("received duplicate irc message: {msg:?}");
+                    continue;
+                }
+
                 let ctx = ctx.clone();
                 let span = tracing::info_span!(
                     "message",
