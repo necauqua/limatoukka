@@ -106,8 +106,13 @@ async fn mouse(ctx: CommandContext, x: i32, y: i32, duration: HoldTime<0>) -> Re
 
 /// Move the mouse relative to its current position.
 #[command(shortcode=mm)]
-async fn mouse_move(ctx: CommandContext, dx: i32, dy: i32) -> Result<()> {
-    ctx.xdo().mousemove_relative(dx, dy).await
+async fn mouse_move(ctx: CommandContext, dx: i32, dy: i32, duration: HoldTime<0>) -> Result<()> {
+    if duration.get() == Duration::ZERO {
+        return ctx.xdo().mousemove_relative(dx, dy).await;
+    }
+
+    let (sx, sy) = ctx.xdo().getmouselocation().await?;
+    mouse(ctx, sx as i32 - 960 + dx, sy as i32 - 540 + dy, duration).await
 }
 
 /// Click the left mouse button.
