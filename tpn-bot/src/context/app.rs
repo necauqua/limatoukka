@@ -230,7 +230,7 @@ impl AppContext {
         let _res = Command::new("setsid")
             .args(["just", script])
             .env_remove("RUST_LOG")
-            .stderr(Stdio::piped())
+            .stderr(Stdio::null())
             .stdout(Stdio::null())
             .spawn()?;
         //     .wait_with_output()
