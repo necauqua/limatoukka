@@ -6,7 +6,9 @@ use std::{
 
 use anyhow::{Result, bail};
 use maud::html;
-use rustis::commands::{GenericCommands, SetCondition, SetExpiration, StringCommands};
+use rustis::commands::{
+    GenericCommands, PubSubCommands, SetCondition, SetExpiration, StringCommands,
+};
 use tokio::{
     process::Command,
     sync::oneshot::{self, Sender},
@@ -213,6 +215,14 @@ impl AppContext {
     }
 
     pub async fn interrupt_holds(&self) {
+        let handle = self.clone();
+
+        tokio::spawn(async move {
+            if let Err(error) = handle.storage().publish("interrupt", "1").await {
+                tracing::error!(?error, "failed to publish interrupt: {error:?}");
+            }
+        });
+
         self.inner
             .as_deref()
             .unwrap()

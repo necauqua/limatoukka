@@ -1,7 +1,10 @@
 use std::{borrow::Cow, time::Duration};
 
 use anyhow::Result;
+use futures::StreamExt;
 use opentelemetry::trace::Status;
+use rustis::commands::PubSubCommands;
+use tokio::task::JoinSet;
 use tpn_bot::{
     commands::runner,
     config::Config,
@@ -51,17 +54,23 @@ async fn run(config: Config) -> Result<()> {
 
     let mut found_items = ctx.noita().subscribe_to_found_items();
 
+    ctx.storage().publish("bot-restart", "1").await?;
+
+    let mut stop_signal = ctx.storage().subscribe("bot-restart").await?;
+    let mut tasks = JoinSet::new();
+
     loop {
-        let res = tokio::select! {
+        tokio::select! {
+            _ = stop_signal.next() => break,
             Some(msg) = incoming.recv() => {
+                let ctx = ctx.clone();
                 let span = tracing::info_span!(
                     "message",
                     msg.id,
                     msg.sender.id = msg.sender.id,
                     otel.name = format!("{}: {}", msg.sender.login, msg.text)
                 );
-                let ctx = ctx.clone();
-                tokio::spawn(
+                tasks.spawn(
                     async move {
                         if let Err(error) = runner::receive_message(ctx, msg).await {
                             tracing::error!(?error, "failed to handle message");
@@ -70,20 +79,49 @@ async fn run(config: Config) -> Result<()> {
                     }
                     .instrument(span),
                 );
-                Ok(())
             }
-            _ = ctx.noita().wait_for_player_death() => ctx.next_run().await,
-            Ok(item) = found_items.recv() => found_item(&ctx, item).await,
-            Ok(event) = eventsub_rx.recv() => eventsub_event(&ctx, event).await,
-            else => return Ok(()),
+            _ = ctx.noita().wait_for_player_death() => {
+                let ctx = ctx.clone();
+                mainloop_task(&mut tasks, async move { ctx.next_run().await })
+            },
+            Ok(item) = found_items.recv() => {
+                let ctx = ctx.clone();
+                mainloop_task(&mut tasks, async move { found_item(ctx, item).await })
+            },
+            Ok(event) = eventsub_rx.recv() => {
+                let ctx = ctx.clone();
+                mainloop_task(&mut tasks, async move { eventsub_event(ctx, event).await })
+            },
+            else => break,
         };
-        if let Err(error) = res {
-            tracing::error!(?error, "main loop error");
-        }
     }
+
+    tracing::info!("received a restart signal from new instance");
+
+    // I think this is technicaly racey?
+    // but the chance is so slim we dont care ig
+    let mut interrupt_signal = ctx.storage().subscribe("interrupt").await?;
+    let handle = ctx.clone();
+    tokio::spawn(async move {
+        _ = interrupt_signal.next().await;
+        tracing::info!("received an interrupt from new instance");
+        handle.interrupt_holds().await;
+    });
+
+    tasks.join_all().await;
+
+    Ok(())
 }
 
-async fn found_item(ctx: &AppContext, item: ItemFound) -> Result<()> {
+fn mainloop_task(tasks: &mut JoinSet<()>, task: impl Future<Output = Result<()>> + Send + 'static) {
+    tasks.spawn(async move {
+        if let Err(error) = task.await {
+            tracing::error!(?error, "main loop error: {error:?}");
+        }
+    });
+}
+
+async fn found_item(ctx: AppContext, item: ItemFound) -> Result<()> {
     tracing::info!("found item {item:?}");
 
     ctx.send(match item {
@@ -103,7 +141,7 @@ async fn found_item(ctx: &AppContext, item: ItemFound) -> Result<()> {
 }
 
 #[instrument(skip_all)]
-async fn eventsub_event(ctx: &AppContext, event: Event) -> Result<()> {
+async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
     match event {
         Event::ChannelPointsCustomRewardRedemptionAddV1(Payload {
             message: Message::Notification(data),
