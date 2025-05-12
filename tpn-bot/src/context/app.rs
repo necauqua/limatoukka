@@ -49,6 +49,12 @@ pub struct AppState {
     inner: Mutex<AppStateInner>,
 }
 
+impl AppState {
+    pub fn last_interrupt(&self) -> Option<Instant> {
+        self.inner.lock().unwrap().last_interrupt
+    }
+}
+
 impl AppStateInner {
     fn break_holds(&mut self) {
         for tx in self.interrupts.drain(..) {
@@ -68,15 +74,9 @@ impl AppStateInner {
     where
         F: Future<Output = ()>,
     {
-        let skip = self
-            .last_interrupt
-            .is_some_and(|i| i.elapsed() < Duration::from_millis(50));
         let (tx, rx) = oneshot::channel::<()>();
         self.interrupts.push(tx);
         async move {
-            if skip {
-                return Err(CommandInterrupt);
-            }
             tokio::select! {
                 r = rx => r.map_err(|_| CommandInterrupt),
                 _ = f => Ok(())
@@ -204,14 +204,7 @@ impl AppContext {
     }
 
     pub async fn break_holds(&self) {
-        self.inner
-            .as_deref()
-            .unwrap()
-            .state
-            .inner
-            .lock()
-            .unwrap()
-            .break_holds();
+        self.state().inner.lock().unwrap().break_holds();
     }
 
     pub async fn interrupt_holds(&self) {
@@ -223,30 +216,11 @@ impl AppContext {
             }
         });
 
-        self.inner
-            .as_deref()
-            .unwrap()
-            .state
-            .inner
-            .lock()
-            .unwrap()
-            .interrupt_holds();
+        self.state().inner.lock().unwrap().interrupt_holds();
     }
 
-    pub async fn interruptible<F>(&self, f: F) -> Result<(), CommandInterrupt>
-    where
-        F: Future<Output = ()>,
-    {
-        let fut = {
-            self.inner
-                .as_deref()
-                .unwrap()
-                .state
-                .inner
-                .lock()
-                .unwrap()
-                .interruptible(f)
-        };
+    pub async fn interruptible(&self, f: impl Future<Output = ()>) -> Result<(), CommandInterrupt> {
+        let fut = { self.state().inner.lock().unwrap().interruptible(f) };
         fut.await
     }
 
