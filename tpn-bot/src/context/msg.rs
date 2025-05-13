@@ -12,6 +12,7 @@ use rustis::{
     client::BatchPreparedCommand,
     commands::{GenericCommands, ListCommands},
 };
+use tokio::time::sleep;
 
 use crate::services::messaging::Message;
 
@@ -81,16 +82,16 @@ impl MessageContext {
         }
 
         tracing::debug!(message, "new reply buffer");
-        let ctx = self.clone();
-        self.schedule(Duration::from_millis(100), move |_| async move {
-            let mut tx = ctx.storage().create_transaction();
+
+        sleep(Duration::from_millis(100)).await;
+
+        let messages: Vec<String> = {
+            let mut tx = self.storage().create_transaction();
             tx.lrange::<_, _, Vec<String>>(&state_key, 0, -1).queue();
             tx.del(&state_key).forget();
+            tx.execute().await?
+        };
 
-            let messages: Vec<String> = tx.execute().await?;
-            ctx.reply(messages.join("; ")).await
-        });
-
-        Ok(())
+        self.reply(messages.join("; ")).await
     }
 }

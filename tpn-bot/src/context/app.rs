@@ -12,10 +12,8 @@ use rustis::commands::{
 use tokio::{
     process::Command,
     sync::oneshot::{self, Sender},
-    task::JoinHandle,
     time::sleep,
 };
-use tracing::Instrument;
 
 use crate::{
     commands::runner::CommandInterrupt,
@@ -182,27 +180,6 @@ impl AppContext {
         Ok(())
     }
 
-    /// Schedules a future to run after the given timeout.
-    pub fn schedule<F>(
-        &self,
-        timeout: Duration,
-        f: impl FnOnce(Self) -> F + Send + 'static,
-    ) -> JoinHandle<()>
-    where
-        F: Future<Output = Result<()>> + Send + 'static,
-    {
-        let ctx = self.clone();
-        tokio::spawn(
-            async move {
-                sleep(timeout).await;
-                if let Err(error) = f(ctx).await {
-                    tracing::error!(?error);
-                }
-            }
-            .instrument(tracing::debug_span!("set_timeout", ?timeout)),
-        )
-    }
-
     pub async fn break_holds(&self) {
         self.state().inner.lock().unwrap().break_holds();
     }
@@ -274,9 +251,8 @@ impl AppContext {
         Self::just("sound-setup").await
     }
 
-    pub fn reset(&self) -> impl Future<Output = Result<()>> + use<> {
-        self.noita().reset_inventory();
-        Self::just("reset-restart")
+    pub async fn reset() -> Result<()> {
+        Self::just("reset-restart").await
     }
 
     pub async fn next_run(&self) -> Result<()> {

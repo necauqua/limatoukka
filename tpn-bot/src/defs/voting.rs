@@ -117,17 +117,16 @@ async fn is_vote(ctx: CommandContext) -> Result<()> {
     Ok(())
 }
 
-async fn vote_trigger<F, R>(
-    ctx: CommandContext,
+async fn vote_trigger<R>(
+    ctx: &CommandContext,
     key: String,
     wall_title: Markup,
     chat_title: String,
     vote_config: Voting,
-    action: F,
+    action: R,
 ) -> Result<()>
 where
-    R: Future<Output = Result<()>> + Send + 'static,
-    F: FnOnce(AppContext) -> R + Send + 'static,
+    R: Future<Output = Result<()>> + Send,
 {
     if ctx.storage().exists("vote").await? != 0 {
         fail!("a vote is ongoing already")
@@ -190,35 +189,32 @@ where
         .set_top(html! { "Vote started (type yes~/no~):\n"(wall_title) })
         .await;
 
-    ctx.schedule(vote_config.vote_time, move |ctx| async move {
-        let mut tx = ctx.storage().create_transaction();
-        tx.scard(&yes_key).queue();
-        tx.scard(&no_key).queue();
-        tx.del(yes_key).forget();
-        tx.del(no_key).forget();
-        tx.del("vote").forget();
+    let mut tx = ctx.storage().create_transaction();
+    tx.scard(&yes_key).queue();
+    tx.scard(&no_key).queue();
+    tx.del(yes_key).forget();
+    tx.del(no_key).forget();
+    tx.del("vote").forget();
 
-        let (yes, no): (usize, usize) = tx.execute().await?;
-        let (yes, no) = (yes as f32, no as f32);
+    let (yes, no): (usize, usize) = tx.execute().await?;
+    let (yes, no) = (yes as f32, no as f32);
 
-        let sum = yes + no;
+    let sum = yes + no;
 
-        if yes / sum >= ctx.config().vote_min_ratio {
-            tracing::info!(key, "vote passed");
-            wall_entry.set_top("Vote passed!").await;
-            ctx.send(format!("Vote '{chat_title}' passed! :)")).await?;
-            action(ctx).await?;
-        } else {
-            tracing::info!(key, "vote failed");
-            wall_entry.set_top("Vote failed!").await;
-            ctx.send(format!("Vote '{chat_title}' failed! :(")).await?;
-        }
+    if yes / sum >= ctx.config().vote_min_ratio {
+        tracing::info!(key, "vote passed");
+        wall_entry.set_top("Vote passed!").await;
+        ctx.send(format!("Vote '{chat_title}' passed! :)")).await?;
+        action.await?;
+    } else {
+        tracing::info!(key, "vote failed");
+        wall_entry.set_top("Vote failed!").await;
+        ctx.send(format!("Vote '{chat_title}' failed! :(")).await?;
+    }
 
-        // leave the status wall entry there for a bit
-        sleep(Duration::from_secs(5)).await;
+    // leave the status wall entry there for a bit
+    sleep(Duration::from_secs(5)).await;
 
-        Ok(())
-    });
     Ok(())
 }
 
@@ -246,13 +242,14 @@ async fn votekick(ctx: CommandContext, login: String) -> Result<()> {
 
     let config = ctx.config().kick_votes.clone();
 
+    let ctx = &ctx;
     vote_trigger(
         ctx,
         format!("kick:{id}"),
         html! { "Banish " span style="color: #E38AF0" { (login) } },
         format!("Banish {login}"),
         config,
-        move |ctx| async move { super::moderation::do_banish(&ctx, &id, &login).await },
+        async move { super::moderation::do_banish(ctx, &id, &login).await },
     )
     .await
 }
@@ -272,12 +269,12 @@ async fn votekick(ctx: CommandContext, login: String) -> Result<()> {
 async fn vote_restart(ctx: CommandContext) -> Result<()> {
     let config = ctx.config().restart_votes.clone();
     vote_trigger(
-        ctx,
+        &ctx,
         "restart".into(),
         html! { span style="color: orange" { "Restart the game" } },
         "Restart the game".into(),
         config,
-        move |_| AppContext::restart(),
+        AppContext::restart(),
     )
     .await
 }
@@ -301,12 +298,12 @@ async fn restart() -> Result<()> {
 async fn vote_reset(ctx: CommandContext) -> Result<()> {
     let config = ctx.config().reset_votes.clone();
     vote_trigger(
-        ctx,
+        &ctx,
         "reset".into(),
         html! { span style="color: red" { "Reset the game" } },
         "Reset the game".into(),
         config,
-        |ctx| ctx.reset(),
+        AppContext::reset(),
     )
     .await
 }
@@ -314,6 +311,6 @@ async fn vote_reset(ctx: CommandContext) -> Result<()> {
 /// Reset the game (deleting the current world) immediately. This is the same
 /// as a successful `vote-reset~`, but instant.
 #[command(permission = Moderator, global_gate = 2m)]
-async fn reset(ctx: CommandContext) -> Result<()> {
-    ctx.reset().await
+async fn reset(_ctx: CommandContext) -> Result<()> {
+    AppContext::reset().await
 }

@@ -35,7 +35,6 @@ pub struct NoitaHandle {
     on_inventory_close: Notify,
     on_player_death: Notify,
     found_items: Arc<Sender<ItemFound>>,
-    reset_items: AtomicBool,
 }
 
 #[derive(Debug, EnumCount, Clone, Copy)]
@@ -84,7 +83,6 @@ impl Default for NoitaHandle {
             on_inventory_close: Default::default(),
             on_player_death: Default::default(),
             found_items: Arc::new(Sender::new(ItemFound::COUNT)),
-            reset_items: Default::default(),
         }
     }
 }
@@ -112,10 +110,6 @@ impl NoitaHandle {
 
     pub fn subscribe_to_found_items(&self) -> Receiver<ItemFound> {
         self.found_items.subscribe()
-    }
-
-    pub fn reset_inventory(&self) {
-        self.reset_items.store(true, Ordering::Relaxed);
     }
 
     pub async fn poll_state_updates(ctx: AppContext) {
@@ -146,9 +140,6 @@ impl NoitaHandle {
                     ctx.noita().on_player_death.notify_waiters();
                 }
                 prev_dead = dead;
-            }
-            if ctx.noita().reset_items.swap(false, Ordering::Relaxed) {
-                best_inv = Inventory::empty();
             }
 
             let inventory = state.map(|(_, i, _)| i);

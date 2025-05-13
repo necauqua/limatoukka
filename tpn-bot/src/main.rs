@@ -1,10 +1,10 @@
 use std::{borrow::Cow, time::Duration};
 
 use anyhow::Result;
-use futures::StreamExt;
+use futures::{FutureExt, StreamExt};
 use opentelemetry::trace::Status;
 use rustis::commands::{PubSubCommands, SetCondition, SetExpiration, StringCommands};
-use tokio::task::JoinSet;
+use tokio::{task::JoinSet, time::sleep};
 use tpn_bot::{
     commands::runner,
     config::Config,
@@ -88,7 +88,7 @@ async fn run(config: Config) -> Result<()> {
                     msg.sender.id = msg.sender.id,
                     otel.name = format!("{}: {}", msg.sender.login, msg.text)
                 );
-                tasks.spawn(
+                cleanup(&mut tasks).spawn(
                     async move {
                         if let Err(error) = runner::receive_message(ctx, msg).await {
                             tracing::error!(?error, "failed to handle message");
@@ -126,13 +126,22 @@ async fn run(config: Config) -> Result<()> {
         handle.interrupt_holds().await;
     });
 
+    tasks.len();
     tasks.join_all().await;
 
     Ok(())
 }
 
+/// Cleanup completed tasks from given JoinSet.
+///
+/// See https://github.com/tokio-rs/tokio/discussions/5910
+fn cleanup<T: 'static>(tasks: &mut JoinSet<T>) -> &mut JoinSet<T> {
+    while let Some(Some(_)) = tokio::task::unconstrained(tasks.join_next()).now_or_never() {}
+    tasks
+}
+
 fn mainloop_task(tasks: &mut JoinSet<()>, task: impl Future<Output = Result<()>> + Send + 'static) {
-    tasks.spawn(async move {
+    cleanup(tasks).spawn(async move {
         if let Err(error) = task.await {
             tracing::error!(?error, "main loop error: {error:?}");
         }
@@ -201,10 +210,8 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
                 "ADS TIME! Avoiding prerolls so people can check the stream without getting blasted. You can sub or get turbo xdd".into(),
             )
             .await?;
-            ctx.schedule(
-                Duration::from_secs(data.duration_seconds as _),
-                |ctx| async move { ctx.send("ADS over".into()).await },
-            );
+            sleep(Duration::from_secs(data.duration_seconds as _)).await;
+            ctx.send("ADS over".into()).await?;
         }
         Event::ChannelSubscribeV1(Payload {
             message: Message::Notification(data),
