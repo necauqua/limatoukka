@@ -307,15 +307,21 @@ impl TwitchEventSub {
 
         loop {
             tokio::select! {
-                Some(msg) = async {
+                msg = async {
                     if let Some(prev) = &mut self.prev {
                         prev.next().await
                     } else {
                         std::future::pending().await
                     }
-                } => {
-                    self.process_message(msg?, ctx).await?;
-                }
+                } => match msg {
+                    Some(Ok(msg)) => {
+                        self.process_message(msg, ctx).await?;
+                    },
+                    Some(Err(e)) => {
+                        tracing::warn!("old websocket error (probably closed): {e:?}");
+                    },
+                    None => continue,
+                },
                 Some(msg) = s.next() => {
                     if let MessageResult::Reconnect { url } = self.process_message(msg?, ctx).await? {
                         self.prev = Some(std::mem::replace(&mut s, websocket_connect(&url).await?));
