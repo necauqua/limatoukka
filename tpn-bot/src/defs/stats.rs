@@ -151,6 +151,9 @@ async fn top(ctx: CommandContext, n: Option<InRange<1, 15>>) -> Result<()> {
         .search(SearchParts::Index(&[INDEX]))
         .body(json!({
             "size": 0,
+            "query": {
+                "bool": { "must_not": { "term": { "tags.user-id": ctx.twitch().bot_id() } } },
+            },
             "aggs": {
               "top": {
                 "terms": { "field": "tags.user-id", "size": n },
