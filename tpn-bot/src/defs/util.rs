@@ -1,18 +1,14 @@
-use std::{collections::HashMap, time::Duration};
+use std::time::Duration;
 
 use crate::{
-    commands::{args::HoldTime, command, runner::CommandFailure},
+    commands::{args::HoldTime, command},
     context::{app::AppContext, cmd::CommandContext},
     fail,
     services::messaging::PermissionLevel,
 };
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use humantime_serde::re::humantime;
 use maud::html;
-use noita_engine_reader::{
-    memory::MemoryStorage,
-    types::components::{DamageModelComponent, UIIconComponent},
-};
 use rustis::commands::{GenericCommands, StringCommands};
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use tokio::time::sleep;
@@ -55,121 +51,6 @@ async fn last_error(ctx: CommandContext, login: Option<String>) -> Result<()> {
         ctx.reply("No errors in your last message".into()).await?;
     }
     Ok(())
-}
-
-/// Read the current seed
-#[command(global_gate = 15s, permission = Moderator)]
-async fn seed(ctx: CommandContext) -> Result<()> {
-    match ctx.noita().get_seed().await {
-        Some(seed) => ctx.reply(format!("{seed}")).await,
-        None => fail!("no data"),
-    }
-}
-
-/// Read the current death count
-#[command(global_gate = 15s, shortcode=deaths)]
-async fn death_count(ctx: CommandContext) -> Result<()> {
-    let stats = ctx
-        .noita()
-        .with(|n| Ok(n.read_stats()?))
-        .await
-        .map_err(|e| {
-            tracing::warn!(error=?e, "failed to read stats");
-            CommandFailure::new("failed to read game data - is it running?".into())
-        })?;
-    ctx.reply(stats.global.death_count.to_string()).await
-}
-
-/// Read the currently picked up perks. Look ma, streamer wands at home!
-#[command(global_gate = 5s)]
-async fn perks(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
-    let perks = ctx
-        .noita()
-        .with(|n| {
-            let (entity, _) = n.get_player()?.context("no player")?;
-            let p = n.proc().clone();
-            let store = n.component_store::<UIIconComponent>()?;
-            let mut perks = HashMap::<_, u32>::new();
-
-            for child in entity.children.read(&p)?.read(&p)? {
-                if let Some(ui) = store.get(&child.read(&p)?)? {
-                    *perks.entry(ui.name.read(&p)?).or_default() += 1;
-                };
-            }
-            let mut perks = perks.into_iter().collect::<Vec<_>>();
-            perks.sort_unstable_by_key(|(_, c)| -(*c as i32));
-            Ok(perks)
-        })
-        .await
-        .map_err(|e| {
-            tracing::warn!(error=?e, "failed to read stats");
-            CommandFailure::new("failed to read game data - is it running?".into())
-        })?;
-
-    let msg = perks
-        .into_iter()
-        .take(top_n.unwrap_or(u32::MAX) as _)
-        .map(|(perk, count)| {
-            format!(
-                "{count}x {}",
-                perk.trim_start_matches("$perk_").replace("_", " ")
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    ctx.reply(msg).await
-}
-
-/// Read the current non-1 damage multipliers of the player entity.
-#[command(global_gate = 5s, permission = Vip)]
-async fn damage_multipliers(ctx: CommandContext) -> Result<()> {
-    let dmc = ctx
-        .noita()
-        .with(|n| {
-            let (entity, _) = n.get_player()?.context("no player")?;
-
-            let component = n
-                .component_store::<DamageModelComponent>()?
-                .get(&entity)?
-                .context("no damage model component?")?;
-
-            Ok(component)
-        })
-        .await
-        .map_err(|e| {
-            tracing::warn!(error=?e, "failed to read damage model component");
-            CommandFailure::new("failed to read game data - is it running?".into())
-        })?;
-
-    let m = dmc.damage_multipliers;
-
-    // no compile-time reflection sadge
-    let list = vec![
-        ("melee", m.melee),
-        ("projectile", m.projectile),
-        ("explosion", m.explosion),
-        ("electricity", m.electricity),
-        ("fire", m.fire),
-        ("drill", m.drill),
-        ("slice", m.slice),
-        ("ice", m.ice),
-        ("healing", m.healing),
-        ("physics_hit", m.physics_hit),
-        ("radioactive", m.radioactive),
-        ("poison", m.poison),
-        ("overeating", m.overeating),
-        ("curse", m.curse),
-        ("holy", m.holy),
-    ];
-
-    let msg = list
-        .into_iter()
-        .filter(|(_, v)| *v != 1.0)
-        .map(|(name, value)| format!("{name}={value:?}",))
-        .collect::<Vec<_>>()
-        .join(", ");
-    ctx.reply(msg).await
 }
 
 /// Sometimes the capture dies (but the game is fine) because of my brittle scripts.

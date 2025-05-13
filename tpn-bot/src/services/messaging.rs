@@ -168,8 +168,10 @@ impl MessagingClient {
             MessagingClient::Twitch {
                 client, channel, ..
             } => {
-                send_chunked(text, |chunk| async {
-                    Ok(client.say(channel.to_string(), chunk).await?)
+                send_chunked(text, |chunk| async move {
+                    Ok(client
+                        .say(channel.to_string(), chunk.replace("\n", " "))
+                        .await?)
                 })
                 .await?
             }
@@ -210,7 +212,7 @@ impl MessagingClient {
                         .await?;
                 } else {
                     client
-                        .say_in_reply_to(&(channel, &message.id), text)
+                        .say_in_reply_to(&(channel, &message.id), text.replace("\n", " "))
                         .await?;
                 }
             }

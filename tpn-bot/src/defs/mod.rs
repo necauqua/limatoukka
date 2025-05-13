@@ -8,6 +8,7 @@ use rustis::{
 
 use crate::{commands::args::HoldTime, context::cmd::CommandContext};
 
+mod data;
 mod keys;
 mod macros;
 mod moderation;
