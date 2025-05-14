@@ -164,31 +164,11 @@ async fn read_flags() -> Result<HashSet<String>> {
     Ok(set)
 }
 
-// scripts/biomes/mountain_tree.lua
-#[rustfmt::skip]
-static PILLAR_FLAGS: LazyLock<HashSet<String>> = LazyLock::new(|| {
-    [
-        "misc_chest_rain", "misc_util_rain", "misc_worm_rain", "misc_greed_rain", "misc_altar_tablet", "misc_mimic_potion_rain", "misc_monk_bots",
-        "misc_sun_effect", "misc_darksun_effect", "secret_tower", "player_status_ghostly", "player_status_ratty", "player_status_funky", "player_status_lukky",
-        "player_status_halo", "essence_fire", "essence_water", "essence_laser", "essence_air", "essence_alcohol", "secret_moon", "secret_moon2", "special_mood",
-        "secret_dmoon", "dead_mood", "secret_sun_collision", "secret_darksun_collision", "progress_ending0", "progress_ending1_toxic", "progress_ending1_gold",
-        "progress_ending2", "progress_newgameplusplus3", "progress_nightmare", "miniboss_dragon", "miniboss_limbs", "miniboss_meat", "miniboss_ghost",
-        "miniboss_pit", "miniboss_alchemist", "miniboss_robot", "miniboss_wizard", "miniboss_maggot", "miniboss_fish", "miniboss_islandspirit", "miniboss_threelk",
-        "miniboss_gate_monsters", "final_secret_orb3", "miniboss_sky", "boss_centipede", "progress_orb_1", "progress_orb_evil", "progress_orb_all", "progress_pacifist",
-        "progress_nogold", "progress_clock", "progress_minit", "progress_nohit", "progress_sun", "progress_darksun", "progress_sunkill", "secret_supernova",
-        "secret_greed", "final_secret_orb", "final_secret_orb2", "secret_chest_dark", "secret_chest_light", "card_unlocked_everything", "card_unlocked_divide",
-        "secret_fruit", "secret_allessences", "secret_meditation", "secret_buried_eye", "secret_hourglass", "progress_hut_a", "progress_hut_b", "secret_null",
-    ]
-    .into_iter()
-    .map(|s| s.into())
-    .collect()
-});
-
 /// Shows the amount of completed pillars vs total.
 #[command(global_gate = 5s)]
 async fn pillar_progress(ctx: CommandContext) -> Result<()> {
     let total = PILLAR_FLAGS.len();
-    let done = PILLAR_FLAGS.difference(&read_flags().await?).count();
+    let done = PILLAR_FLAGS.intersection(&read_flags().await?).count();
     ctx.reply(format!(
         "{:.2}%! ({done}/{total})",
         (done as f32 / total as f32) * 100.0
@@ -196,7 +176,7 @@ async fn pillar_progress(ctx: CommandContext) -> Result<()> {
     .await
 }
 
-/// Shows all the pillar achievement flags not yet set in the running save.
+/// Shows all the pillar achievements not yet completed in the running save.
 #[command(global_gate = 5s)]
 async fn pillar_todo(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
     ctx.reply(
@@ -206,8 +186,119 @@ async fn pillar_todo(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
             .collect::<BTreeSet<_>>() // sort
             .into_iter()
             .take(top_n.unwrap_or(u32::MAX) as _)
+            .map(|flag| PILLAR_FLAG_NAMES[&flag].clone())
             .collect::<Vec<_>>()
             .join(",\n"),
     )
     .await
 }
+
+/// Shows all the pillar achievements already completed in the running save.
+#[command(global_gate = 5s)]
+async fn pillar_done(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
+    ctx.reply(
+        PILLAR_FLAGS
+            .intersection(&read_flags().await?)
+            .cloned()
+            .collect::<BTreeSet<_>>() // sort
+            .into_iter()
+            .take(top_n.unwrap_or(u32::MAX) as _)
+            .map(|flag| PILLAR_FLAG_NAMES[&flag].clone())
+            .collect::<Vec<_>>()
+            .join(",\n"),
+    )
+    .await
+}
+
+static PILLAR_FLAGS: LazyLock<HashSet<String>> =
+    LazyLock::new(|| PILLAR_FLAG_NAMES.keys().cloned().collect());
+
+// scripts/biomes/mountain_tree.lua
+static PILLAR_FLAG_NAMES: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
+    [
+        // first pillar
+        ("misc_chest_rain", "Sacrifice Chest"),
+        ("misc_util_rain", "Sacrifice Utility Box"),
+        ("misc_worm_rain", "Sacrifice Worm Crystal"),
+        ("misc_greed_rain", "Sacrifice Greed Curse"),
+        ("misc_altar_tablet", "Sacrifice Tablets"),
+        ("misc_mimic_potion_rain", "Sacrifice Henkevä potu"),
+        ("misc_monk_bots", "Sacrifice Monk Statue"),
+        ("misc_sun_effect", "Sacrifice Sun Rock"),
+        ("misc_darksun_effect", "Sacrifice Dark Sun Rock"),
+        ("secret_tower", "Tower"),
+        ("player_status_ghostly", "Ghostly Transformation"),
+        ("player_status_ratty", "Ratty Transformation"),
+        ("player_status_funky", "Funky Transformation"),
+        ("player_status_lukky", "Lukki Transformation"),
+        ("player_status_halo", "Halo Transformation"),
+        // second pillar
+        ("essence_fire", "Essence of Fire"),
+        ("essence_water", "Essence of Water"),
+        ("essence_laser", "Essence of Earth"),
+        ("essence_air", "Essence of Air"),
+        ("essence_alcohol", "Essence of Spirits"),
+        ("secret_moon", "Void Moon"),
+        ("secret_moon2", "Drunk Moon"),
+        ("special_mood", "Gourd Moon"),
+        ("secret_dmoon", "Blood Moon"),
+        ("dead_mood", "Dark Gourd Moon"),
+        ("secret_sun_collision", "As Above, So Below"),
+        ("secret_darksun_collision", "As Above, So Below (Dark)"),
+        // third pillar
+        ("progress_ending0", "Normal Ending"),
+        ("progress_ending1_toxic", "Mountain Ending (Toxic)"),
+        ("progress_ending1_gold", "Mountain Ending (Pure)"),
+        ("progress_ending2", "Peaceful Ending"),
+        ("progress_newgameplusplus3", "New Game+++"),
+        ("progress_nightmare", "Nightmare"),
+        // fourth pillar
+        ("miniboss_dragon", "Suomuhauki"),
+        ("miniboss_limbs", "Kolmisilmän koipi"),
+        ("miniboss_meat", "Kolmisilmän sydän"),
+        ("miniboss_ghost", "Unohdettu"),
+        ("miniboss_pit", "Sauvojen tuntija"),
+        ("miniboss_alchemist", "Ylialkemisti"),
+        ("miniboss_robot", "Kolmisilmän silmä"),
+        ("miniboss_wizard", "Mestarien mestari"),
+        ("miniboss_maggot", "Limatoukka"),
+        ("miniboss_fish", "Syväolento"),
+        ("miniboss_islandspirit", "Tapion vasalli"),
+        ("miniboss_threelk", "Tapio's Wrath"),
+        ("miniboss_gate_monsters", "Gate Guardian"),
+        ("final_secret_orb3", "Toveri"),
+        ("miniboss_sky", "Kivi"),
+        ("boss_centipede", "Kolmisilmä"),
+        // fifth pillar
+        ("progress_orb_1", "Orb"),
+        ("progress_orb_evil", "Corrupted Orb"),
+        ("progress_orb_all", "All Orbs"),
+        ("progress_pacifist", "Pacifist"),
+        ("progress_nogold", "No Gold"),
+        ("progress_clock", "Dedicated to 5 Minutes"),
+        ("progress_minit", "1 Minute?!"),
+        ("progress_nohit", "Undamaged"),
+        ("progress_sun", "Uusi Aurinko"),
+        ("progress_darksun", "Pimeä Aurinko"),
+        ("progress_sunkill", "Benign Sunshine!"),
+        ("secret_supernova", "Supernova"),
+        ("secret_greed", "Eternal Wealth"),
+        ("final_secret_orb", "Friendship"),
+        ("final_secret_orb2", "FRIENDSHIP"),
+        ("secret_chest_dark", "Dark Chest"),
+        ("secret_chest_light", "Coral Chest"),
+        ("card_unlocked_everything", "The End of Everything"),
+        ("card_unlocked_divide", "Avarice"),
+        ("secret_fruit", "Secret Fruit"),
+        ("secret_allessences", "All Essence Win"),
+        ("secret_meditation", "Meditation Cube"),
+        ("secret_buried_eye", "Buried Eye"),
+        ("secret_hourglass", "Hourglass Chamber"),
+        ("progress_hut_a", "Experimental Wand (Paint)"),
+        ("progress_hut_b", "Experimental Wand (Math)"),
+        ("secret_null", "Nullifying Altar"),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.into(), v.into()))
+    .collect()
+});
