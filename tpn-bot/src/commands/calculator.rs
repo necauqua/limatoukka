@@ -13,6 +13,8 @@ pub enum CalculatorError {
     ExpectedNumber,
     #[error("division by zero")]
     DivisionByZero,
+    #[error("root of a negative number")]
+    SqrtOfNegative,
     #[error("missing ')'")]
     MissingClosingParen,
 }
@@ -101,6 +103,13 @@ impl<'a> Calculator<'a> {
     fn unary(&mut self) -> Result {
         if self.take('-') {
             Ok(-self.unary()?)
+        } else if self.take('^') {
+            let x = self.unary()?;
+            if x >= 0 {
+                Ok(x.isqrt())
+            } else {
+                Err(CalculatorError::SqrtOfNegative)
+            }
         } else {
             self.primary()
         }
