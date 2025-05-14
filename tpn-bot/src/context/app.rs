@@ -19,8 +19,12 @@ use crate::{
     commands::runner::CommandInterrupt,
     config::Config,
     services::{
-        messaging::MessagingClient, noita::NoitaHandle, status_wall::StatusWall, storage::Storage,
-        twitch::Twitch, xdo::XDoClient,
+        messaging::MessagingClient,
+        noita::NoitaHandle,
+        status_wall::StatusWall,
+        storage::{Storage, StorageRef},
+        twitch::Twitch,
+        xdo::XDoClient,
     },
 };
 
@@ -125,8 +129,8 @@ impl AppContext {
         &self.inner.as_deref().unwrap().messaging
     }
 
-    pub fn storage(&self) -> &Storage {
-        &self.inner.as_deref().unwrap().storage
+    pub fn storage(&self) -> StorageRef {
+        StorageRef::new(&self.inner.as_deref().unwrap().storage)
     }
 
     pub fn xdo(&self) -> &XDoClient {
