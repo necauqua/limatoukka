@@ -8,7 +8,7 @@ default-run = "tpn-bot"
 [dependencies]
 tpn-bot-macros = { path = "macros" }
 noita-engine-reader = { path = "../../noita-utility-box/noita-engine-reader" }
-neca-cmd = "0.2.2"
+neca-cmd = "0.3.0"
 
 anyhow = "1.0.97"
 clap = { version = "4.5.31", features = ["derive"] }
@@ -18,7 +18,10 @@ schemars = "0.8.22"
 serde = { version = "1.0.218", features = ["derive"] }
 tokio = { version = "1.43.0", features = ["full", "tracing"] }
 tracing = { version = "0.1.41", features = ["log"] }
-tracing-subscriber = { version = "0.3.19", features = ["env-filter", "local-time"] }
+tracing-subscriber = { version = "0.3.19", features = [
+    "env-filter",
+    "local-time",
+] }
 twitch-irc = { version = "5.0.1", features = [
     "metrics-collection",
     "with-serde",

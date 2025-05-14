@@ -143,6 +143,16 @@ impl CommandArg for i32 {
     }
 }
 
+impl CommandArg for i64 {
+    fn parse(input: String) -> ArgResult<Self> {
+        Ok(Calculator::eval(&input)?)
+    }
+
+    fn type_desc() -> Cow<'static, str> {
+        "a number".into()
+    }
+}
+
 impl CommandArg for u32 {
     fn parse(input: String) -> ArgResult<Self> {
         Calculator::eval(&input)?

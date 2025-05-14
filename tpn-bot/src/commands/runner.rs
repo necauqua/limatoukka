@@ -1,4 +1,4 @@
-use std::any::Any;
+use std::{any::Any, collections::VecDeque};
 
 use anyhow::Result;
 use humantime_serde::re::humantime;
@@ -55,10 +55,9 @@ pub async fn receive_message(ctx: AppContext, message: Message) -> Result<()> {
         tracing::debug!("processing message: {}", message.text);
     }
 
-    let ctx = EvalContext::new(MessageContext::new(ctx.clone(), message));
-
-    let errors = eval(&ctx, command_msg).await;
-    let error_key = format!("last-error:{}", ctx.message().sender.id);
+    let error_key = format!("last-error:{}", message.sender.id);
+    let eval_ctx = EvalContext::new(MessageContext::new(ctx.clone(), message)).await?;
+    let errors = eval(eval_ctx, command_msg).await;
 
     if errors.iter().all(|e| matches!(e, CommandError::Interrupt)) {
         Span::current().set_status(Status::Ok);
@@ -75,7 +74,7 @@ pub async fn receive_message(ctx: AppContext, message: Message) -> Result<()> {
         .join("\n");
     if errors.iter().any(|e| e.internal()) {
         err.push_str(" (msg-id: ");
-        err.push_str(&ctx.message().id);
+        err.push_str(&error_key[11..]); // meh
         err.push(')');
     }
     ctx.storage().set(error_key, &err).await?;
@@ -120,12 +119,16 @@ async fn find_command(
         return Some(reg);
     }
 
-    let mut p = ctx.storage().create_pipeline();
-    p.hexists(format!("macros:{}", ctx.macro_ctx.owner), name)
-        .queue();
-    p.hexists("macros:global", name).queue();
+    let res = {
+        let storage = ctx.storage();
+        let mut p = storage.create_pipeline();
+        p.hexists(format!("macros:{}", ctx.shared.owner), name)
+            .queue();
+        p.hexists("macros:global", name).queue();
+        p.execute().await
+    };
 
-    match p.execute().await {
+    match res {
         Ok((personal, global)) if personal || global => {
             // empty string for current username, to allow macro args to immediately follow
             expr.args.push_front(String::new());
@@ -134,6 +137,62 @@ async fn find_command(
         }
         _ => None,
     }
+}
+
+async fn expand_args(ctx: &CommandContext, args: &mut VecDeque<String>) -> Result<()> {
+    if ctx.depth == 0 {
+        return Ok(());
+    }
+
+    let macro_args = &ctx.shared.macro_args;
+    let vars = ctx.shared.vars.read().await;
+
+    for arg in args {
+        // full form that allows vars, with an optional default
+        let replaced = regex_replace_all!(
+            r#"(%?)%\(([^):]+)(?::([^)]*))?\)"#,
+            arg,
+            |whole: &str, p: &str, name: &str, def: &str| {
+                if !p.is_empty() {
+                    return whole[1..].to_owned();
+                }
+                name.parse::<usize>()
+                    .ok()
+                    .filter(|n| *n != 0)
+                    .and_then(|n| macro_args.get(n - 1))
+                    .or_else(|| vars.get(name))
+                    .map(|s| &**s)
+                    .unwrap_or(def)
+                    .to_owned()
+            }
+        );
+
+        // short form for %number
+        let replaced = regex_replace_all!(r#"(%?)%(\d+)"#, &replaced, |_, p: &str, n: &str| {
+            if !p.is_empty() {
+                return format!("%{n}");
+            }
+            match n.parse::<usize>().ok() {
+                Some(n) if n != 0 => macro_args.get(n - 1).map_or(String::new(), |s| s.clone()),
+                _ => format!("%{n}"),
+            }
+        });
+
+        // and for %i
+        let replaced = match ctx.repeat_i {
+            Some(i) => regex_replace_all!(r#"(%?)%i"#, &replaced, |_, p: &str| {
+                if p.is_empty() {
+                    i.to_string()
+                } else {
+                    "%i".into()
+                }
+            }),
+            None => replaced,
+        };
+
+        *arg = replaced.into_owned();
+    }
+    Ok(())
 }
 
 const STACK_LIMIT: u32 = 3;
@@ -176,32 +235,8 @@ async fn prepare_command(
 
     let cmd_ctx = CommandContext::new(ctx.clone(), desc.clone());
 
-    // expand args
-    if cmd_ctx.depth != 0 {
-        let macro_args = &cmd_ctx.macro_ctx.args;
-
-        for arg in &mut cmd_expr.args {
-            *arg = regex_replace_all!(r#"(%?)%(\d+)"#, arg, |_, p: &str, n: &str| {
-                if !p.is_empty() {
-                    return format!("%{n}");
-                }
-                match n.parse::<usize>().ok() {
-                    Some(n) if n != 0 => macro_args.get(n - 1).map_or(String::new(), |s| s.clone()),
-                    _ => format!("%{n}"),
-                }
-            })
-            .into_owned();
-            if let Some(i) = cmd_ctx.repeat_i {
-                *arg = regex_replace_all!(r#"(%?)%i"#, arg, |_, p: &str| {
-                    if p.is_empty() {
-                        i.to_string()
-                    } else {
-                        "%i".into()
-                    }
-                })
-                .into_owned();
-            }
-        }
+    if let Err(e) = expand_args(&cmd_ctx, &mut cmd_expr.args).await {
+        return Err(CommandError::Internal(desc, e));
     }
 
     match (registration.handler)(cmd_ctx.clone(), Args::new(cmd_expr.args)) {
@@ -210,8 +245,8 @@ async fn prepare_command(
     }
 }
 
-pub async fn eval(ctx: &EvalContext, command_msg: CommandMessage) -> Vec<CommandError> {
-    let commands = match prepare_commands(ctx, &command_msg).await {
+pub async fn eval(ctx: EvalContext, command_msg: CommandMessage) -> Vec<CommandError> {
+    let commands = match prepare_commands(&ctx, &command_msg).await {
         Ok(prepared) => prepared,
         Err(errors) => return errors,
     };
@@ -378,6 +413,8 @@ pub enum CommandError {
 
     #[error("{0:#}: internal error")]
     Internal(CommandDescriptor, anyhow::Error),
+    #[error("internal error")]
+    InternalNoCmd(#[from] anyhow::Error),
     #[error("{0:#}: internal error")]
     Panic(CommandDescriptor, Box<dyn Any + Send + 'static>),
     #[error("internal error")] // should never happen 🤷
@@ -388,7 +425,10 @@ impl CommandError {
     pub fn internal(&self) -> bool {
         matches!(
             self,
-            Self::Internal(_, _) | Self::Panic(_, _) | Self::SequencePanic(_)
+            Self::Internal(_, _)
+                | Self::InternalNoCmd(_)
+                | Self::Panic(_, _)
+                | Self::SequencePanic(_)
         )
     }
 }

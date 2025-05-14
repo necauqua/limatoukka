@@ -54,7 +54,8 @@ async fn macro_record(ctx: CommandContext, name: String, script: String) -> Resu
         .iter()
         .flat_map(|s| s.iter())
         .flat_map(|c| c.args.iter())
-        .any(|a| regex_is_match!(r#"(?:^|[^%])%\d+"#, &a))
+        // oof
+        .any(|a| regex_is_match!(r#"(?:^|[^%])%(?:\d+|i|\(([^):]+)(?::([^)]*))?\))"#, &a))
     {
         if let Err(errors) = runner::prepare_commands(&ctx, &parsed).await {
             fail!("script contained errors: {}", print_inner_errors(&errors));
@@ -62,7 +63,7 @@ async fn macro_record(ctx: CommandContext, name: String, script: String) -> Resu
     }
 
     let mut tx = ctx.storage().create_transaction();
-    let key = format!("macros:{}", ctx.macro_ctx.owner);
+    let key = format!("macros:{}", ctx.shared.owner);
     tx.hset(&key, (&name, &script)).forget();
     tx.hlen(&key).queue();
     let len: usize = tx.execute().await?;
@@ -78,7 +79,7 @@ async fn macro_record(ctx: CommandContext, name: String, script: String) -> Resu
 /// Deletes a macro created with `macro-record~`.
 #[command(shortcode=md)]
 async fn macro_delete(ctx: CommandContext, name: String) -> Result<()> {
-    let key = format!("macros:{}", ctx.macro_ctx.owner);
+    let key = format!("macros:{}", ctx.shared.owner);
     if ctx.storage().hdel(key, &name).await? == 0 {
         fail!("no macro named `{name}`");
     } else {
@@ -206,7 +207,11 @@ async fn r#macro(
     };
     let _guard = ctx.status_wall().push(status).await;
 
-    let errors = runner::eval(&ctx.nest_macro(&chatter_id, global, rest), command_msg).await;
+    let errors = runner::eval(
+        ctx.nest_macro(&chatter_id, global, rest).await?,
+        command_msg,
+    )
+    .await;
 
     if !errors.is_empty() {
         if errors.iter().any(|e| matches!(e, CommandError::Interrupt)) {
@@ -244,7 +249,7 @@ async fn repeat(ctx: CommandContext, times: InRange<0, 1000>, script: String) ->
         }).await;
 
         let errors = runner::eval(
-            &ctx.nest_repeat(NonZero::new(times - i + 1).unwrap()),
+            ctx.nest_repeat(NonZero::new(times - i + 1).unwrap()),
             command_msg.clone(),
         )
         .await;
@@ -286,7 +291,7 @@ async fn group(
     };
     let _guard = ctx.status_wall().push(status).await;
 
-    let errors = runner::eval(&ctx.nest(), command_msg).await;
+    let errors = runner::eval(ctx.nest(), command_msg).await;
     if !errors.is_empty() {
         if errors.iter().any(|e| matches!(e, CommandError::Interrupt)) {
             bail!(CommandInterrupt);
@@ -311,7 +316,7 @@ async fn r#try(ctx: CommandContext, script: String) -> Result<()> {
     };
     let _guard = ctx.status_wall().push(status).await;
 
-    let errors = runner::eval(&ctx.nest(), command_msg).await;
+    let errors = runner::eval(ctx.nest(), command_msg).await;
     if errors.iter().any(|e| matches!(e, CommandError::Interrupt)) {
         bail!(CommandInterrupt);
     }
@@ -353,7 +358,7 @@ async fn lock(ctx: CommandContext, script: String) -> Result<()> {
     let _guard = ctx.status_wall().push_top(status).await;
 
     let command_msg = CommandMessage::parse(&script);
-    let errors = runner::eval(&ctx.nest(), command_msg).await;
+    let errors = runner::eval(ctx.nest(), command_msg).await;
 
     ctx.storage().del("holds:exclusive").await?;
 
@@ -397,7 +402,7 @@ async fn r#loop(ctx: CommandContext, script: String) -> Result<()> {
         }).await;
         let start = Instant::now();
         let errors = runner::eval(
-            &ctx.nest_repeat(NonZero::new(i).unwrap()),
+            ctx.nest_repeat(NonZero::new(i).unwrap()),
             command_msg.clone(),
         )
         .await;
@@ -410,4 +415,78 @@ async fn r#loop(ctx: CommandContext, script: String) -> Result<()> {
             fail!("loop iteration took less than 100ms");
         }
     }
+}
+
+/// Evaluates and prints a given math expression. Mostly useful for debugging
+/// my calculator bugs :(
+#[command(sender_gate=3s)]
+async fn math(ctx: CommandContext, value: i64) -> Result<()> {
+    ctx.reply(format!("= {value}")).await
+}
+
+/// Stores a personal named number that will be replaced in any commands you
+/// call (including macros) if you reference it as `%(name)`.
+#[command]
+async fn set(ctx: CommandContext, name: String, value: i64) -> Result<()> {
+    set_text(ctx, name, value.to_string()).await
+}
+
+/// Stores a personal named value that will be replaced in any commands you
+/// call (including macros) if you reference it as `%(name)`.
+#[command]
+async fn set_text(ctx: CommandContext, name: String, value: String) -> Result<()> {
+    let name = name.to_lowercase();
+
+    let mut tx = ctx.storage().create_transaction();
+    let key = format!("vars:{}", ctx.shared.owner);
+    tx.hset(&key, (&name, &value)).forget();
+    tx.hlen(&key).queue();
+    let len: usize = tx.execute().await?;
+    if len == 1000 {
+        ctx.storage().hdel(key, name).await?;
+        ctx.reply("too many variables brother, this incident will be investigated Stare".into())
+            .await
+    } else {
+        ctx.shared.vars.write().await.insert(name, value);
+        Ok(())
+    }
+}
+
+/// Deletes a personal named value. Can delete more than one at once.
+#[command]
+async fn del(ctx: CommandContext, names: VecDeque<String>) -> Result<()> {
+    if names.is_empty() {
+        fail!("no names given");
+    }
+
+    match ctx
+        .storage()
+        .hdel(
+            format!("vars:{}", ctx.shared.owner),
+            names.iter().collect::<Vec<_>>(), // ugh
+        )
+        .await?
+    {
+        0 => fail!("no vars deleted"),
+        1 => {}
+        n => ctx.reply(format!("{n} vars deleted")).await?,
+    }
+    let mut vars = ctx.shared.vars.write().await;
+    for name in names {
+        vars.remove(&name);
+    }
+
+    Ok(())
+}
+
+/// Clears all of your personal named values.
+#[command]
+async fn clear(ctx: CommandContext) -> Result<()> {
+    ctx.storage()
+        .del(format!("vars:{}", ctx.shared.owner))
+        .await?;
+
+    ctx.shared.vars.write().await.clear();
+
+    Ok(())
 }

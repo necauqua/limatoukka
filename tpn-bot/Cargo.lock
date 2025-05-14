@@ -1867,9 +1867,9 @@ dependencies = [
 
 [[package]]
 name = "neca-cmd"
-version = "0.2.2"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0db5e485817449783b8f066f548eb8d17052ca9cefaa87ca0617539f43a03df5"
+checksum = "19d7b41606c42ad33104a27c9ce39567cb03d949b6901d50484ce1c5178d98fe"
 
 [[package]]
 name = "nix"
