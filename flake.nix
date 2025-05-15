@@ -89,6 +89,10 @@
         dbus
         xdotool
         xorg.libX11
+
+        nodejs
+        wasm-pack
+        wasm-bindgen-cli
       ];
     });
 }

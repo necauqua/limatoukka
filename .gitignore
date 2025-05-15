@@ -2,6 +2,8 @@ noita
 
 .direnv
 target
+node_modules
+dist
 
 *.log
 *.log.old
