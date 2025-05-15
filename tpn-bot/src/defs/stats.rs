@@ -141,7 +141,7 @@ async fn last_message(ctx: CommandContext, login: Option<String>) -> Result<()> 
 }
 
 /// Get a list of top-N chatters of all time, by number of sent messages.
-#[command(sender_gate = 3s)]
+#[command(sender_gate = 10m)]
 async fn top(ctx: CommandContext, n: Option<InRange<1, 15>>) -> Result<()> {
     let n = n.map_or(5, |n| n.get());
 
@@ -189,6 +189,67 @@ async fn top(ctx: CommandContext, n: Option<InRange<1, 15>>) -> Result<()> {
         bail!("malformed aggregation reply");
     }
     ctx.reply(results.join("; ")).await
+}
+
+/// Get the place of the chatter (or you) in the "leaderboard" of how many messages they ~~spammed~~ sent
+#[command(sender_gate = 1m)]
+async fn rank(ctx: CommandContext, login: Option<String>) -> Result<()> {
+    let id = ctx.chatter_id(login.as_deref()).await?;
+
+    let response = ctx
+        .storage()
+        .stats()
+        .search(SearchParts::Index(&[INDEX]))
+        .body(json!({
+            "size": 0,
+            "query": {
+                "bool": { "must_not": { "term": { "tags.user-id": ctx.twitch().bot_id() } } },
+            },
+            "aggs": {
+                "top": {
+                    "terms": { "field": "tags.user-id", "size": 999 },
+                }
+            }
+        }))
+        .send()
+        .await?;
+    let response = response.error_for_status_code()?.json::<Value>().await?;
+
+    let buckets = response
+        .pointer("/aggregations/top/buckets")
+        .and_then(|v| v.as_array())
+        .context("malformed aggregation reply")?;
+
+    let mut prev = None;
+    let mut found = None;
+    for (i, bucket) in buckets.iter().enumerate() {
+        let count = bucket
+            .get("doc_count")
+            .and_then(|c| c.as_i64())
+            .context("malformed aggregation reply")?;
+        if bucket
+            .get("key")
+            .and_then(|k| k.as_str())
+            .context("malformed aggregation reply")?
+            == id
+        {
+            found = Some((i + 1, prev.map(|p| p - count)));
+            break;
+        }
+        prev = Some(count)
+    }
+
+    ctx.reply(match found {
+        Some((found, None)) => {
+            // found is always 1 here
+            format!("You are a top-{found} chatter. There is no god up there, other than you")
+        }
+        Some((found, Some(diff))) => {
+            format!("You are a top-{found} spammer, gz; {diff} messages left to climb up")
+        }
+        None => "Placed >999, not enough spam KEKW".into(),
+    })
+    .await
 }
 
 /// Get the bless/curse balance for the current run
