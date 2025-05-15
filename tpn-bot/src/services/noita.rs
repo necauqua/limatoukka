@@ -121,6 +121,7 @@ impl NoitaHandle {
         let mut best_inv = Inventory::from_bits_truncate(best_inv);
 
         let mut last_inv_update = Instant::now();
+        let mut inv_errored = false;
 
         loop {
             sleep(Duration::from_millis(30)).await;
@@ -175,10 +176,15 @@ impl NoitaHandle {
             let inv = match ctx.noita().with(Inventory::read).await {
                 Ok(inv) => inv,
                 Err(error) => {
-                    tracing::warn!(?error, "failed to read player inventory");
+                    if !inv_errored {
+                        tracing::warn!(?error, "failed to read player inventory");
+                        inv_errored = true;
+                    }
                     continue;
                 }
             };
+
+            inv_errored = false;
 
             let diff = inv.difference(best_inv);
 
