@@ -1,10 +1,6 @@
-use std::{
-    collections::{BTreeSet, HashMap, HashSet},
-    path::PathBuf,
-    sync::LazyLock,
-};
+use std::collections::{BTreeSet, HashMap};
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use noita_engine_reader::{
     memory::MemoryStorage,
     types::components::{DamageModelComponent, UIIconComponent},
@@ -14,12 +10,25 @@ use crate::{
     commands::{command, runner::CommandFailure},
     context::cmd::CommandContext,
     fail,
+    services::noita::{PILLAR_FLAG_NAMES, PILLAR_FLAGS},
 };
+
+fn data_error(thing: &str) -> impl Fn(anyhow::Error) -> CommandFailure {
+    move |e| {
+        tracing::warn!(error=?e, "failed to read {thing}");
+        CommandFailure::new(format!("failed to read {thing} - is the game running?"))
+    }
+}
 
 /// Read the current seed
 #[command(global_gate = 15s, permission = Vip)]
 async fn seed(ctx: CommandContext) -> Result<()> {
-    match ctx.noita().get_seed().await {
+    match ctx
+        .noita()
+        .with(|n| Ok(n.read_seed()?))
+        .await
+        .map_err(data_error("seed"))?
+    {
         Some(seed) => ctx.reply(format!("{seed}")).await,
         None => fail!("no data"),
     }
@@ -32,10 +41,7 @@ async fn death_count(ctx: CommandContext) -> Result<()> {
         .noita()
         .with(|n| Ok(n.read_stats()?))
         .await
-        .map_err(|e| {
-            tracing::warn!(error=?e, "failed to read stats");
-            CommandFailure::new("failed to read game data - is it running?".into())
-        })?;
+        .map_err(data_error("stats"))?;
     ctx.reply(stats.global.death_count.to_string()).await
 }
 
@@ -60,10 +66,7 @@ async fn perks(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
             Ok(perks)
         })
         .await
-        .map_err(|e| {
-            tracing::warn!(error=?e, "failed to read stats");
-            CommandFailure::new("failed to read game data - is it running?".into())
-        })?;
+        .map_err(data_error("perks"))?;
 
     let msg = perks
         .into_iter()
@@ -96,10 +99,7 @@ async fn damage_multipliers(ctx: CommandContext) -> Result<()> {
             Ok(component)
         })
         .await
-        .map_err(|e| {
-            tracing::warn!(error=?e, "failed to read damage model component");
-            CommandFailure::new("failed to read game data - is it running?".into())
-        })?;
+        .map_err(data_error("damage model component"))?;
 
     let m = dmc.damage_multipliers;
 
@@ -131,18 +131,13 @@ async fn damage_multipliers(ctx: CommandContext) -> Result<()> {
     ctx.reply(msg).await
 }
 
-static FLAG_PATH: &str = "../noita/steam-compat-data/pfx/drive_c/users/steamuser/AppData/LocalLow/Nolla_Games_Noita/save00/persistent/flags";
-
 /// Checks if the persistent flag was set in the running save.
 #[command(global_gate = 5s)]
 async fn check_flag(ctx: CommandContext, flag: String) -> Result<()> {
     if flag.contains("/") || flag.contains("..") {
         fail!("nice try bucko");
     }
-    if tokio::fs::try_exists(PathBuf::from(FLAG_PATH).join(flag))
-        .await
-        .is_ok_and(|b| b)
-    {
+    if ctx.noita().has_flag(&flag).await? {
         ctx.reply("flag set".into()).await?;
     } else {
         fail!("flag not set");
@@ -151,24 +146,13 @@ async fn check_flag(ctx: CommandContext, flag: String) -> Result<()> {
     Ok(())
 }
 
-async fn read_flags() -> Result<HashSet<String>> {
-    let mut set = HashSet::new();
-    let mut dir = tokio::fs::read_dir(FLAG_PATH).await?;
-    while let Some(f) = dir.next_entry().await? {
-        set.insert(
-            f.file_name()
-                .into_string()
-                .map_err(|_| anyhow!("bad file name"))?,
-        );
-    }
-    Ok(set)
-}
-
 /// Shows the amount of completed pillars vs total.
 #[command(global_gate = 5s)]
 async fn pillar_progress(ctx: CommandContext) -> Result<()> {
     let total = PILLAR_FLAGS.len();
-    let done = PILLAR_FLAGS.intersection(&read_flags().await?).count();
+    let done = PILLAR_FLAGS
+        .intersection(&ctx.noita().read_flags().await?)
+        .count();
     ctx.reply(format!(
         "{:.2}%! ({done}/{total})",
         (done as f32 / total as f32) * 100.0
@@ -181,7 +165,7 @@ async fn pillar_progress(ctx: CommandContext) -> Result<()> {
 async fn pillar_todo(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
     ctx.reply(
         PILLAR_FLAGS
-            .difference(&read_flags().await?)
+            .difference(&ctx.noita().read_flags().await?)
             .cloned()
             .collect::<BTreeSet<_>>() // sort
             .into_iter()
@@ -198,7 +182,7 @@ async fn pillar_todo(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
 async fn pillar_done(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
     ctx.reply(
         PILLAR_FLAGS
-            .intersection(&read_flags().await?)
+            .intersection(&ctx.noita().read_flags().await?)
             .cloned()
             .collect::<BTreeSet<_>>() // sort
             .into_iter()
@@ -209,96 +193,3 @@ async fn pillar_done(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
     )
     .await
 }
-
-static PILLAR_FLAGS: LazyLock<HashSet<String>> =
-    LazyLock::new(|| PILLAR_FLAG_NAMES.keys().cloned().collect());
-
-// scripts/biomes/mountain_tree.lua
-static PILLAR_FLAG_NAMES: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
-    [
-        // first pillar
-        ("misc_chest_rain", "Sacrifice Chest"),
-        ("misc_util_rain", "Sacrifice Utility Box"),
-        ("misc_worm_rain", "Sacrifice Worm Crystal"),
-        ("misc_greed_rain", "Sacrifice Greed Curse"),
-        ("misc_altar_tablet", "Sacrifice Tablets"),
-        ("misc_mimic_potion_rain", "Sacrifice Henkevä potu"),
-        ("misc_monk_bots", "Sacrifice Monk Statue"),
-        ("misc_sun_effect", "Sacrifice Sun Rock"),
-        ("misc_darksun_effect", "Sacrifice Dark Sun Rock"),
-        ("secret_tower", "Tower"),
-        ("player_status_ghostly", "Ghostly Transformation"),
-        ("player_status_ratty", "Ratty Transformation"),
-        ("player_status_funky", "Funky Transformation"),
-        ("player_status_lukky", "Lukki Transformation"),
-        ("player_status_halo", "Halo Transformation"),
-        // second pillar
-        ("essence_fire", "Essence of Fire"),
-        ("essence_water", "Essence of Water"),
-        ("essence_laser", "Essence of Earth"),
-        ("essence_air", "Essence of Air"),
-        ("essence_alcohol", "Essence of Spirits"),
-        ("secret_moon", "Void Moon"),
-        ("secret_moon2", "Drunk Moon"),
-        ("special_mood", "Gourd Moon"),
-        ("secret_dmoon", "Blood Moon"),
-        ("dead_mood", "Dark Gourd Moon"),
-        ("secret_sun_collision", "As Above, So Below"),
-        ("secret_darksun_collision", "As Above, So Below (Dark)"),
-        // third pillar
-        ("progress_ending0", "Normal Ending"),
-        ("progress_ending1_toxic", "Mountain Ending (Toxic)"),
-        ("progress_ending1_gold", "Mountain Ending (Pure)"),
-        ("progress_ending2", "Peaceful Ending"),
-        ("progress_newgameplusplus3", "New Game+++"),
-        ("progress_nightmare", "Nightmare"),
-        // fourth pillar
-        ("miniboss_dragon", "Suomuhauki"),
-        ("miniboss_limbs", "Kolmisilmän koipi"),
-        ("miniboss_meat", "Kolmisilmän sydän"),
-        ("miniboss_ghost", "Unohdettu"),
-        ("miniboss_pit", "Sauvojen tuntija"),
-        ("miniboss_alchemist", "Ylialkemisti"),
-        ("miniboss_robot", "Kolmisilmän silmä"),
-        ("miniboss_wizard", "Mestarien mestari"),
-        ("miniboss_maggot", "Limatoukka"),
-        ("miniboss_fish", "Syväolento"),
-        ("miniboss_islandspirit", "Tapion vasalli"),
-        ("miniboss_threelk", "Tapio's Wrath"),
-        ("miniboss_gate_monsters", "Gate Guardian"),
-        ("final_secret_orb3", "Toveri"),
-        ("miniboss_sky", "Kivi"),
-        ("boss_centipede", "Kolmisilmä"),
-        // fifth pillar
-        ("progress_orb_1", "Orb"),
-        ("progress_orb_evil", "Corrupted Orb"),
-        ("progress_orb_all", "All Orbs"),
-        ("progress_pacifist", "Pacifist"),
-        ("progress_nogold", "No Gold"),
-        ("progress_clock", "Dedicated to 5 Minutes"),
-        ("progress_minit", "1 Minute?!"),
-        ("progress_nohit", "Undamaged"),
-        ("progress_sun", "Uusi Aurinko"),
-        ("progress_darksun", "Pimeä Aurinko"),
-        ("progress_sunkill", "Benign Sunshine!"),
-        ("secret_supernova", "Supernova"),
-        ("secret_greed", "Eternal Wealth"),
-        ("final_secret_orb", "Friendship"),
-        ("final_secret_orb2", "FRIENDSHIP"),
-        ("secret_chest_dark", "Dark Chest"),
-        ("secret_chest_light", "Coral Chest"),
-        ("card_unlocked_everything", "The End of Everything"),
-        ("card_unlocked_divide", "Avarice"),
-        ("secret_fruit", "Secret Fruit"),
-        ("secret_allessences", "All Essence Win"),
-        ("secret_meditation", "Meditation Cube"),
-        ("secret_buried_eye", "Buried Eye"),
-        ("secret_hourglass", "Hourglass Chamber"),
-        ("progress_hut_a", "Experimental Wand (Paint)"),
-        ("progress_hut_b", "Experimental Wand (Math)"),
-        ("secret_null", "Nullifying Altar"),
-    ]
-    .into_iter()
-    .map(|(k, v)| (k.into(), v.into()))
-    .collect()
-});

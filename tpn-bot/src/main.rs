@@ -12,7 +12,7 @@ use tpn_bot::{
     logging,
     services::{
         messaging,
-        noita::{ItemFound, NoitaHandle},
+        noita::{ItemFound, NoitaEvent, NoitaHandle},
         status_wall::StatusWall,
         storage::Storage,
         twitch::Twitch,
@@ -53,7 +53,7 @@ async fn run(config: Config) -> Result<()> {
     tokio::spawn(ctx.status_wall().start(&ctx.config().browser_source_bind));
     tokio::spawn(NoitaHandle::poll_state_updates(ctx.clone()));
 
-    let mut found_items = ctx.noita().subscribe_to_found_items();
+    let mut noita_events = ctx.noita().subscribe();
 
     eventsub_init.await;
 
@@ -98,13 +98,9 @@ async fn run(config: Config) -> Result<()> {
                     .instrument(span),
                 );
             }
-            _ = ctx.noita().wait_for_player_death() => {
+            Ok(event) = noita_events.recv() => {
                 let ctx = ctx.clone();
-                mainloop_task(&mut tasks, async move { ctx.next_run().await })
-            },
-            Ok(item) = found_items.recv() => {
-                let ctx = ctx.clone();
-                mainloop_task(&mut tasks, async move { found_item(ctx, item).await })
+                mainloop_task(&mut tasks, async move { noita_event(ctx, event).await })
             },
             Ok(event) = eventsub_rx.recv() => {
                 let ctx = ctx.clone();
@@ -148,23 +144,30 @@ fn mainloop_task(tasks: &mut JoinSet<()>, task: impl Future<Output = Result<()>>
     });
 }
 
-async fn found_item(ctx: AppContext, item: ItemFound) -> Result<()> {
-    tracing::info!("found item {item:?}");
+async fn noita_event(ctx: AppContext, event: NoitaEvent) -> Result<()> {
+    match event {
+        NoitaEvent::PlayerDeath => ctx.next_run().await?,
+        NoitaEvent::StartedDrowning => ctx.send("We are drowning btw HelloHowAreYouIAmUnderTheWater".into()).await?,
+        NoitaEvent::Polymorphed => {
+            if ctx.gate("polymorphed", Duration::from_secs(300)).await? {
+                ctx.send("Polymorphed ICANT".into()).await?
+            }
+        },
+        NoitaEvent::ItemFound(item) => ctx.send(match item {
+            ItemFound::TreeTablet => "The best TABLET in the game acquired!",
+            ItemFound::OtherTablet => "TABLET acquired",
+            ItemFound::EvilEye => "Got the EVILEYE",
+            ItemFound::EarthStone => "The final frontier before all the wacky shit, EARTHSTONE acquired! POGGIES",
+            ItemFound::TouchOfGold => "TOUCHOFGOLD - Infinite money glitch? Midas at home? A boss-killer even ( Clueless )?",
+            ItemFound::Taikasauva => "Got the SUMMONTAIKASAUVA , the whole world is in your hands now",
+        }.into()).await?,
+        NoitaEvent::PillarCompleted(pillar) => {
+            ctx.send(format!("A new pillar level was erected! '{pillar}' is complete! shadowWizardJAM")).await?;
+        },
+        _ => {}
+    }
 
-    ctx.send(match item {
-        ItemFound::TreeTablet => "The best TABLET in the game acquired!",
-        ItemFound::OtherTablet => "TABLET acquired",
-        ItemFound::EvilEye => "Got the EVILEYE",
-        ItemFound::EarthStone => {
-            "The final frontier before all the wacky shit, EARTHSTONE acquired! POGGIES"
-        }
-        ItemFound::TouchOfGold => {
-            "TOUCHOFGOLD - Infinite money glitch? Midas at home? A boss-killer even ( Clueless )?"
-        }
-        ItemFound::Taikasauva => {
-            "Got the SUMMONTAIKASAUVA , the whole world is in your hands now"
-        }
-    }.into()).await
+    Ok(())
 }
 
 #[instrument(skip_all)]

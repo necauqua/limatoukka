@@ -7,6 +7,7 @@ use super::HoldTime;
 use crate::{
     commands::{args::InRange, command},
     context::cmd::CommandContext,
+    services::noita::NoitaEvent,
 };
 
 async fn mv(ctx: CommandContext, duration: HoldTime, key: &'static str) -> Result<()> {
@@ -70,11 +71,21 @@ async fn slot(ctx: CommandContext, slot: InRange<1, 8>) -> Result<()> {
 /// it the game does not register hovering over slots lol.
 #[command(shortcode=o)]
 async fn open_inventory(ctx: CommandContext) -> Result<()> {
-    if !ctx.noita().is_inventory_open() {
-        let f = ctx.noita().wait_for_inventory_open();
-        ctx.xdo().key("Tab").await?;
-        _ = timeout(Duration::from_millis(100), f).await;
+    if ctx.noita().is_inventory_open() {
+        return Ok(());
     }
+
+    let f = timeout(Duration::from_millis(100), async {
+        let mut events = ctx.noita().subscribe();
+        while !matches!(
+            events.recv().await,
+            Ok(NoitaEvent::InventoryOpened) | Err(_)
+        ) {}
+    });
+
+    ctx.xdo().key("Tab").await?;
+    _ = f.await;
+
     Ok(())
 }
 
@@ -83,11 +94,21 @@ async fn open_inventory(ctx: CommandContext) -> Result<()> {
 /// This command also waits for the game inventory state to actually change.
 #[command(shortcode=x)]
 async fn close_inventory(ctx: CommandContext) -> Result<()> {
-    if ctx.noita().is_inventory_open() {
-        let f = ctx.noita().wait_for_inventory_close();
-        ctx.xdo().key("Tab").await?;
-        _ = timeout(Duration::from_millis(100), f).await;
+    if !ctx.noita().is_inventory_open() {
+        return Ok(());
     }
+
+    let f = timeout(Duration::from_millis(100), async {
+        let mut events = ctx.noita().subscribe();
+        while !matches!(
+            events.recv().await,
+            Ok(NoitaEvent::InventoryClosed) | Err(_)
+        ) {}
+    });
+
+    ctx.xdo().key("Tab").await?;
+    _ = f.await;
+
     Ok(())
 }
 
