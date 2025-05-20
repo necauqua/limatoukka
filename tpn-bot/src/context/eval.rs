@@ -1,5 +1,4 @@
 use std::{
-    borrow::Cow,
     collections::{HashMap, VecDeque},
     num::NonZero,
     ops::Deref,
@@ -7,22 +6,20 @@ use std::{
 };
 
 use anyhow::Result;
-use rustis::commands::{HashCommands, SetCondition, SetExpiration, StringCommands};
+use rustis::commands::HashCommands;
 use tokio::sync::RwLock;
-
-use crate::fail;
 
 use super::msg::MessageContext;
 
 pub struct EvalContextShared {
     pub owner: String,
     pub macro_args: VecDeque<String>,
-    pub vars: RwLock<HashMap<String, String>>,
 }
 
 #[derive(Clone)]
 pub struct EvalContext {
     pub shared: Arc<EvalContextShared>,
+    pub vars: Arc<RwLock<HashMap<String, String>>>,
     pub in_global_macro: bool,
     pub macro_depth: u32,
     pub repeat_i: Option<NonZero<u32>>,
@@ -49,8 +46,8 @@ impl EvalContext {
             shared: Arc::new(EvalContextShared {
                 owner,
                 macro_args: Default::default(),
-                vars: RwLock::new(vars),
             }),
+            vars: Arc::new(RwLock::new(vars)),
             in_global_macro: false,
             macro_depth: 0,
             repeat_i: None,
@@ -86,16 +83,18 @@ impl EvalContext {
         args: VecDeque<String>,
     ) -> Result<Self> {
         let vars = if self.shared.owner == owner {
-            self.shared.vars.read().await.clone()
+            self.vars.clone()
         } else {
-            self.storage().hgetall(format!("vars:{owner}")).await?
+            Arc::new(RwLock::new(
+                self.storage().hgetall(format!("vars:{owner}")).await?,
+            ))
         };
         Ok(Self {
             shared: Arc::new(EvalContextShared {
                 owner: owner.into(),
                 macro_args: args,
-                vars: RwLock::new(vars),
             }),
+            vars,
             in_global_macro: self.in_global_macro || is_global,
             macro_depth: self.macro_depth + 1,
             repeat_i: self.repeat_i,
@@ -104,35 +103,23 @@ impl EvalContext {
         })
     }
 
-    pub async fn chatter_id(&self, login: Option<&str>) -> Result<Cow<'_, str>> {
-        let Some(login) = login else {
-            return Ok(Cow::Borrowed(&self.shared.owner));
-        };
-
-        let key = format!("chatter:{login}");
-        let cached: Option<String> = self.storage().get(&key).await?;
-        if let Some(cached) = cached {
-            return Ok(cached.into());
+    pub fn arg_expander(&self) -> impl FnMut(&str) -> Option<String> {
+        |name| {
+            if name == "i" {
+                if let Some(i) = self.repeat_i {
+                    return Some(i.to_string());
+                }
+            }
+            if let Some(arg) = name
+                .parse::<u32>()
+                .ok()
+                .filter(|n| *n != 0)
+                .and_then(|n| self.shared.macro_args.get((n - 1) as _))
+            {
+                return Some(arg.clone());
+            }
+            // meh
+            tokio::task::block_in_place(|| self.vars.blocking_read().get(name).cloned())
         }
-
-        let full = self
-            .twitch()
-            .call(|t| async move { t.helix.get_user_from_login(login, &t.token).await })
-            .await?;
-        let Some(user) = full else {
-            fail!("this user does not exist");
-        };
-
-        self.storage()
-            .set_with_options(
-                key,
-                user.id.as_str(),
-                SetCondition::None,
-                SetExpiration::Ex(3600),
-                false,
-            )
-            .await?;
-
-        Ok(user.id.take().into())
     }
 }

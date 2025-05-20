@@ -1,8 +1,7 @@
-use std::{any::Any, collections::VecDeque};
+use std::any::Any;
 
 use anyhow::Result;
 use humantime_serde::re::humantime;
-use lazy_regex::regex_replace_all;
 use maud::html;
 use neca_cmd::{CommandExpr, CommandMessage};
 use opentelemetry::trace::Status;
@@ -139,62 +138,6 @@ async fn find_command(
     }
 }
 
-async fn expand_args(ctx: &CommandContext, args: &mut VecDeque<String>) -> Result<()> {
-    if ctx.depth == 0 {
-        return Ok(());
-    }
-
-    let macro_args = &ctx.shared.macro_args;
-    let vars = ctx.shared.vars.read().await;
-
-    for arg in args {
-        // full form that allows vars, with an optional default
-        let replaced = regex_replace_all!(
-            r#"(%?)%\(([^):]+)(?::([^)]*))?\)"#,
-            arg,
-            |whole: &str, p: &str, name: &str, def: &str| {
-                if !p.is_empty() {
-                    return whole[1..].to_owned();
-                }
-                name.parse::<usize>()
-                    .ok()
-                    .filter(|n| *n != 0)
-                    .and_then(|n| macro_args.get(n - 1))
-                    .or_else(|| vars.get(name))
-                    .map(|s| &**s)
-                    .unwrap_or(def)
-                    .to_owned()
-            }
-        );
-
-        // short form for %number
-        let replaced = regex_replace_all!(r#"(%?)%(\d+)"#, &replaced, |_, p: &str, n: &str| {
-            if !p.is_empty() {
-                return format!("%{n}");
-            }
-            match n.parse::<usize>().ok() {
-                Some(n) if n != 0 => macro_args.get(n - 1).map_or(String::new(), |s| s.clone()),
-                _ => format!("%{n}"),
-            }
-        });
-
-        // and for %i
-        let replaced = match ctx.repeat_i {
-            Some(i) => regex_replace_all!(r#"(%?)%i"#, &replaced, |_, p: &str| {
-                if p.is_empty() {
-                    i.to_string()
-                } else {
-                    "%i".into()
-                }
-            }),
-            None => replaced,
-        };
-
-        *arg = replaced.into_owned();
-    }
-    Ok(())
-}
-
 const STACK_LIMIT: u32 = 3;
 
 async fn prepare_command(
@@ -203,20 +146,22 @@ async fn prepare_command(
     group_idx: usize,
     cmd_idx: usize,
 ) -> Result<(CommandContext, CommandFuture), CommandError> {
-    let token = CommandToken {
-        name: cmd_expr.name.to_ascii_lowercase().into(),
-        tpe: cmd_expr.tpe,
+    let mut token = CommandToken {
+        name: cmd_expr.name.clone(),
         group: group_idx,
         idx: cmd_idx,
     };
+    token.name.name.make_ascii_lowercase();
 
-    let found = match find_command(ctx, &token.name, &mut cmd_expr).await {
+    let found = match find_command(ctx, &token.name.name, &mut cmd_expr).await {
         Some(r) => Some(r),
-        None => lazy_regex::regex_if!(r#"^(?<name>.*?)(?<n>\d+s?)$"#, &*token.name, {
-            cmd_expr.args.push_front(n.to_owned());
-            find_command(ctx, name, &mut cmd_expr).await
-        })
-        .flatten(),
+        None => match token.name.split_inline_number() {
+            Some((name, n)) => {
+                cmd_expr.args.push_front(n.to_owned());
+                find_command(ctx, name, &mut cmd_expr).await
+            }
+            None => None,
+        },
     };
     let Some(registration) = found else {
         return Err(CommandError::UnknownCommand(token));
@@ -235,11 +180,7 @@ async fn prepare_command(
 
     let cmd_ctx = CommandContext::new(ctx.clone(), desc.clone());
 
-    if let Err(e) = expand_args(&cmd_ctx, &mut cmd_expr.args).await {
-        return Err(CommandError::Internal(desc, e));
-    }
-
-    match (registration.handler)(cmd_ctx.clone(), Args::new(cmd_expr.args)) {
+    match (registration.handler)(cmd_ctx.clone(), Args::new(cmd_expr.args)).await {
         Ok(fut) => Ok((cmd_ctx, fut)),
         Err(error) => Err(CommandError::BadArgs(desc, error)),
     }
@@ -281,7 +222,7 @@ async fn run_command_sequence(sequence: Vec<(CommandContext, CommandFuture)>) ->
     for (ctx, fut) in sequence {
         // spawn a task for each command to catch panics
         let cmd = &ctx.command.token;
-        let cmd_span = debug_span!("command", %cmd.name, ?cmd.tpe, cmd.group, cmd.idx, otel.name=format!("{cmd}"));
+        let cmd_span = debug_span!("command", cmd.name=%cmd.name.name, cmd.tpe=?cmd.name.tpe, cmd.group, cmd.idx, otel.name=format!("{cmd}"));
         let cmd_span_inner = cmd_span.clone();
         let cmd = ctx.command.clone();
         let cmd_inner = cmd.clone();
@@ -292,24 +233,27 @@ async fn run_command_sequence(sequence: Vec<(CommandContext, CommandFuture)>) ->
                         cmd_span_inner.set_status(Status::Ok);
                         Ok(())
                     }
-                    Err(error) => match error.downcast::<CommandFailure>() {
-                        Ok(CommandFailure(failure)) => {
-                            tracing::debug!(failure, "command failure: {failure}");
-                            cmd_span_inner.set_status(Status::error("failure"));
-                            Err(CommandError::Failure(cmd_inner, failure))
+                    Err(error) => {
+                        if error.downcast_ref::<CommandInterrupt>().is_some() {
+                            tracing::debug!("interrupted");
+                            return Err(CommandError::Interrupt);
                         }
-                        Err(error) => match error.downcast::<CommandInterrupt>() {
-                            Ok(_) => {
-                                tracing::debug!("interrupted");
-                                Err(CommandError::Interrupt)
+                        match error.downcast::<CommandFailure>() {
+                            Ok(CommandFailure(failure)) => {
+                                tracing::debug!(failure, "command failure: {failure}");
+                                cmd_span_inner.set_status(Status::error("failure"));
+                                Err(CommandError::Failure(cmd_inner, failure))
                             }
-                            Err(error) => {
-                                tracing::error!(?error);
-                                cmd_span_inner.set_status(Status::error("error"));
-                                Err(CommandError::Internal(cmd_inner, error))
-                            }
-                        },
-                    },
+                            Err(error) => match error.downcast::<ExtractorError>() {
+                                Ok(e) => Err(CommandError::BadArgs(cmd_inner, e)),
+                                Err(error) => {
+                                    tracing::error!(?error);
+                                    cmd_span_inner.set_status(Status::error("error"));
+                                    Err(CommandError::Internal(cmd_inner, error))
+                                }
+                            },
+                        }
+                    }
                 }
             }
             .instrument(cmd_span.clone().or_current()),

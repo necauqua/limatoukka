@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
 
 use crate::{
-    commands::command,
+    commands::{args::RequiredChatter, command},
     config::Voting,
     context::{app::AppContext, cmd::CommandContext},
     fail,
@@ -234,9 +234,13 @@ where
 /// Be aware that there can be only one vote at a time and this command has a
 /// large per-user cooldown, so dont waste it.
 #[command(sender_gate = 5m)]
-async fn votekick(ctx: CommandContext, login: String) -> Result<()> {
-    let id = ctx.chatter_id(Some(&login)).await?.into_owned();
-    if ctx.storage().exists(format!("kick:begone:{id}")).await? != 0 {
+async fn votekick(ctx: CommandContext, chatter: RequiredChatter) -> Result<()> {
+    if ctx
+        .storage()
+        .exists(format!("kick:begone:{chatter}"))
+        .await?
+        != 0
+    {
         fail!("already banished")
     }
 
@@ -245,11 +249,11 @@ async fn votekick(ctx: CommandContext, login: String) -> Result<()> {
     let ctx = &ctx;
     vote_trigger(
         ctx,
-        format!("kick:{id}"),
-        html! { "Banish " span style="color: #E38AF0" { (login) } },
-        format!("Banish {login}"),
+        format!("kick:{chatter}"),
+        html! { "Banish " span style="color: #E38AF0" { (chatter.login) } },
+        format!("Banish {}", chatter.login),
         config,
-        async move { super::moderation::do_banish(ctx, &id, &login).await },
+        async move { super::moderation::do_banish(ctx, &chatter).await },
     )
     .await
 }

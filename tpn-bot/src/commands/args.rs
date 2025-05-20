@@ -1,27 +1,94 @@
-use std::{borrow::Cow, collections::VecDeque, fmt::Debug, time::Duration};
+use std::{
+    borrow::Cow,
+    collections::VecDeque,
+    fmt::{self, Debug, Display},
+    mem,
+    time::Duration,
+};
 
+use anyhow::anyhow;
+use async_trait::async_trait;
+use rustis::commands::{SetCondition, SetExpiration, StringCommands};
 use thiserror::Error;
 
-use super::calculator::{Calculator, CalculatorError};
+use crate::context::cmd::CommandContext;
+
+use neca_cmd::{
+    CommandMessage,
+    calc::{Calculator, CalculatorError},
+};
 
 #[derive(Debug, Error)]
 pub enum ExtractorError {
-    #[error("missing argument #{}", .0 + 1)]
-    MissingArgument(usize),
-    #[error("missing rest argument (last arg or rest of message)")]
-    MissingRestArgument,
     #[error("argument #{idx}: {1}", idx = .0 + 1)]
     BadArgument(usize, ArgError),
     #[error("unexpected argument #{idx}: {1}", idx = .0 + 1)]
     UnexpectedArgument(usize, String),
 }
 
+#[derive(Debug, Clone)]
+pub enum Arg<T> {
+    Static(T),
+    Expandable(neca_cmd::sub::Arg),
+}
+
+impl<T> Arg<T> {
+    pub fn map<U>(self, f: impl FnOnce(T) -> U) -> Arg<U> {
+        match self {
+            Arg::Static(t) => Arg::Static(f(t)),
+            Arg::Expandable(arg) => Arg::Expandable(arg),
+        }
+    }
+
+    pub fn unwrap_static(self) -> T {
+        match self {
+            Arg::Static(t) => t,
+            Arg::Expandable(_) => panic!("expected static arg"),
+        }
+    }
+}
+
+impl Arg<String> {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Arg::Static(t) => t,
+            Arg::Expandable(arg) => arg.text(),
+        }
+    }
+}
+
+// no specialization :(
+impl Arg<RestOfArgs> {
+    pub async fn get(self, _ctx: &CommandContext) -> ArgResult<RestOfArgs> {
+        Ok(self.unwrap_static())
+    }
+}
+
+impl Arg<RawScript> {
+    pub async fn get(self, _ctx: &CommandContext) -> ArgResult<RawScript> {
+        Ok(self.unwrap_static())
+    }
+}
+
+impl<T: CommandArg> Arg<T> {
+    pub async fn get(self, ctx: &CommandContext) -> ArgResult<T> {
+        match self {
+            Arg::Static(t) => Ok(t),
+            Arg::Expandable(arg) => {
+                let arg = Some(arg.expand(&mut ctx.arg_expander())).filter(|s| !s.is_empty());
+                Ok(CommandArg::parse_opt(ctx, arg).await?)
+            }
+        }
+    }
+}
+
 pub type ExtractorResult<T> = Result<T, ExtractorError>;
 
+#[async_trait]
 pub trait ArgExtractor: Sized {
     fn type_desc() -> Cow<'static, str>;
 
-    fn extract(args: &mut Args) -> ExtractorResult<Self>;
+    async fn extract(ctx: &CommandContext, args: &mut Args) -> ExtractorResult<Arg<Self>>;
 
     const OPTIONAL: bool = false;
 }
@@ -47,51 +114,52 @@ impl Args {
         self.len == 0
     }
 
-    pub fn pop(&mut self) -> Option<(usize, String)> {
-        let idx = self.len - self.args.len();
-        self.args.pop_front().map(|s| (idx, s))
+    pub fn current_idx(&self) -> usize {
+        self.len - self.args.len()
     }
 
-    pub fn extract<T: ArgExtractor>(&mut self) -> ExtractorResult<T> {
-        T::extract(self)
+    pub fn pop(&mut self) -> Option<String> {
+        self.args.pop_front().filter(|s| !s.is_empty())
     }
 }
 
+#[async_trait]
 impl<T: CommandArg> ArgExtractor for T {
-    fn extract(args: &mut Args) -> ExtractorResult<Self> {
-        args.pop()
-            .filter(|(_, s)| !s.is_empty())
-            .ok_or(args.len())
-            .map_err(ExtractorError::MissingArgument)
-            .and_then(|(i, s)| T::parse(s).map_err(|e| ExtractorError::BadArgument(i, e)))
+    async fn extract(ctx: &CommandContext, args: &mut Args) -> ExtractorResult<Arg<Self>> {
+        let idx = args.current_idx();
+        let arg = args.pop();
+
+        if let Some(arg) = &arg {
+            let parsed = neca_cmd::sub::Arg::parse(arg);
+            if !parsed.is_static() {
+                return Ok(Arg::Expandable(parsed));
+            }
+        }
+
+        T::parse_opt(ctx, arg)
+            .await
+            .map_err(|e| ExtractorError::BadArgument(idx, e))
+            .map(Arg::Static)
     }
 
     fn type_desc() -> Cow<'static, str> {
         <T as CommandArg>::type_desc()
     }
+
+    const OPTIONAL: bool = <T as CommandArg>::OPTIONAL;
 }
 
-impl<T: ArgExtractor> ArgExtractor for Option<T> {
-    fn extract(args: &mut Args) -> ExtractorResult<Self> {
-        match T::extract(args) {
-            Ok(t) => Ok(Some(t)),
-            Err(ExtractorError::MissingArgument(_) | ExtractorError::MissingRestArgument) => {
-                Ok(None)
-            }
-            Err(e) => Err(e),
-        }
-    }
-
-    fn type_desc() -> Cow<'static, str> {
-        format!("{}, optional", T::type_desc()).into()
-    }
-
-    const OPTIONAL: bool = true;
+#[derive(Debug, Clone)]
+pub struct RestOfArgs {
+    pub args: VecDeque<String>,
 }
 
-impl ArgExtractor for VecDeque<String> {
-    fn extract(args: &mut Args) -> ExtractorResult<Self> {
-        Ok(std::mem::take(&mut args.args))
+#[async_trait]
+impl ArgExtractor for RestOfArgs {
+    async fn extract(_ctx: &CommandContext, args: &mut Args) -> ExtractorResult<Arg<Self>> {
+        Ok(Arg::Static(Self {
+            args: mem::take(&mut args.args),
+        }))
     }
 
     fn type_desc() -> Cow<'static, str> {
@@ -99,30 +167,105 @@ impl ArgExtractor for VecDeque<String> {
     }
 }
 
-#[derive(Debug, Error)]
-pub enum ArgError {
-    #[error("wrong argument type, expected {0}")]
-    WrongType(&'static str),
-    #[error("{0}")]
-    Precondition(String),
+#[derive(Debug, Clone)]
+pub struct RawScript {
+    pub commands: CommandMessage,
 }
 
-impl From<CalculatorError> for ArgError {
-    fn from(value: CalculatorError) -> Self {
-        Self::Precondition(value.to_string())
+#[async_trait]
+impl ArgExtractor for RawScript {
+    async fn extract(_ctx: &CommandContext, args: &mut Args) -> ExtractorResult<Arg<Self>> {
+        let idx = args.current_idx();
+        let arg = args
+            .pop()
+            .ok_or_else(|| ExtractorError::BadArgument(idx, ArgError::Missing))?;
+
+        let commands = CommandMessage::parse(&arg);
+        if commands.is_empty() {
+            return Err(ExtractorError::BadArgument(
+                idx,
+                ArgError::Precondition("no commands in script".into()),
+            ));
+        }
+
+        Ok(Arg::Static(Self { commands }))
     }
+
+    fn type_desc() -> Cow<'static, str> {
+        "a script string, will not have it's vars expanded".into()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Script {
+    pub commands: CommandMessage,
+}
+
+#[async_trait]
+impl CommandArg for Script {
+    async fn parse(_ctx: &CommandContext, input: String) -> ArgResult<Self> {
+        let commands = CommandMessage::parse(&input);
+        if commands.is_empty() {
+            return Err(ArgError::Precondition("no commands in script".into()));
+        }
+        Ok(Self { commands })
+    }
+
+    fn type_desc() -> Cow<'static, str> {
+        "a script string".into()
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum ArgError {
+    #[error("missing")]
+    Missing,
+    #[error("wrong type, expected {0}")]
+    WrongType(&'static str),
+    #[error("{0}")]
+    Math(#[from] CalculatorError),
+    #[error("{0}")]
+    Precondition(String),
+    #[error("internal")]
+    Internal(#[from] anyhow::Error),
 }
 
 pub type ArgResult<T> = Result<T, ArgError>;
 
-pub trait CommandArg: Sized {
-    fn parse(input: String) -> ArgResult<Self>;
+#[async_trait]
+pub trait CommandArg: Send + Sized {
+    async fn parse(ctx: &CommandContext, input: String) -> ArgResult<Self> {
+        Self::parse_opt(ctx, Some(input)).await
+    }
+
+    async fn parse_opt(ctx: &CommandContext, input: Option<String>) -> ArgResult<Self> {
+        Self::parse(ctx, input.ok_or(ArgError::Missing)?).await
+    }
 
     fn type_desc() -> Cow<'static, str>;
+
+    const OPTIONAL: bool = false;
 }
 
+#[async_trait]
+impl<T: CommandArg> CommandArg for Option<T> {
+    async fn parse_opt(ctx: &CommandContext, input: Option<String>) -> ArgResult<Self> {
+        Ok(match input {
+            Some(input) => Some(T::parse(ctx, input).await?),
+            None => None,
+        })
+    }
+
+    fn type_desc() -> Cow<'static, str> {
+        T::type_desc()
+    }
+
+    const OPTIONAL: bool = true;
+}
+
+#[async_trait]
 impl CommandArg for String {
-    fn parse(input: String) -> ArgResult<Self> {
+    async fn parse(_ctx: &CommandContext, input: String) -> ArgResult<Self> {
         Ok(input)
     }
 
@@ -131,8 +274,9 @@ impl CommandArg for String {
     }
 }
 
+#[async_trait]
 impl CommandArg for i32 {
-    fn parse(input: String) -> ArgResult<Self> {
+    async fn parse(_ctx: &CommandContext, input: String) -> ArgResult<Self> {
         Calculator::eval(&input)?
             .try_into()
             .map_err(|_| ArgError::WrongType("a number"))
@@ -143,8 +287,9 @@ impl CommandArg for i32 {
     }
 }
 
+#[async_trait]
 impl CommandArg for i64 {
-    fn parse(input: String) -> ArgResult<Self> {
+    async fn parse(_ctx: &CommandContext, input: String) -> ArgResult<Self> {
         Ok(Calculator::eval(&input)?)
     }
 
@@ -153,8 +298,9 @@ impl CommandArg for i64 {
     }
 }
 
+#[async_trait]
 impl CommandArg for u32 {
-    fn parse(input: String) -> ArgResult<Self> {
+    async fn parse(_ctx: &CommandContext, input: String) -> ArgResult<Self> {
         Calculator::eval(&input)?
             .try_into()
             .map_err(|_| ArgError::WrongType("a non-negative number"))
@@ -174,21 +320,21 @@ impl<const DEFAULT: u32, const MAX: u32> HoldTime<DEFAULT, MAX> {
     }
 }
 
-impl<const DEFAULT: u32, const MAX: u32> ArgExtractor for HoldTime<DEFAULT, MAX> {
-    fn extract(args: &mut Args) -> ExtractorResult<Self> {
-        let Some((pos, input)) = args.pop().filter(|(_, s)| !s.is_empty()) else {
+#[async_trait]
+impl<const DEFAULT: u32, const MAX: u32> CommandArg for HoldTime<DEFAULT, MAX> {
+    async fn parse_opt(ctx: &CommandContext, arg: Option<String>) -> ArgResult<Self> {
+        let Some(input) = arg else {
             return Ok(Self(Duration::from_millis(DEFAULT as _)));
         };
 
-        let millis = u32::parse(input).map_err(|e| ExtractorError::BadArgument(pos, e))?;
+        let millis = u32::parse(ctx, input).await?;
 
-        if millis > MAX {
-            Err(ExtractorError::BadArgument(
-                pos,
-                ArgError::Precondition(format!("duration must be at most {MAX}")),
-            ))
-        } else {
+        if millis <= MAX {
             Ok(Self(Duration::from_millis(millis as _)))
+        } else {
+            Err(ArgError::Precondition(format!(
+                "duration must be at most {MAX}"
+            )))
         }
     }
 
@@ -208,9 +354,10 @@ impl<const A: u32, const B: u32> InRange<A, B> {
     }
 }
 
+#[async_trait]
 impl<const A: u32, const B: u32> CommandArg for InRange<A, B> {
-    fn parse(input: String) -> ArgResult<Self> {
-        let n = u32::parse(input)?;
+    async fn parse(ctx: &CommandContext, input: String) -> ArgResult<Self> {
+        let n = u32::parse(ctx, input).await?;
         if n >= A && n <= B {
             Ok(Self(n))
         } else {
@@ -222,5 +369,91 @@ impl<const A: u32, const B: u32> CommandArg for InRange<A, B> {
 
     fn type_desc() -> Cow<'static, str> {
         format!("a number in range from {A} to {B}").into()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Chatter(String);
+
+impl Chatter {
+    pub fn id(&self) -> &str {
+        &self.0
+    }
+}
+
+// most often used as part of a redis key
+impl Display for Chatter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[async_trait]
+impl CommandArg for Chatter {
+    async fn parse_opt(ctx: &CommandContext, arg: Option<String>) -> ArgResult<Self> {
+        let Some(login) = arg else {
+            return Ok(Self(ctx.shared.owner.clone()));
+        };
+
+        let key = format!("chatter:{login}");
+        let cached: Option<String> = ctx.storage().get(&key).await.map_err(|e| anyhow!(e))?;
+        if let Some(cached) = cached {
+            return Ok(Self(cached));
+        }
+
+        let login = &*login;
+        let full = ctx
+            .twitch()
+            .call(move |t| async move { t.helix.get_user_from_login(login, &t.token).await })
+            .await
+            .map_err(|e| anyhow!(e))?;
+        let Some(user) = full else {
+            return Err(ArgError::Precondition("user does not exist".into()));
+        };
+
+        ctx.storage()
+            .set_with_options(
+                key,
+                user.id.as_str(),
+                SetCondition::None,
+                SetExpiration::Ex(3600),
+                false,
+            )
+            .await
+            .map_err(|e| anyhow!(e))?;
+
+        Ok(Self(user.id.take()))
+    }
+
+    fn type_desc() -> Cow<'static, str> {
+        "a user login, defaults to you".into()
+    }
+
+    const OPTIONAL: bool = true;
+}
+
+#[derive(Debug, Clone)]
+pub struct RequiredChatter {
+    pub id: String,
+    pub login: String,
+}
+
+impl Display for RequiredChatter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.id)
+    }
+}
+
+#[async_trait]
+impl CommandArg for RequiredChatter {
+    async fn parse(ctx: &CommandContext, arg: String) -> ArgResult<Self> {
+        Ok(Self {
+            id: Chatter::parse(ctx, arg.clone()).await?.0,
+            login: arg,
+        })
+    }
+
+    fn type_desc() -> Cow<'static, str> {
+        "a user login".into()
     }
 }

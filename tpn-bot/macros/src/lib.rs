@@ -1,6 +1,9 @@
 use proc_macro::TokenStream;
+use proc_macro2::Span;
 use quote::{ToTokens, quote, quote_spanned};
-use syn::{Expr, FnArg, Lit, Pat, parse::Parse, punctuated::Punctuated, spanned::Spanned as _};
+use syn::{
+    Expr, FnArg, Ident, Lit, Pat, parse::Parse, punctuated::Punctuated, spanned::Spanned as _,
+};
 
 fn type_span(arg: &FnArg) -> proc_macro2::Span {
     match arg {
@@ -91,32 +94,56 @@ pub fn command(attrs: TokenStream, input: TokenStream) -> TokenStream {
         .fold(String::new(), |acc, doc| acc + doc.trim() + "\n");
 
     let mut inputs = input.sig.inputs.iter();
-    let (args, doc_args) = match inputs.next() {
-        None => (quote!(), quote!()),
+    let (arg_defs, arg_gets, args, doc_args) = match inputs.next() {
+        None => (quote!(), quote!(), quote!(), quote!()),
         Some(first) => {
             // even making the errors pretty lol
             let ctx = quote_spanned!(type_span(first) => ctx);
-            let (args, doc_args): (Vec<_>, Vec<_>) = inputs
-                .map(|arg| {
-                    let (pat, ty) = match arg {
-                        FnArg::Receiver(_) => panic!("receiver?"),
-                        FnArg::Typed(pt) => (&*pt.pat, &pt.ty),
-                    };
-                    let name = match pat {
-                        Pat::Ident(ident) => ident.ident.to_string(),
-                        _ => panic!("pattern?"),
-                    };
-                    let arg = quote_spanned!(type_span(arg) => args.extract()?);
-                    let doc_arg = quote!(crate::commands::CommandArgDesc {
-                        name: #name,
-                        optional: <#ty as crate::commands::args::ArgExtractor>::OPTIONAL,
-                        desc: || <#ty as crate::commands::args::ArgExtractor>::type_desc(),
-                    });
-                    (arg, doc_arg)
-                })
-                .unzip();
 
-            (quote!(#ctx, #(#args),*), quote!(#(#doc_args),*))
+            let mut arg_defs = Vec::new();
+            let mut arg_gets = Vec::new();
+            let mut args = Vec::new();
+            let mut doc_args = Vec::new();
+
+            for (i, arg) in inputs.enumerate() {
+                let (pat, ty) = match arg {
+                    FnArg::Receiver(_) => panic!("receiver?"),
+                    FnArg::Typed(pt) => (&*pt.pat, &pt.ty),
+                };
+
+                let name = match pat {
+                    Pat::Ident(ident) => ident.ident.to_string(),
+                    _ => {
+                        return quote_spanned!(pat.span() => compile_error!("a pattern, lmao?"))
+                            .into();
+                    }
+                };
+
+                let ident = Ident::new(&format!("arg_{i}"), Span::call_site());
+
+                arg_defs.push(quote_spanned! { type_span(arg) =>
+                    let #ident = <#ty as crate::commands::args::ArgExtractor>::extract(&ctx, &mut args).await?;
+                });
+                arg_gets.push(quote_spanned! { type_span(arg) =>
+                    let #ident = #ident.get(&ctx).await
+                        .map_err(|e| crate::commands::args::ExtractorError::BadArgument(#i, e))?;
+                });
+
+                args.push(quote_spanned!(type_span(arg) => #ident));
+
+                doc_args.push(quote!(crate::commands::CommandArgDesc {
+                    name: #name,
+                    optional: <#ty as crate::commands::args::ArgExtractor>::OPTIONAL,
+                    desc: || <#ty as crate::commands::args::ArgExtractor>::type_desc(),
+                }));
+            }
+
+            (
+                quote!(#(#arg_defs)*),
+                quote!(#(#arg_gets)*),
+                quote!(#ctx, #(#args),*),
+                quote!(#(#doc_args),*),
+            )
         }
     };
 
@@ -207,13 +234,17 @@ pub fn command(attrs: TokenStream, input: TokenStream) -> TokenStream {
             args: &[#doc_args],
             module_path: module_path!(),
             line_number: line!(),
-            handler: |ctx, mut args| {
-                let fut = #ident(#args);
-                if let Some((idx, arg)) = args.pop() {
+            handler: |ctx, mut args| Box::pin(async move {
+                #arg_defs
+                let idx = args.current_idx();
+                if let Some(arg) = args.pop() {
                     return Err(crate::commands::args::ExtractorError::UnexpectedArgument(idx, arg));
                 }
-                Ok(Box::pin(fut))
-            },
+                Ok(Box::pin(async {
+                    #arg_gets
+                    #ident(#args).await
+                }) as crate::commands::CommandFuture)
+            }),
             #permission,
             #global_gate,
             #sender_gate,

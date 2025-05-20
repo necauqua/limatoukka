@@ -1868,8 +1868,10 @@ dependencies = [
 [[package]]
 name = "neca-cmd"
 version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19d7b41606c42ad33104a27c9ce39567cb03d949b6901d50484ce1c5178d98fe"
+dependencies = [
+ "lazy-regex",
+ "thiserror 2.0.12",
+]
 
 [[package]]
 name = "nix"

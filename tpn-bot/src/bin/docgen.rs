@@ -89,7 +89,7 @@ fn main() -> Result<()> {
                         cmd.args
                             .iter()
                             .map(|arg| CommandArgOut {
-                                name: arg.name.to_owned(),
+                                name: arg.name.replace("_", "-"),
                                 doc: (arg.desc)().into_owned(),
                                 optional: arg.optional,
                             })

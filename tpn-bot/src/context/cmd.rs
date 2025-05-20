@@ -1,10 +1,7 @@
 use std::{
     fmt::{self, Display},
     ops::Deref,
-    sync::Arc,
 };
-
-use neca_cmd::CommandType;
 
 use crate::commands::CommandRegistration;
 
@@ -12,8 +9,7 @@ use super::eval::EvalContext;
 
 #[derive(Debug, Clone)]
 pub struct CommandToken {
-    pub name: Arc<str>,
-    pub tpe: CommandType,
+    pub name: neca_cmd::CommandToken,
     pub group: usize,
     pub idx: usize,
 }
@@ -26,7 +22,10 @@ pub struct CommandDescriptor {
 
 impl Display for CommandDescriptor {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.token.tpe.write_command(f, self.registration.name)?;
+        self.token
+            .name
+            .tpe
+            .write_command(f, self.registration.name)?;
         if f.alternate() {
             write!(f, "({},{})", self.token.group, self.token.idx)?;
         }
@@ -36,7 +35,7 @@ impl Display for CommandDescriptor {
 
 impl Display for CommandToken {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.tpe.write_command(f, &self.name)?;
+        write!(f, "{}", self.name)?;
         if f.alternate() {
             write!(f, "({},{})", self.group, self.idx)?;
         }

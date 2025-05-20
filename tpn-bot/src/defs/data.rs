@@ -2,7 +2,7 @@ use std::collections::{BTreeSet, HashMap};
 
 use anyhow::{Context, Result};
 use noita_engine_reader::{
-    memory::MemoryStorage,
+    memory::{MemoryStorage, Ptr},
     types::components::{DamageModelComponent, UIIconComponent},
 };
 
@@ -43,6 +43,18 @@ async fn death_count(ctx: CommandContext) -> Result<()> {
         .await
         .map_err(data_error("stats"))?;
     ctx.reply(stats.global.death_count.to_string()).await
+}
+
+/// The amount of kicks registered by the game in the current run
+#[command(global_gate = 15s)]
+async fn kicks(ctx: CommandContext) -> Result<()> {
+    let kicks = ctx
+        .noita()
+        // CONFIG_PLAYER_STATS.stats.kicks <- should really add this CONFIG_PLAYER_STATS thing to the engine reader
+        .with(|n| Ok(Ptr::<u32>::of(0x01208824).read(n.proc())?))
+        .await
+        .map_err(data_error("kicks"))?;
+    ctx.reply(kicks.to_string()).await
 }
 
 /// Read the currently picked up perks. Look ma, streamer wands at home!

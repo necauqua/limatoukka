@@ -10,7 +10,6 @@ use anyhow::Result;
 use args::{Args, ExtractorResult};
 
 pub mod args;
-pub mod calculator;
 pub mod runner;
 
 pub use tpn_bot_macros::command;
@@ -18,7 +17,9 @@ pub use tpn_bot_macros::command;
 use crate::{context::cmd::CommandContext, services::messaging::PermissionLevel};
 
 pub type CommandFuture = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
-pub type CommandPtr = fn(CommandContext, Args) -> ExtractorResult<CommandFuture>;
+pub type PrepareFuture = Pin<Box<dyn Future<Output = ExtractorResult<CommandFuture>> + Send>>;
+
+pub type CommandPtr = fn(CommandContext, Args) -> PrepareFuture;
 
 #[derive(Debug)]
 pub struct CommandArgDesc {

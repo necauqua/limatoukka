@@ -6,7 +6,10 @@ use rustis::commands::StringCommands;
 use serde_json::{Value, json};
 
 use crate::{
-    commands::{args::InRange, command},
+    commands::{
+        args::{Chatter, InRange},
+        command,
+    },
     context::cmd::CommandContext,
     fail,
 };
@@ -15,13 +18,13 @@ const INDEX: &str = "twitch-logs";
 
 async fn stat_impl(
     ctx: &CommandContext,
-    chatter_id: Option<&str>,
+    chatter: Option<Chatter>,
     word: Option<String>,
 ) -> Result<()> {
     let mut must = vec![json!({ "term": { "irc.cmd": "PRIVMSG" } })];
 
-    if let Some(id) = chatter_id {
-        must.push(json!({ "term": { "tags.user-id": id } }));
+    if let Some(chatter) = chatter {
+        must.push(json!({ "term": { "tags.user-id": chatter.id() } }));
     }
     if let Some(word) = word {
         must.push(json!({ "match": { "message": word } }));
@@ -50,9 +53,8 @@ async fn stat_impl(
 ///
 /// Login defaults to the sender (you can do `stat::word~` too).
 #[command(sender_gate = 3s)]
-async fn stat(ctx: CommandContext, login: Option<String>, word: Option<String>) -> Result<()> {
-    let id = ctx.chatter_id(login.as_deref()).await?;
-    stat_impl(&ctx, Some(&id), word).await
+async fn stat(ctx: CommandContext, chatter: Chatter, word: Option<String>) -> Result<()> {
+    stat_impl(&ctx, Some(chatter), word).await
 }
 
 /// Similar to `stat` except works across all of chat.
@@ -68,7 +70,7 @@ async fn stat_global(ctx: CommandContext, word: Option<String>) -> Result<()> {
 
 async fn edge_message(
     ctx: &CommandContext,
-    id: &str,
+    chatter: Chatter,
     sort: &str,
     exclude: Option<&str>,
 ) -> Result<Option<(String, bool)>> {
@@ -77,7 +79,7 @@ async fn edge_message(
         "must".into(),
         json!([
             { "term": { "irc.cmd": "PRIVMSG" } },
-            { "term": { "tags.user-id": id } },
+            { "term": { "tags.user-id": chatter.id() } },
         ]),
     );
 
@@ -117,10 +119,8 @@ async fn edge_message(
 
 /// Get the first message sent by a user (or you) in chat.
 #[command(sender_gate = 3s)]
-async fn first_message(ctx: CommandContext, login: Option<String>) -> Result<()> {
-    let id = ctx.chatter_id(login.as_deref()).await?;
-
-    let response = match edge_message(&ctx, &id, "asc", None).await? {
+async fn first_message(ctx: CommandContext, chatter: Chatter) -> Result<()> {
+    let response = match edge_message(&ctx, chatter, "asc", None).await? {
         Some((message, true)) => format!("Their first message was: {message}"),
         Some((message, false)) => format!("Their first recorded message was: {message}"),
         None => fail!("they never typed in chat"),
@@ -130,10 +130,8 @@ async fn first_message(ctx: CommandContext, login: Option<String>) -> Result<()>
 
 /// Get the last message sent by a user (or you) in chat.
 #[command(sender_gate = 3s)]
-async fn last_message(ctx: CommandContext, login: Option<String>) -> Result<()> {
-    let id = ctx.chatter_id(login.as_deref()).await?;
-
-    let response = match edge_message(&ctx, &id, "desc", Some(&ctx.message().id)).await? {
+async fn last_message(ctx: CommandContext, chatter: Chatter) -> Result<()> {
+    let response = match edge_message(&ctx, chatter, "desc", Some(&ctx.message().id)).await? {
         Some((message, _)) => format!("Their last message was: {message}"),
         None => fail!("they never typed in chat"),
     };
@@ -193,9 +191,7 @@ async fn top(ctx: CommandContext, n: Option<InRange<1, 15>>) -> Result<()> {
 
 /// Get the place of the chatter (or you) in the "leaderboard" of how many messages they ~~spammed~~ sent
 #[command(sender_gate = 1m)]
-async fn rank(ctx: CommandContext, login: Option<String>) -> Result<()> {
-    let id = ctx.chatter_id(login.as_deref()).await?;
-
+async fn rank(ctx: CommandContext, chatter: Chatter) -> Result<()> {
     let response = ctx
         .storage()
         .stats()
@@ -231,7 +227,7 @@ async fn rank(ctx: CommandContext, login: Option<String>) -> Result<()> {
             .get("key")
             .and_then(|k| k.as_str())
             .context("malformed aggregation reply")?
-            == id
+            == chatter.id()
         {
             found = Some((i + 1, prev.map(|p| p - count)));
             break;

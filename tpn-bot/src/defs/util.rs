@@ -1,7 +1,10 @@
 use std::time::Duration;
 
 use crate::{
-    commands::{args::HoldTime, command},
+    commands::{
+        args::{Chatter, HoldTime},
+        command,
+    },
     context::{app::AppContext, cmd::CommandContext},
     fail,
     services::messaging::PermissionLevel,
@@ -42,15 +45,14 @@ async fn echo(ctx: CommandContext, text: String) -> Result<()> {
 /// execution managed to crash somehow. In the latter case, you'll be given the
 /// message id - please send it to me to look at logs and fix the issue.
 #[command(sender_gate = 3s)]
-async fn last_error(ctx: CommandContext, login: Option<String>) -> Result<()> {
-    let id = ctx.chatter_id(login.as_deref()).await?;
-    let status: Option<String> = ctx.storage().get(format!("last-error:{id}")).await?;
-    if let Some(status) = status {
-        ctx.reply(status).await?;
-    } else {
-        ctx.reply("No errors in your last message".into()).await?;
-    }
-    Ok(())
+async fn last_error(ctx: CommandContext, chatter: Chatter) -> Result<()> {
+    ctx.reply(
+        ctx.storage()
+            .get::<_, Option<_>>(format!("last-error:{chatter}"))
+            .await?
+            .unwrap_or_else(|| "No errors in your last message".into()),
+    )
+    .await
 }
 
 /// Sometimes the capture dies (but the game is fine) because of my brittle scripts.
