@@ -318,18 +318,16 @@ impl TwitchEventSub {
                     Ok(msg) => {
                         self.process_message(msg, ctx).await?;
                     },
-                    Err(e) => tracing::warn!("old websocket error (probably closed): {e:?}"),
+                    Err(e) => tracing::warn!(error=?e, "old websocket error (probably closed)"),
                 },
                 Some(msg) = s.next() => {
                     if let MessageResult::Reconnect { url } = self.process_message(msg?, ctx).await? {
                         self.prev = Some(std::mem::replace(&mut s, websocket_connect(&url).await?));
                     }
                 }
-                else => break,
+                else => bail!("websocket closed without reconnect event"),
             }
         }
-
-        bail!("websocket closed without reconnect event")
     }
 
     async fn process_message(
@@ -352,7 +350,7 @@ impl TwitchEventSub {
                         .as_deref()
                         .and_then(|url| url.parse().ok())
                         .unwrap_or_else(|| TWITCH_EVENTSUB_WEBSOCKET_URL.clone());
-                    tracing::info!("got a reconnect event, url: {url}");
+                    tracing::info!(%url, "reconnect event");
                     return Ok(MessageResult::Reconnect { url });
                 }
                 EventsubWebsocketData::Notification { metadata, payload } => {
@@ -376,10 +374,13 @@ impl TwitchEventSub {
                     metadata,
                     payload: _,
                 } => tracing::warn!(?metadata, "got a revocation event!"),
+                EventsubWebsocketData::Keepalive { metadata, .. } => {
+                    tracing::info!(?metadata, "keepalive");
+                }
                 _ => {}
             },
             tungstenite::Message::Close(frame) => {
-                tracing::warn!("websocket closed by twitch, frame={frame:?}")
+                tracing::warn!(?frame, "websocket closed")
             }
             _ => {}
         }
@@ -388,7 +389,7 @@ impl TwitchEventSub {
 }
 
 async fn websocket_connect(url: &Url) -> Result<WebSocket> {
-    tracing::info!("connecting to twitch, {url}");
+    tracing::info!(%url, "websocket connect");
     let (stream, _) = tokio_tungstenite::connect_async_with_config(
         url.clone(),
         Some(
