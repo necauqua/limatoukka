@@ -216,10 +216,12 @@ impl Twitch {
     }
 }
 
+type WebSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+
 pub struct TwitchEventSub {
     twitch: Twitch,
     tx: Sender<Event>,
-    prev: Option<WebSocketStream<MaybeTlsStream<TcpStream>>>,
+    prev: Option<WebSocket>,
     on_subscribed: Option<Arc<Notify>>,
 }
 
@@ -307,20 +309,16 @@ impl TwitchEventSub {
 
         loop {
             tokio::select! {
-                msg = async {
-                    if let Some(prev) = &mut self.prev {
-                        prev.next().await
-                    } else {
-                        std::future::pending().await
+                Some(msg) = async {
+                    match &mut self.prev {
+                        Some(prev) => prev.next().await,
+                        None => None,
                     }
                 } => match msg {
-                    Some(Ok(msg)) => {
+                    Ok(msg) => {
                         self.process_message(msg, ctx).await?;
                     },
-                    Some(Err(e)) => {
-                        tracing::warn!("old websocket error (probably closed): {e:?}");
-                    },
-                    None => continue,
+                    Err(e) => tracing::warn!("old websocket error (probably closed): {e:?}"),
                 },
                 Some(msg) = s.next() => {
                     if let MessageResult::Reconnect { url } = self.process_message(msg?, ctx).await? {
@@ -389,7 +387,7 @@ impl TwitchEventSub {
     }
 }
 
-async fn websocket_connect(url: &Url) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {
+async fn websocket_connect(url: &Url) -> Result<WebSocket> {
     tracing::info!("connecting to twitch, {url}");
     let (stream, _) = tokio_tungstenite::connect_async_with_config(
         url.clone(),
