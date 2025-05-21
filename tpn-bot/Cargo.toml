@@ -63,7 +63,6 @@ keyring = { version = "3.6.2", features = [
 async-trait = "0.1.88"
 elasticsearch = "9.0.0-alpha.1"
 tokio-tungstenite = { version = "0.26.2", features = ["native-tls", "url"] }
-sysinfo = "0.35.0"
 paste = "1.0.15"
 
 [build-dependencies]

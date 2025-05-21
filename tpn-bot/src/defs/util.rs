@@ -9,11 +9,10 @@ use crate::{
     fail,
     services::messaging::PermissionLevel,
 };
-use anyhow::{Result, bail};
+use anyhow::Result;
 use humantime_serde::re::humantime;
 use maud::html;
 use rustis::commands::{GenericCommands, StringCommands};
-use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use tokio::time::sleep;
 
 /// Respond with "pong!".
@@ -155,57 +154,5 @@ async fn flag(ctx: CommandContext, flag: String) -> Result<()> {
     } else {
         ctx.storage().set(format!("flags:{flag}"), "1").await?;
     }
-    Ok(())
-}
-
-/// Gets the current CPU usage of the game.
-#[command(global_gate = 5s, sender_gate=1m, permission = Subscriber, shortcode = cpu)]
-async fn noita_cpu_usage(ctx: CommandContext) -> Result<()> {
-    let pid = Pid::from(ctx.noita().with(|n| Ok(n.proc().pid())).await? as usize);
-
-    let usage = tokio::task::spawn_blocking(move || {
-        let mut system = System::new();
-        system.refresh_processes_specifics(
-            ProcessesToUpdate::Some(&[pid]),
-            true,
-            ProcessRefreshKind::nothing().with_cpu(),
-        );
-        std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
-        system.refresh_processes_specifics(
-            ProcessesToUpdate::Some(&[pid]),
-            true,
-            ProcessRefreshKind::nothing().with_cpu(),
-        );
-        system.process(pid).map(|p| p.cpu_usage())
-    })
-    .await;
-
-    let Some(usage) = usage.ok().flatten() else {
-        bail!("noita.exe not running?");
-    };
-
-    let usage = usage / 24.0; // my cpu has 24 logical cores, which is what this reports
-
-    ctx.reply(format!("noita.exe CPU usage: {usage:.2}%"))
-        .await?;
-
-    Ok(())
-}
-
-/// Gets the current CPU usage of my entire PC.
-#[command(global_gate = 5s, sender_gate=1m, permission = Subscriber)]
-async fn cpu_total(ctx: CommandContext) -> Result<()> {
-    let usage = tokio::task::spawn_blocking(move || {
-        let mut system = System::new();
-        system.refresh_cpu_usage();
-        std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
-        system.refresh_cpu_usage();
-        system.global_cpu_usage()
-    })
-    .await?;
-
-    let usage = usage / 24.0;
-    ctx.reply(format!("Total CPU usage: {usage:.2}%")).await?;
-
     Ok(())
 }
