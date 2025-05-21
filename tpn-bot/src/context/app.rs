@@ -1,4 +1,5 @@
 use std::{
+    ops::Deref,
     process::Stdio,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -15,69 +16,49 @@ use tokio::{
     time::sleep,
 };
 
-use crate::{
-    commands::runner::CommandInterrupt,
-    config::Config,
-    services::{
-        messaging::MessagingClient,
-        noita::NoitaHandle,
-        status_wall::StatusWall,
-        storage::{Storage, StorageRef},
-        twitch::Twitch,
-        xdo::XDoClient,
-    },
-};
-
-struct Inner {
-    config: Config,
-    messaging: MessagingClient,
-    storage: Storage,
-    xdo: XDoClient,
-    noita: NoitaHandle,
-    status_wall: StatusWall,
-    twitch: Twitch,
-
-    state: AppState,
-}
+use crate::{commands::runner::CommandInterrupt, config::Config, services::Services};
 
 #[derive(Default)]
-struct AppStateInner {
+struct AppState {
     interrupts: Vec<Sender<()>>,
     last_interrupt: Option<Instant>,
 }
 
-#[derive(Default)]
-pub struct AppState {
-    inner: Mutex<AppStateInner>,
-}
-
-impl AppState {
+impl AppContext {
     pub fn last_interrupt(&self) -> Option<Instant> {
-        self.inner.lock().unwrap().last_interrupt
+        self.inner.state.lock().unwrap().last_interrupt
     }
-}
 
-impl AppStateInner {
-    fn break_holds(&mut self) {
-        for tx in self.interrupts.drain(..) {
+    pub fn break_holds(&self) {
+        for tx in self.inner.state.lock().unwrap().interrupts.drain(..) {
             _ = tx.send(());
         }
     }
 
-    fn interrupt_holds(&mut self) {
-        self.interrupts.clear();
-        self.last_interrupt = Some(Instant::now());
+    pub fn interrupt_holds(&self) {
+        {
+            let mut state = self.inner.state.lock().unwrap();
+            state.interrupts.clear();
+            state.last_interrupt = Some(Instant::now());
+        }
+
+        let handle = self.clone();
+        tokio::spawn(async move {
+            if let Err(error) = handle.storage().publish("interrupt", "1").await {
+                tracing::error!(?error, "failed to publish interrupt: {error:?}");
+            }
+        });
     }
 
-    fn interruptible<F>(
-        &mut self,
+    pub fn interruptible<F>(
+        &self,
         f: F,
     ) -> impl Future<Output = Result<(), CommandInterrupt>> + use<F>
     where
         F: Future<Output = ()>,
     {
         let (tx, rx) = oneshot::channel::<()>();
-        self.interrupts.push(tx);
+        self.inner.state.lock().unwrap().interrupts.push(tx);
         async move {
             tokio::select! {
                 r = rx => r.map_err(|_| CommandInterrupt),
@@ -87,70 +68,30 @@ impl AppStateInner {
     }
 }
 
+struct Inner {
+    state: Mutex<AppState>,
+    config: Config,
+}
+
 #[derive(Clone)]
 pub struct AppContext {
-    inner: Option<Arc<Inner>>,
+    inner: Arc<Inner>,
+    services: Services,
 }
 
 impl AppContext {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        messaging: MessagingClient,
-        config: Config,
-        storage: Storage,
-        xdo: XDoClient,
-        noita: NoitaHandle,
-        status_wall: StatusWall,
-        twitch: Twitch,
-    ) -> Self {
+    pub fn new(config: Config, services: Services) -> Self {
         Self {
-            inner: Some(Arc::new(Inner {
-                messaging,
-                config,
-                storage,
-                xdo,
-                noita,
-                status_wall,
-                twitch,
+            inner: Arc::new(Inner {
                 state: Default::default(),
-            })),
+                config,
+            }),
+            services,
         }
     }
 
-    pub fn mock() -> Self {
-        Self { inner: None }
-    }
-
     pub fn config(&self) -> &Config {
-        &self.inner.as_deref().unwrap().config
-    }
-
-    pub fn messaging(&self) -> &MessagingClient {
-        &self.inner.as_deref().unwrap().messaging
-    }
-
-    pub fn storage(&self) -> StorageRef {
-        StorageRef::new(&self.inner.as_deref().unwrap().storage)
-    }
-
-    pub fn xdo(&self) -> &XDoClient {
-        &self.inner.as_deref().unwrap().xdo
-    }
-
-    pub fn noita(&self) -> &NoitaHandle {
-        &self.inner.as_deref().unwrap().noita
-    }
-
-    pub fn status_wall(&self) -> &StatusWall {
-        &self.inner.as_deref().unwrap().status_wall
-    }
-
-    pub fn twitch(&self) -> &Twitch {
-        &self.inner.as_deref().unwrap().twitch
-    }
-
-    pub fn state(&self) -> &AppState {
-        &self.inner.as_deref().unwrap().state
+        &self.inner.config
     }
 
     /// Returns true once (atomically) in the given period - per key.
@@ -175,34 +116,8 @@ impl AppContext {
 
     pub async fn send(&self, message: String) -> Result<()> {
         tracing::debug!(text = message, "sending");
-        self.inner
-            .as_deref()
-            .unwrap()
-            .messaging
-            .send(message)
-            .await?;
+        self.messaging().send(message).await?;
         Ok(())
-    }
-
-    pub async fn break_holds(&self) {
-        self.state().inner.lock().unwrap().break_holds();
-    }
-
-    pub async fn interrupt_holds(&self) {
-        let handle = self.clone();
-
-        tokio::spawn(async move {
-            if let Err(error) = handle.storage().publish("interrupt", "1").await {
-                tracing::error!(?error, "failed to publish interrupt: {error:?}");
-            }
-        });
-
-        self.state().inner.lock().unwrap().interrupt_holds();
-    }
-
-    pub async fn interruptible(&self, f: impl Future<Output = ()>) -> Result<(), CommandInterrupt> {
-        let fut = { self.state().inner.lock().unwrap().interruptible(f) };
-        fut.await
     }
 
     // eh I couldnt be bothered lol
@@ -260,7 +175,7 @@ impl AppContext {
     }
 
     pub async fn next_run(&self) -> Result<()> {
-        self.interrupt_holds().await;
+        self.interrupt_holds();
 
         sleep(Duration::from_millis(500)).await;
 
@@ -285,5 +200,13 @@ impl AppContext {
 
         Self::restart().await?;
         Ok(())
+    }
+}
+
+impl Deref for AppContext {
+    type Target = Services;
+
+    fn deref(&self) -> &Self::Target {
+        &self.services
     }
 }

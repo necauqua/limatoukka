@@ -2,7 +2,6 @@ use std::{
     borrow::Cow,
     collections::VecDeque,
     fmt::{self, Debug, Display},
-    mem,
     time::Duration,
 };
 
@@ -106,14 +105,6 @@ impl Args {
         }
     }
 
-    pub const fn len(&self) -> usize {
-        self.len
-    }
-
-    pub const fn is_empty(&self) -> bool {
-        self.len == 0
-    }
-
     pub fn current_idx(&self) -> usize {
         self.len - self.args.len()
     }
@@ -151,15 +142,27 @@ impl<T: CommandArg> ArgExtractor for T {
 
 #[derive(Debug, Clone)]
 pub struct RestOfArgs {
-    pub args: VecDeque<String>,
+    pub args: Vec<Arg<String>>,
+}
+
+impl RestOfArgs {
+    pub async fn get(self, ctx: &CommandContext) -> ArgResult<VecDeque<String>> {
+        let mut args = VecDeque::with_capacity(self.args.len());
+        for arg in self.args {
+            args.push_back(arg.get(ctx).await?);
+        }
+        Ok(args)
+    }
 }
 
 #[async_trait]
 impl ArgExtractor for RestOfArgs {
-    async fn extract(_ctx: &CommandContext, args: &mut Args) -> ExtractorResult<Arg<Self>> {
-        Ok(Arg::Static(Self {
-            args: mem::take(&mut args.args),
-        }))
+    async fn extract(ctx: &CommandContext, args: &mut Args) -> ExtractorResult<Arg<Self>> {
+        let mut rest = Vec::with_capacity(args.args.len());
+        while !args.args.is_empty() {
+            rest.push(String::extract(ctx, args).await?);
+        }
+        Ok(Arg::Static(Self { args: rest }))
     }
 
     fn type_desc() -> Cow<'static, str> {

@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     fmt::Debug,
+    ops::{Deref, DerefMut},
     option::Option::Some,
     sync::{Arc, Mutex},
     time::Duration,
@@ -216,8 +217,6 @@ impl Twitch {
     }
 }
 
-type WebSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
-
 pub struct TwitchEventSub {
     twitch: Twitch,
     tx: Sender<Event>,
@@ -401,7 +400,36 @@ async fn websocket_connect(url: &Url) -> Result<WebSocket> {
         false,
     )
     .await?;
-    Ok(stream)
+    Ok(WebSocket {
+        stream,
+        url: url.to_string(),
+    })
+}
+
+struct WebSocket {
+    stream: WebSocketStream<MaybeTlsStream<TcpStream>>,
+    url: String,
+}
+
+impl Drop for WebSocket {
+    fn drop(&mut self) {
+        let backtrace = std::backtrace::Backtrace::force_capture();
+        tracing::info!(url = self.url, "dropped websocket at:\n{backtrace:?}");
+    }
+}
+
+impl Deref for WebSocket {
+    type Target = WebSocketStream<MaybeTlsStream<TcpStream>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.stream
+    }
+}
+
+impl DerefMut for WebSocket {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.stream
+    }
 }
 
 enum MessageResult {
@@ -537,4 +565,59 @@ fn is_auth_error(error: &ClientRequestError<reqwest::Error>) -> bool {
             ..
         })
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::env;
+
+    use rustis::commands::ConnectionCommands;
+    use tracing_subscriber::{
+        EnvFilter, Layer as _,
+        fmt::{Layer, time::LocalTime},
+        layer::SubscriberExt,
+        util::SubscriberInitExt,
+    };
+
+    use crate::services::{Services, storage::Storage};
+
+    use super::*;
+
+    fn setup_logging() {
+        let fmt_layer = Layer::new()
+            .with_timer(LocalTime::rfc_3339())
+            .with_filter(EnvFilter::new(
+                env::var(tracing_subscriber::EnvFilter::DEFAULT_ENV)
+                    .as_deref()
+                    .unwrap_or("tpn_bot=trace"),
+            ));
+
+        _ = tracing_subscriber::registry().with(fmt_layer).try_init();
+    }
+
+    #[tokio::test]
+    #[ignore] // manual
+    async fn test_eventsub() -> Result<()> {
+        do_test_eventsub().await
+    }
+
+    async fn do_test_eventsub() -> Result<()> {
+        setup_logging();
+
+        let config = Config::load()?;
+        let (_, eventsub) = Twitch::new(&config).await?;
+        let services = Services::mock().with_storage(Storage::new(&config).await?);
+        services.storage().select(1).await?;
+
+        let ctx = AppContext::new(config, services);
+
+        let mut rx = eventsub.subscribe();
+        tokio::spawn(async move {
+            while let Ok(event) = rx.recv().await {
+                tracing::info!("got event: {event:?}");
+            }
+        });
+
+        eventsub.run(ctx).await
+    }
 }

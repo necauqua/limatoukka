@@ -113,7 +113,7 @@ async fn wait(ctx: CommandContext, duration: HoldTime) -> Result<()> {
 /// This is kind of a niche thing, most likely you need `interrupt~`.
 #[command]
 async fn r#break(ctx: CommandContext) -> Result<()> {
-    ctx.break_holds().await;
+    ctx.break_holds();
     Ok(())
 }
 
@@ -122,7 +122,7 @@ async fn r#break(ctx: CommandContext) -> Result<()> {
 /// get completed do not run.
 #[command]
 async fn interrupt(ctx: CommandContext) -> Result<()> {
-    ctx.interrupt_holds().await;
+    ctx.interrupt_holds();
     Ok(())
 }
 

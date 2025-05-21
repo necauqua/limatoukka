@@ -3,7 +3,7 @@ use std::{
     io,
     path::PathBuf,
     sync::{
-        Arc, LazyLock,
+        LazyLock,
         atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant},
@@ -31,7 +31,7 @@ use crate::{context::app::AppContext, storage};
 pub struct NoitaHandle {
     noita: Mutex<Option<Noita>>,
     inventory_open: AtomicBool,
-    events: Arc<Sender<NoitaEvent>>,
+    events: Sender<NoitaEvent>,
 }
 
 #[derive(Debug, Clone)]
@@ -61,7 +61,7 @@ impl Default for NoitaHandle {
         Self {
             noita: Default::default(),
             inventory_open: Default::default(),
-            events: Arc::new(Sender::new(16)),
+            events: Sender::new(16),
         }
     }
 }

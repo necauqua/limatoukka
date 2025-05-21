@@ -54,13 +54,7 @@ serde_json = "1.0.140"
 strum = { version = "0.27.1", features = ["derive"] }
 lazy-regex = "3.4.1"
 bitflags = "2.9.0"
-twitch_api = { version = "0.7.2", features = [
-    "client",
-    "eventsub",
-    "helix",
-    "reqwest",
-    "twitch_oauth2",
-] }
+twitch_api = { version = "0.7.2", features = ["client", "eventsub", "helix", "mock_api", "reqwest", "twitch_oauth2"] }
 reqwest = "0.12.15"
 keyring = { version = "3.6.2", features = [
     "crypto-rust",
@@ -70,6 +64,7 @@ async-trait = "0.1.88"
 elasticsearch = "9.0.0-alpha.1"
 tokio-tungstenite = { version = "0.26.2", features = ["native-tls", "url"] }
 sysinfo = "0.35.0"
+paste = "1.0.15"
 
 [build-dependencies]
 anyhow = "1.0.97"

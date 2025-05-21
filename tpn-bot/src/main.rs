@@ -11,7 +11,7 @@ use tpn_bot::{
     context::app::AppContext,
     logging,
     services::{
-        messaging,
+        Services, messaging,
         noita::{ItemFound, NoitaEvent, NoitaHandle},
         status_wall::StatusWall,
         storage::Storage,
@@ -25,7 +25,12 @@ use tracing::{Instrument, Span, instrument};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use twitch_api::{
     eventsub::{Event, Message, Payload},
-    helix::chat::SendAShoutoutRequest,
+    helix::{
+        chat::SendAShoutoutRequest,
+        points::{
+            CustomRewardRedemptionStatus, UpdateRedemptionStatusBody, UpdateRedemptionStatusRequest,
+        },
+    },
     types::SubscriptionTier,
 };
 
@@ -40,13 +45,15 @@ async fn run(config: Config) -> Result<()> {
     let eventsub_init = eventsub.wait_for_full_init();
 
     let ctx = AppContext::new(
-        messaging,
         config,
-        storage,
-        xdo,
-        NoitaHandle::default(),
-        StatusWall::default(),
-        twitch,
+        Services::new(
+            messaging,
+            storage,
+            xdo,
+            NoitaHandle::default(),
+            StatusWall::default(),
+            twitch,
+        ),
     );
 
     tokio::spawn(eventsub.run(ctx.clone()));
@@ -119,10 +126,9 @@ async fn run(config: Config) -> Result<()> {
     tokio::spawn(async move {
         _ = interrupt_signal.next().await;
         tracing::info!("received an interrupt from new instance");
-        handle.interrupt_holds().await;
+        handle.interrupt_holds();
     });
 
-    tasks.len();
     tasks.join_all().await;
 
     Ok(())
@@ -184,20 +190,38 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
                 reward.id = data.reward.id.as_str(),
                 "reward redemption"
             );
-            match data.reward.id.as_str() {
+            let fulfilled = match data.reward.id.as_str() {
                 // hello
                 "7d046898-3594-45ec-ae58-d3dae0c68187" => {
                     ctx.send("hiii".into()).await?;
+                    true
                 }
                 // bless
                 "f2a54ce8-5c8a-4ed0-ab52-fe9fd11c41c9" => {
                     storage!(ctx, incr, "balance:blesses")?;
+                    true
                 }
                 // curse
                 "5716f47f-f8df-4fef-baf0-6b6a2b24ef76" => {
                     storage!(ctx, incr, "balance:curses")?;
+                    true
                 }
-                _ => {}
+                _ => false,
+            };
+            if fulfilled {
+                let id = &data.id;
+                let reward_id = &data.reward.id;
+                ctx.twitch()
+                    .call(move |t| async move {
+                        let request =
+                            UpdateRedemptionStatusRequest::new(t.caster_id, reward_id, id);
+                        let body = UpdateRedemptionStatusBody::status(
+                            CustomRewardRedemptionStatus::Fulfilled,
+                        );
+                        t.helix.req_patch(request, body, &t.token).await?;
+                        Ok(())
+                    })
+                    .await?;
             }
         }
         Event::ChannelAdBreakBeginV1(Payload {

@@ -189,6 +189,7 @@ async fn r#macro(
         }
     };
 
+    let args = rest.get(&ctx).await?;
     let command_msg = CommandMessage::parse(&script);
 
     let status = html! {
@@ -197,7 +198,7 @@ async fn r#macro(
     let _guard = ctx.status_wall().push(status).await;
 
     let errors = runner::eval(
-        ctx.nest_macro(chatter.id(), global, rest.args).await?,
+        ctx.nest_macro(chatter.id(), global, args).await?,
         command_msg,
     )
     .await;
@@ -438,12 +439,13 @@ async fn del(ctx: CommandContext, names: RestOfArgs) -> Result<()> {
     if names.args.is_empty() {
         fail!("no names given");
     }
+    let names = names.get(&ctx).await?;
 
     match ctx
         .storage()
         .hdel(
             format!("vars:{}", ctx.shared.owner),
-            names.args.iter().collect::<Vec<_>>(), // ugh
+            names.iter().collect::<Vec<_>>(), // ugh
         )
         .await?
     {
@@ -452,7 +454,7 @@ async fn del(ctx: CommandContext, names: RestOfArgs) -> Result<()> {
         n => ctx.reply(format!("{n} vars deleted")).await?,
     }
     let mut vars = ctx.vars.write().await;
-    for name in names.args {
+    for name in names {
         vars.remove(&name);
     }
 
