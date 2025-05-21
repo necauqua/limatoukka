@@ -21,6 +21,7 @@ use tokio::{
         broadcast::{Receiver, Sender},
         oneshot,
     },
+    task::JoinHandle,
 };
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite};
 use tracing::instrument;
@@ -183,6 +184,7 @@ impl Twitch {
             tx,
             prev: None,
             on_subscribed: Some(Default::default()),
+            canary: None,
         };
 
         Ok((t, eventsub))
@@ -222,6 +224,7 @@ pub struct TwitchEventSub {
     tx: Sender<Event>,
     prev: Option<WebSocket>,
     on_subscribed: Option<Arc<Notify>>,
+    canary: Option<JoinHandle<()>>,
 }
 
 impl TwitchEventSub {
@@ -277,6 +280,17 @@ impl TwitchEventSub {
             on_subscribed.notify_waiters();
         }
 
+        Ok(())
+    }
+
+    async fn process_keepalive_message(&mut self) -> Result<()> {
+        if let Some(canary) = self.canary.take() {
+            canary.abort();
+        }
+        self.canary = Some(tokio::spawn(async {
+            tokio::time::sleep(Duration::from_secs(20)).await;
+            tracing::error!("received no keepalive");
+        }));
         Ok(())
     }
 
@@ -373,9 +387,7 @@ impl TwitchEventSub {
                     metadata,
                     payload: _,
                 } => tracing::warn!(?metadata, "got a revocation event!"),
-                EventsubWebsocketData::Keepalive { metadata, .. } => {
-                    tracing::info!(?metadata, "keepalive");
-                }
+                EventsubWebsocketData::Keepalive { .. } => self.process_keepalive_message().await?,
                 _ => {}
             },
             tungstenite::Message::Close(frame) => {
