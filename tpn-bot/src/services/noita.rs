@@ -93,6 +93,10 @@ impl NoitaHandle {
             sleep(Duration::from_millis(30)).await;
 
             let state = ctx.noita().with(NoitaState::read).await.ok();
+            if state.is_none() {
+                // prevent busy looping when most likely noita is simply not running
+                sleep(Duration::from_secs(5)).await;
+            }
 
             if inventory_open.changed(state.as_ref().map(|n| n.inventory_open)) {
                 let inventory_open = inventory_open.value.unwrap_or_default();

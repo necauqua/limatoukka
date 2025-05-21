@@ -122,12 +122,47 @@ obs-reset-display:
     echo '{"op":6,"d":{"requestType":"SetInputSettings","requestId":"2","requestData":{"inputName":"capture","inputSettings":{"server":"{{display}}"}}}}'; \
     ) | websocat ws://localhost:4455 >/dev/null
 
-obs-refresh-chat:
+obs-refresh input="chat message":
     @(\
     echo '{"op":1,"d":{"rpcVersion":1}}'; \
     sleep 0.1; \
-    echo '{"op":6,"d":{"requestType":"PressInputPropertiesButton","requestId":"1","requestData":{"inputName":"chat message","propertyName":"refreshnocache"}}}'; \
+    echo '{"op":6,"d":{"requestType":"PressInputPropertiesButton","requestId":"1","requestData":{"inputName":"{{input}}","propertyName":"refreshnocache"}}}'; \
     ) | websocat ws://localhost4455 >/dev/null
+
+obs-stop-stream:
+    @(\
+    echo '{"op":1,"d":{"rpcVersion":1}}'; \
+    sleep 0.1; \
+    echo '{"op":6,"d":{"requestType":"StopStream","requestId":"1"}}'; \
+    ) | websocat ws://localhost4455 >/dev/null
+
+obs-start-stream:
+    @(\
+    echo '{"op":1,"d":{"rpcVersion":1}}'; \
+    sleep 0.1; \
+    echo '{"op":6,"d":{"requestType":"StartStream","requestId":"1"}}'; \
+    ) | websocat ws://localhost4455 >/dev/null
+
+obs-revive:
+    #!/usr/bin/env bash
+    # ughh, nixos wrappers
+    if ! pgrep -x .obs-wrapped >/dev/null; then
+        obs --disable-shutdown-check & disown
+        sleep 10
+        just obs-start-stream
+        echo true
+    fi
+
+obs-restart-stream:
+    just obs-stop-stream
+    sleep 10
+    just sound-setup obs-start-stream & disown
+
+is-game-running:
+    #!/usr/bin/env bash
+    if pgrep noita.exe >/dev/null; then
+        echo true
+    fi
 
 [working-directory("obs-files")]
 start-intro-timer seconds="900":

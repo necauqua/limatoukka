@@ -121,7 +121,7 @@ impl AppContext {
     }
 
     // eh I couldnt be bothered lol
-    async fn just(script: &str) -> Result<()> {
+    pub async fn just(script: &str) -> Result<()> {
         // we just send it and *dont* wait for like noita.exe to finish
         let _res = Command::new("setsid")
             .args(["just", script])
@@ -138,6 +138,24 @@ impl AppContext {
         //     )
         // }
         Ok(())
+    }
+
+    pub async fn just_bool(script: &str) -> Result<bool> {
+        let res = Command::new("setsid")
+            .args(["just", script])
+            .env_remove("RUST_LOG")
+            .stderr(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()?
+            .wait_with_output()
+            .await?;
+        if !res.status.success() {
+            bail!(
+                "just command failed: {}",
+                String::from_utf8_lossy(&res.stderr)
+            )
+        }
+        Ok(res.stdout.trim_ascii() == b"true")
     }
 
     pub async fn cringe_scp_large_reply(msg: &str) -> Result<()> {
@@ -160,14 +178,6 @@ impl AppContext {
 
     pub async fn restart() -> Result<()> {
         Self::just("restart").await
-    }
-
-    pub async fn fix_obs_capture() -> Result<()> {
-        Self::just("obs-reset-display").await
-    }
-
-    pub async fn fix_obs_sound() -> Result<()> {
-        Self::just("sound-setup").await
     }
 
     pub async fn reset() -> Result<()> {

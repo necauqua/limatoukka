@@ -315,6 +315,6 @@ async fn vote_reset(ctx: CommandContext) -> Result<()> {
 /// Reset the game (deleting the current world) immediately. This is the same
 /// as a successful `vote-reset~`, but instant.
 #[command(permission = Moderator, global_gate = 2m)]
-async fn reset(_ctx: CommandContext) -> Result<()> {
+async fn reset() -> Result<()> {
     AppContext::reset().await
 }

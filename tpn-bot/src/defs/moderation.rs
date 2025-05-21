@@ -4,7 +4,7 @@ use twitch_api::helix::channels::modify_channel_information::*;
 use crate::{
     commands::{args::RequiredChatter, command},
     context::{app::AppContext, cmd::CommandContext},
-    storage,
+    fail, storage,
 };
 
 pub async fn do_banish(ctx: &AppContext, chatter: &RequiredChatter) -> Result<()> {
@@ -47,8 +47,7 @@ async fn unbanish(ctx: CommandContext, chatter: RequiredChatter) -> Result<()> {
     Ok(())
 }
 
-/// Check if a user was yeeted into the shadow realm. Per-user 15 second
-/// cooldown.
+/// Check if a user was yeeted into the shadow realm.
 ///
 /// If _you_ are yeeted, the bot ignores you utterly, so this won't work
 /// ¯\\\_(ツ)_/¯.
@@ -82,4 +81,21 @@ async fn set_title(ctx: CommandContext, title: String) -> Result<()> {
         .await?;
 
     Ok(())
+}
+
+/// Stops and then starts the stream again, useful for when Twitch kills the
+/// stream due to the 48h limit and OBS does not realize.
+#[command(permission=Moderator, global_gate = 5m)]
+async fn obs_restart_stream() -> Result<()> {
+    AppContext::just("obs-restart-stream").await
+}
+
+/// An untested script that starts OBS and then starts the stream if OBS died.
+/// Does nothing if the OBS process is running.
+#[command(permission=Moderator, global_gate = 5m)]
+async fn obs_revive(ctx: CommandContext) -> Result<()> {
+    if !AppContext::just_bool("obs-revive").await? {
+        fail!("OBS is running");
+    }
+    ctx.reply("OBS was not running, started it up".into()).await
 }

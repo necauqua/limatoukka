@@ -60,7 +60,7 @@ async fn last_error(ctx: CommandContext, chatter: Chatter) -> Result<()> {
 /// Try running this first before doing a full restart etc etc.
 #[command(global_gate = 30s)]
 async fn fix_obs_capture() -> Result<()> {
-    AppContext::fix_obs_capture().await
+    AppContext::just("obs-reset-display").await
 }
 
 /// The sound setup is the most brittle jank thing actually, and dies most often.
@@ -68,7 +68,21 @@ async fn fix_obs_capture() -> Result<()> {
 /// Try running this first before doing a full restart etc etc.
 #[command(global_gate = 30s)]
 async fn fix_obs_sound() -> Result<()> {
-    AppContext::fix_obs_sound().await
+    AppContext::just("sound-setup").await
+}
+
+/// Check if noita.exe process is present, aka not dead.
+#[command(sender_gate = 1m)]
+async fn is_game_running(ctx: CommandContext) -> Result<()> {
+    ctx.reply(
+        if AppContext::just_bool("is-game-running").await? {
+            "It is running currently, yes"
+        } else {
+            "The game is NOT running"
+        }
+        .into(),
+    )
+    .await
 }
 
 /// Wait for a specified duration milliseconds.
@@ -145,7 +159,7 @@ async fn flag(ctx: CommandContext, flag: String) -> Result<()> {
 }
 
 /// Gets the current CPU usage of the game.
-#[command(global_gate = 5s, permission = Subscriber, shortcode = cpu)]
+#[command(global_gate = 5s, sender_gate=1m, permission = Subscriber, shortcode = cpu)]
 async fn noita_cpu_usage(ctx: CommandContext) -> Result<()> {
     let pid = Pid::from(ctx.noita().with(|n| Ok(n.proc().pid())).await? as usize);
 
@@ -167,15 +181,31 @@ async fn noita_cpu_usage(ctx: CommandContext) -> Result<()> {
     .await;
 
     let Some(usage) = usage.ok().flatten() else {
-        bail!("failed to get CPU usage, noita.exe not running?");
+        bail!("noita.exe not running?");
     };
 
-    ctx.reply(if usage > 100.0 {
-        format!("CPU usage: {usage:.2}% (100% is 1 core)")
-    } else {
-        format!("CPU usage: {usage:.2}%")
+    let usage = usage / 24.0; // my cpu has 24 logical cores, which is what this reports
+
+    ctx.reply(format!("noita.exe CPU usage: {usage:.2}%"))
+        .await?;
+
+    Ok(())
+}
+
+/// Gets the current CPU usage of my entire PC.
+#[command(global_gate = 5s, sender_gate=1m, permission = Subscriber)]
+async fn cpu_total(ctx: CommandContext) -> Result<()> {
+    let usage = tokio::task::spawn_blocking(move || {
+        let mut system = System::new();
+        system.refresh_cpu_usage();
+        std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
+        system.refresh_cpu_usage();
+        system.global_cpu_usage()
     })
     .await?;
+
+    let usage = usage / 24.0;
+    ctx.reply(format!("Total CPU usage: {usage:.2}%")).await?;
 
     Ok(())
 }
