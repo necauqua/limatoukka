@@ -3775,6 +3775,7 @@ dependencies = [
  "tower 0.4.13",
  "twitch_oauth2",
  "twitch_types",
+ "typed-builder",
  "url",
  "version_check",
 ]
@@ -3809,6 +3810,26 @@ checksum = "d0401b40e8e1b3ded08c1adbdbf15ab03c91c4634d52250d424a9cc3a2af469c"
 dependencies = [
  "serde",
  "serde_derive",
+]
+
+[[package]]
+name = "typed-builder"
+version = "0.20.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd9d30e3a08026c78f246b173243cf07b3696d274debd26680773b6773c2afc7"
+dependencies = [
+ "typed-builder-macro",
+]
+
+[[package]]
+name = "typed-builder-macro"
+version = "0.20.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c36781cc0e46a83726d9879608e4cf6c2505237e263a8eb8c24502989cfdb28"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

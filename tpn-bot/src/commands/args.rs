@@ -404,10 +404,9 @@ impl CommandArg for Chatter {
             return Ok(Self(cached));
         }
 
-        let login = &*login;
         let full = ctx
             .twitch()
-            .call(move |t| async move { t.helix.get_user_from_login(login, &t.token).await })
+            .call(async |t| t.helix.get_user_from_login(&login, &t.token).await)
             .await
             .map_err(|e| anyhow!(e))?;
         let Some(user) = full else {

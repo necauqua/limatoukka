@@ -15,7 +15,7 @@ use tpn_bot::{
         noita::{ItemFound, NoitaEvent, NoitaHandle},
         status_wall::StatusWall,
         storage::Storage,
-        twitch::Twitch,
+        twitch::{EventSub, Twitch},
         xdo::XDoClient,
     },
     storage,
@@ -38,7 +38,9 @@ async fn run(config: Config) -> Result<()> {
     let storage = Storage::new(&config).await?;
     let xdo = XDoClient::new(config.display.clone());
 
-    let (twitch, eventsub) = Twitch::new(&config).await?;
+    let twitch = Twitch::new(&config).await?;
+
+    let eventsub = EventSub::new(twitch.clone());
     let (mut incoming, messaging) = messaging::connect_to_twitch(twitch.clone());
 
     let mut eventsub_rx = eventsub.subscribe();
@@ -190,19 +192,16 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
                 reward.id = data.reward.id.as_str(),
                 "reward redemption"
             );
-            let fulfilled = match data.reward.id.as_str() {
-                // hello
-                "7d046898-3594-45ec-ae58-d3dae0c68187" => {
+            let fulfilled = match data.reward.title.as_str() {
+                "hello there" => {
                     ctx.send("hiii".into()).await?;
                     true
                 }
-                // bless
-                "f2a54ce8-5c8a-4ed0-ab52-fe9fd11c41c9" => {
+                "BLESS THE RUN" => {
                     storage!(ctx, incr, "balance:blesses")?;
                     true
                 }
-                // curse
-                "5716f47f-f8df-4fef-baf0-6b6a2b24ef76" => {
+                "CURSE THE RUN" => {
                     storage!(ctx, incr, "balance:curses")?;
                     true
                 }
@@ -212,7 +211,7 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
                 let id = &data.id;
                 let reward_id = &data.reward.id;
                 ctx.twitch()
-                    .call(move |t| async move {
+                    .caster_call(async |t| {
                         let request =
                             UpdateRedemptionStatusRequest::new(t.caster_id, reward_id, id);
                         let body = UpdateRedemptionStatusBody::status(
@@ -349,19 +348,16 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
             ))
             .await?;
             ctx.twitch()
-                .call(move |t| {
-                    let user_id = data.from_broadcaster_user_id.clone();
-                    async move {
-                        let request = SendAShoutoutRequest::new(
-                            t.caster_id,
-                            user_id,
-                            t.token.user_id.clone(),
-                        );
-                        t.helix
-                            .req_post(request, Default::default(), &t.token)
-                            .await?;
-                        Ok(())
-                    }
+                .call(async |t| {
+                    let request = SendAShoutoutRequest::new(
+                        t.caster_id,
+                        &data.from_broadcaster_user_id,
+                        t.token.user_id.clone(),
+                    );
+                    t.helix
+                        .req_post(request, Default::default(), &t.token)
+                        .await?;
+                    Ok(())
                 })
                 .await?;
         }

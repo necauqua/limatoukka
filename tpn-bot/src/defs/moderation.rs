@@ -65,13 +65,11 @@ async fn banished(ctx: CommandContext, chatter: RequiredChatter) -> Result<()> {
 /// Set the stream title, common moderation command, nothing special here.
 #[command(permission = Moderator, global_gate = 5s, hidden)]
 async fn set_title(ctx: CommandContext, title: String) -> Result<()> {
-    let title = &*title;
-
     ctx.twitch()
-        .caster_call(move |t| async move {
+        .caster_call(async |t| {
             let request = ModifyChannelInformationRequest::broadcaster_id(t.caster_id);
             let mut body = ModifyChannelInformationBody::new();
-            body.title(title);
+            body.title(&title);
 
             let response: ModifyChannelInformation =
                 t.helix.req_patch(request, body, &t.token).await?.data;

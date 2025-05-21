@@ -158,7 +158,7 @@ impl Twitch {
         &self.inner.caster_login
     }
 
-    pub async fn new(config: &Config) -> Result<(Self, TwitchEventSub)> {
+    pub async fn new(config: &Config) -> Result<Self> {
         let client = TwitchClient::new();
 
         let bot_token = read_token(config, &client, "bot").await?;
@@ -166,7 +166,7 @@ impl Twitch {
 
         tracing::info!("caster is {}({})", caster_token.login, caster_token.user_id);
 
-        let t = Self {
+        Ok(Self {
             inner: Arc::new(Inner {
                 client,
                 bot_id: bot_token.user_id.clone().take(),
@@ -175,19 +175,7 @@ impl Twitch {
                 bot_token: TwitchToken::new("bot", bot_token),
                 caster_token: TwitchToken::new("caster", caster_token),
             }),
-        };
-
-        let (tx, _) = tokio::sync::broadcast::channel(16);
-
-        let eventsub = TwitchEventSub {
-            twitch: t.clone(),
-            tx,
-            prev: None,
-            on_subscribed: Some(Default::default()),
-            canary: None,
-        };
-
-        Ok((t, eventsub))
+        })
     }
 
     // the twitch-api crate is pretty awful, so we have to do things like this,
@@ -219,7 +207,7 @@ impl Twitch {
     }
 }
 
-pub struct TwitchEventSub {
+pub struct EventSub {
     twitch: Twitch,
     tx: Sender<Event>,
     prev: Option<WebSocket>,
@@ -227,7 +215,17 @@ pub struct TwitchEventSub {
     canary: Option<JoinHandle<()>>,
 }
 
-impl TwitchEventSub {
+impl EventSub {
+    pub fn new(twitch: Twitch) -> Self {
+        Self {
+            twitch,
+            tx: Sender::new(16),
+            prev: None,
+            on_subscribed: Some(Default::default()),
+            canary: None,
+        }
+    }
+
     async fn process_welcome_message(&mut self, data: SessionData<'_>) -> Result<()> {
         tracing::info!("got a welcome message");
 
@@ -590,6 +588,7 @@ mod tests {
         layer::SubscriberExt,
         util::SubscriberInitExt,
     };
+    use twitch_api::helix::points::{CreateCustomRewardBody, CreateCustomRewardRequest};
 
     use crate::services::{Services, storage::Storage};
 
@@ -617,7 +616,7 @@ mod tests {
         setup_logging();
 
         let config = Config::load()?;
-        let (_, eventsub) = Twitch::new(&config).await?;
+        let eventsub = EventSub::new(Twitch::new(&config).await?);
         let services = Services::mock().with_storage(Storage::new(&config).await?);
         services.storage().select(1).await?;
 
@@ -631,5 +630,80 @@ mod tests {
         });
 
         eventsub.run(ctx).await
+    }
+
+    async fn create_reward(twitch: &Twitch, body: CreateCustomRewardBody<'_>) -> Result<bool> {
+        let res = twitch
+            .caster_call(async |t| {
+                let request = CreateCustomRewardRequest::broadcaster_id(t.caster_id);
+                t.helix.req_post(request, body.clone(), &t.token).await?;
+                Ok(())
+            })
+            .await;
+
+        let Err(e) = res else {
+            return Ok(true);
+        };
+        match e.downcast_ref::<ClientRequestError<reqwest::Error>>() {
+            Some(ClientRequestError::HelixRequestPostError(HelixRequestPostError::Error {
+                status: StatusCode::BAD_REQUEST,
+                message,
+                ..
+            })) if message == "CREATE_CUSTOM_REWARD_DUPLICATE_REWARD" => Ok(false),
+            _ => Err(e),
+        }
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn bootstrap_rewards() -> Result<()> {
+        do_bootstrap_rewards().await
+    }
+
+    async fn do_bootstrap_rewards() -> Result<()> {
+        let twitch = Twitch::new(&Config::load()?).await?;
+
+        let created_hello = create_reward(
+            &twitch,
+            CreateCustomRewardBody::builder()
+                .title("hello there")
+                .prompt(Some("hiii".into()))
+                .cost(1)
+                .background_color(Some("#3F3F3F".into()))
+                .is_max_per_user_per_stream_enabled(true)
+                .max_per_user_per_stream(1)
+                .build(),
+        )
+        .await?;
+
+        let created_bless = create_reward(
+            &twitch,
+            CreateCustomRewardBody::builder()
+                .title("BLESS THE RUN")
+                .prompt(Some("thx! :)".into()))
+                .cost(500)
+                .background_color(Some("#E600D3".into()))
+                .global_cooldown_seconds(180)
+                .build(),
+        )
+        .await?;
+
+        let created_curse = create_reward(
+            &twitch,
+            CreateCustomRewardBody::builder()
+                .title("CURSE THE RUN")
+                .prompt(Some("why? :(".into()))
+                .cost(500)
+                .background_color(Some("#5C16C5".into()))
+                .global_cooldown_seconds(180)
+                .build(),
+        )
+        .await?;
+
+        dbg!(created_hello);
+        dbg!(created_curse);
+        dbg!(created_bless);
+
+        Ok(())
     }
 }
