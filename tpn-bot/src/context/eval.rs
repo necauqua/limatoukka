@@ -9,6 +9,8 @@ use anyhow::Result;
 use rustis::commands::HashCommands;
 use tokio::sync::RwLock;
 
+use crate::commands::runner::CommandInterrupt;
+
 use super::msg::MessageContext;
 
 pub struct EvalContextShared {
@@ -121,5 +123,15 @@ impl EvalContext {
             // meh
             tokio::task::block_in_place(|| self.vars.blocking_read().get(name).cloned())
         }
+    }
+
+    pub fn interruptible<F>(
+        &self,
+        f: F,
+    ) -> impl Future<Output = Result<(), CommandInterrupt>> + use<F>
+    where
+        F: Future<Output = ()>,
+    {
+        (**self).interruptible(&self.shared.owner, f)
     }
 }

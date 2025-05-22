@@ -192,7 +192,7 @@ pub async fn eval(ctx: EvalContext, command_msg: CommandMessage) -> Vec<CommandE
         Err(errors) => return errors,
     };
 
-    let last_interrupt = ctx.last_interrupt();
+    let interrupt_ticket = ctx.interrupt_ticket(&ctx.shared.owner);
 
     tracing::trace!("eval: {command_msg}");
 
@@ -209,8 +209,7 @@ pub async fn eval(ctx: EvalContext, command_msg: CommandMessage) -> Vec<CommandE
         }
     }
 
-    // if an interrupt happened while no interruptible commands were running
-    if ctx.last_interrupt() != last_interrupt {
+    if interrupt_ticket.interrupted() {
         errors.push(CommandError::Interrupt);
     }
 

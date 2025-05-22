@@ -7,6 +7,7 @@ use std::{
 
 use anyhow::anyhow;
 use async_trait::async_trait;
+use humantime_serde::re::humantime;
 use rustis::commands::{SetCondition, SetExpiration, StringCommands};
 use thiserror::Error;
 
@@ -350,6 +351,17 @@ impl<const DEFAULT: u32, const MAX: u32> CommandArg for HoldTime<DEFAULT, MAX> {
     }
 
     const OPTIONAL: bool = true;
+}
+
+#[async_trait]
+impl CommandArg for Duration {
+    async fn parse(_ctx: &CommandContext, input: String) -> ArgResult<Self> {
+        humantime::parse_duration(&input).map_err(|e| ArgError::Precondition(e.to_string()))
+    }
+
+    fn type_desc() -> Cow<'static, str> {
+        "duration in freeform format (using `humantime` Rust library), so `10s`, or `2 minutes` or `1h30m` etc".into()
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

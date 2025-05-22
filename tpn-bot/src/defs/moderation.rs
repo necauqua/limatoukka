@@ -1,4 +1,7 @@
+use std::time::{Duration, SystemTime};
+
 use anyhow::Result;
+use humantime_serde::re::humantime;
 use twitch_api::helix::channels::modify_channel_information::*;
 
 use crate::{
@@ -7,25 +10,45 @@ use crate::{
     fail, storage,
 };
 
-pub async fn do_banish(ctx: &AppContext, chatter: &RequiredChatter) -> Result<()> {
-    // yeet em
-    storage!(ctx, set, "kick:begone:{chatter}", { 1 })?;
+pub async fn do_banish(
+    ctx: &AppContext,
+    chatter: &RequiredChatter,
+    duration: Option<Duration>,
+) -> Result<()> {
+    if let Some(duration) = duration {
+        storage!(
+            ctx,
+            psetex,
+            "kick:begone:{chatter}",
+            { duration.as_millis() as _ },
+            { 1 }
+        )?;
+    } else {
+        storage!(ctx, set, "kick:begone:{chatter}", { 1 })?;
+    }
     tracing::info!(
         id = chatter.id,
         login = chatter.login,
+        ?duration,
         "sent to shadow realm"
     );
     Ok(())
 }
 
 /// Instantly banish a user to the shadow realm.
+///
+/// Can be temporary if a duration is provided.
 #[command(permission = TwitchStaff)]
-async fn banish(ctx: CommandContext, chatter: RequiredChatter) -> Result<()> {
+async fn banish(
+    ctx: CommandContext,
+    chatter: RequiredChatter,
+    duration: Option<Duration>,
+) -> Result<()> {
     if storage!(ctx, exists, "kick:begone:{chatter}")? != 0 {
         ctx.reply("already banished".into()).await?;
         return Ok(());
     }
-    do_banish(&ctx, &chatter).await?;
+    do_banish(&ctx, &chatter, duration).await?;
     ctx.reply("whoosh!".to_owned()).await?;
     Ok(())
 }
@@ -35,7 +58,7 @@ async fn banish(ctx: CommandContext, chatter: RequiredChatter) -> Result<()> {
 #[command(permission = Moderator)]
 async fn unbanish(ctx: CommandContext, chatter: RequiredChatter) -> Result<()> {
     if storage!(ctx, del, "kick:begone:{chatter}")? == 0 {
-        ctx.reply("was not banished lmao".into()).await?;
+        ctx.reply("was not there lmao".into()).await?;
     } else {
         tracing::info!(
             id = chatter.id,
@@ -53,13 +76,20 @@ async fn unbanish(ctx: CommandContext, chatter: RequiredChatter) -> Result<()> {
 /// ¯\\\_(ツ)_/¯.
 #[command(sender_gate = 15s)]
 async fn banished(ctx: CommandContext, chatter: RequiredChatter) -> Result<()> {
-    if storage!(ctx, exists, "kick:begone:{chatter}")? != 0 {
-        ctx.reply("In the shadow realm xdd".into()).await?;
-    } else {
-        ctx.reply("They're good".into()).await?;
-    }
-
-    Ok(())
+    ctx.reply(match storage!(ctx, pexpiretime, "kick:begone:{chatter}")? {
+        -2 => "They're good".into(),
+        -1 => "In the shadow realm xdd".into(),
+        time => {
+            let now = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_millis();
+            let left = Duration::from_millis((time - now as i64).unsigned_abs());
+            let left = humantime::format_duration(left);
+            format!("still {left} to go welp")
+        }
+    })
+    .await
 }
 
 /// Set the stream title, common moderation command, nothing special here.

@@ -126,9 +126,12 @@ async fn run(config: Config) -> Result<()> {
     let mut interrupt_signal = ctx.storage().subscribe("interrupt").await?;
     let handle = ctx.clone();
     tokio::spawn(async move {
-        _ = interrupt_signal.next().await;
-        tracing::info!("received an interrupt from new instance");
-        handle.interrupt_holds();
+        if let Some(chatter_id) = interrupt_signal.next().await {
+            // eh just panic the task on errors, we're shutting down anyway
+            let chatter_id = String::from_utf8(chatter_id.unwrap().payload).unwrap();
+            tracing::info!("received an interrupt from new instance");
+            handle.interrupt(Some(&*chatter_id).filter(|id| *id != "<all>"));
+        }
     });
 
     tasks.join_all().await;

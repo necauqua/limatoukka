@@ -1,8 +1,11 @@
 use std::{
     ops::Deref,
     process::Stdio,
-    sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
 };
 
 use anyhow::{Result, bail};
@@ -20,31 +23,82 @@ use crate::{commands::runner::CommandInterrupt, config::Config, services::Servic
 
 #[derive(Default)]
 struct AppState {
-    interrupts: Vec<Sender<()>>,
-    last_interrupt: Option<Instant>,
+    holds: Vec<(String, Sender<()>)>,
+    interrupts: Vec<InterruptTicket>,
+}
+
+#[derive(Clone)]
+pub struct InterruptTicket {
+    data: Arc<(String, AtomicBool)>,
+    handle: AppContext,
+}
+
+impl InterruptTicket {
+    pub fn interrupted(&self) -> bool {
+        self.data.1.load(Ordering::Relaxed)
+    }
+
+    pub fn set(&self) {
+        self.data.1.store(true, Ordering::Relaxed);
+    }
+}
+
+impl Drop for InterruptTicket {
+    fn drop(&mut self) {
+        let mut state = self.handle.inner.state.lock().unwrap();
+        if let Some(pos) = state
+            .interrupts
+            .iter()
+            .position(|t| std::ptr::eq(&*t.data, &*self.data))
+        {
+            std::mem::forget(state.interrupts.swap_remove(pos));
+        }
+    }
 }
 
 impl AppContext {
-    pub fn last_interrupt(&self) -> Option<Instant> {
-        self.inner.state.lock().unwrap().last_interrupt
+    pub fn interrupt_ticket(&self, chatter_id: &str) -> InterruptTicket {
+        let ticket = InterruptTicket {
+            data: Arc::new((chatter_id.to_string(), AtomicBool::new(false))),
+            handle: self.clone(),
+        };
+        self.inner
+            .state
+            .lock()
+            .unwrap()
+            .interrupts
+            .push(ticket.clone());
+        ticket
     }
 
     pub fn break_holds(&self) {
-        for tx in self.inner.state.lock().unwrap().interrupts.drain(..) {
+        for (_, tx) in self.inner.state.lock().unwrap().holds.drain(..) {
             _ = tx.send(());
         }
     }
 
-    pub fn interrupt_holds(&self) {
+    pub fn interrupt(&self, chatter_id: Option<&str>) {
         {
             let mut state = self.inner.state.lock().unwrap();
-            state.interrupts.clear();
-            state.last_interrupt = Some(Instant::now());
+            if let Some(chatter_id) = chatter_id {
+                state.holds.retain(|h| h.0 != chatter_id);
+                for t in &state.interrupts {
+                    if t.data.0 == chatter_id {
+                        t.set();
+                    }
+                }
+            } else {
+                state.holds.clear();
+                for t in &state.interrupts {
+                    t.set();
+                }
+            }
         }
 
         let handle = self.clone();
+        let chatter_id = chatter_id.map_or_else(|| "<all>".into(), |s| s.to_owned());
         tokio::spawn(async move {
-            if let Err(error) = handle.storage().publish("interrupt", "1").await {
+            if let Err(error) = handle.storage().publish("interrupt", chatter_id).await {
                 tracing::error!(?error, "failed to publish interrupt: {error:?}");
             }
         });
@@ -52,13 +106,19 @@ impl AppContext {
 
     pub fn interruptible<F>(
         &self,
+        chatter_id: &str,
         f: F,
     ) -> impl Future<Output = Result<(), CommandInterrupt>> + use<F>
     where
         F: Future<Output = ()>,
     {
         let (tx, rx) = oneshot::channel::<()>();
-        self.inner.state.lock().unwrap().interrupts.push(tx);
+        self.inner
+            .state
+            .lock()
+            .unwrap()
+            .holds
+            .push((chatter_id.to_owned(), tx));
         async move {
             tokio::select! {
                 r = rx => r.map_err(|_| CommandInterrupt),
@@ -185,7 +245,7 @@ impl AppContext {
     }
 
     pub async fn next_run(&self) -> Result<()> {
-        self.interrupt_holds();
+        self.interrupt(None);
 
         sleep(Duration::from_millis(500)).await;
 

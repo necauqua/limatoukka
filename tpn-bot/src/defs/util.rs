@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use crate::{
     commands::{
-        args::{Chatter, HoldTime},
+        args::{Chatter, HoldTime, RequiredChatter},
         command,
     },
     context::{app::AppContext, cmd::CommandContext},
@@ -134,8 +134,8 @@ async fn r#break(ctx: CommandContext) -> Result<()> {
 /// This is similar to `break~`, except the commands following the holds that
 /// get completed do not run.
 #[command]
-async fn interrupt(ctx: CommandContext) -> Result<()> {
-    ctx.interrupt_holds();
+async fn interrupt(ctx: CommandContext, chatter: Option<RequiredChatter>) -> Result<()> {
+    ctx.interrupt(chatter.as_ref().map(|c| &*c.id));
     Ok(())
 }
 

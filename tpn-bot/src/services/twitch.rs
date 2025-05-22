@@ -281,7 +281,7 @@ impl EventSub {
         Ok(())
     }
 
-    async fn process_keepalive_message(&mut self) -> Result<()> {
+    async fn keep_alive(&mut self) -> Result<()> {
         if let Some(canary) = self.canary.take() {
             canary.abort();
         }
@@ -347,47 +347,52 @@ impl EventSub {
         ctx: &AppContext,
     ) -> Result<MessageResult> {
         match msg {
-            tungstenite::Message::Text(s) => match Event::parse_websocket(&s)? {
-                EventsubWebsocketData::Welcome {
-                    payload: WelcomePayload { session },
-                    ..
-                } => self.process_welcome_message(session).await?,
-                EventsubWebsocketData::Reconnect {
-                    payload: ReconnectPayload { session },
-                    ..
-                } => {
-                    let url = session
-                        .reconnect_url
-                        .as_deref()
-                        .and_then(|url| url.parse().ok())
-                        .unwrap_or_else(|| TWITCH_EVENTSUB_WEBSOCKET_URL.clone());
-                    tracing::info!(%url, "reconnect event");
-                    return Ok(MessageResult::Reconnect { url });
-                }
-                EventsubWebsocketData::Notification { metadata, payload } => {
-                    let new = ctx
-                        .storage()
-                        .set_with_options(
-                            format!("seen:eventsub:{}", metadata.message_id),
-                            "1",
-                            SetCondition::NX,
-                            SetExpiration::Ex(600),
-                            false,
-                        )
-                        .await?;
-                    if new {
-                        _ = self.tx.send(payload);
-                    } else {
-                        tracing::info!("received duplicate eventsub event, payload: {payload:?}");
+            tungstenite::Message::Text(s) => {
+                match Event::parse_websocket(&s)? {
+                    EventsubWebsocketData::Welcome {
+                        payload: WelcomePayload { session },
+                        ..
+                    } => self.process_welcome_message(session).await?,
+                    EventsubWebsocketData::Reconnect {
+                        payload: ReconnectPayload { session },
+                        ..
+                    } => {
+                        let url = session
+                            .reconnect_url
+                            .as_deref()
+                            .and_then(|url| url.parse().ok())
+                            .unwrap_or_else(|| TWITCH_EVENTSUB_WEBSOCKET_URL.clone());
+                        tracing::info!(%url, "reconnect event");
+                        return Ok(MessageResult::Reconnect { url });
                     }
+                    EventsubWebsocketData::Notification { metadata, payload } => {
+                        let new = ctx
+                            .storage()
+                            .set_with_options(
+                                format!("seen:eventsub:{}", metadata.message_id),
+                                "1",
+                                SetCondition::NX,
+                                SetExpiration::Ex(600),
+                                false,
+                            )
+                            .await?;
+                        if new {
+                            _ = self.tx.send(payload);
+                        } else {
+                            tracing::info!(
+                                "received duplicate eventsub event, payload: {payload:?}"
+                            );
+                        }
+                    }
+                    EventsubWebsocketData::Revocation {
+                        metadata,
+                        payload: _,
+                    } => tracing::warn!(?metadata, "got a revocation event!"),
+                    _ => {}
                 }
-                EventsubWebsocketData::Revocation {
-                    metadata,
-                    payload: _,
-                } => tracing::warn!(?metadata, "got a revocation event!"),
-                EventsubWebsocketData::Keepalive { .. } => self.process_keepalive_message().await?,
-                _ => {}
-            },
+                // twitch sends a keepalive every 10 seconds when *no other events are received*
+                self.keep_alive().await?;
+            }
             tungstenite::Message::Close(frame) => {
                 tracing::warn!(?frame, "websocket closed")
             }
@@ -683,6 +688,7 @@ mod tests {
                 .prompt(Some("thx! :)".into()))
                 .cost(500)
                 .background_color(Some("#E600D3".into()))
+                .is_global_cooldown_enabled(true)
                 .global_cooldown_seconds(180)
                 .build(),
         )
@@ -695,6 +701,7 @@ mod tests {
                 .prompt(Some("why? :(".into()))
                 .cost(500)
                 .background_color(Some("#5C16C5".into()))
+                .is_global_cooldown_enabled(true)
                 .global_cooldown_seconds(180)
                 .build(),
         )

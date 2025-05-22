@@ -253,7 +253,7 @@ async fn votekick(ctx: CommandContext, chatter: RequiredChatter) -> Result<()> {
         html! { "Banish " span style="color: #E38AF0" { (chatter.login) } },
         format!("Banish {}", chatter.login),
         config,
-        async move { super::moderation::do_banish(ctx, &chatter).await },
+        async move { super::moderation::do_banish(ctx, &chatter, None).await },
     )
     .await
 }
