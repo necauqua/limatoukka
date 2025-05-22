@@ -7,7 +7,9 @@ use twitch_api::helix::channels::modify_channel_information::*;
 use crate::{
     commands::{args::RequiredChatter, command},
     context::{app::AppContext, cmd::CommandContext},
-    fail, storage,
+    fail,
+    services::messaging::PermissionLevel,
+    storage,
 };
 
 pub async fn do_banish(
@@ -44,12 +46,18 @@ async fn banish(
     chatter: RequiredChatter,
     duration: Option<Duration>,
 ) -> Result<()> {
+    if chatter.id == ctx.twitch().caster_id() {
+        return ctx.reply("🤨".into()).await;
+    }
+    if ctx.message().sender.level >= PermissionLevel::Moderator {
+        fail!("can't banish a mod");
+    }
     if storage!(ctx, exists, "kick:begone:{chatter}")? != 0 {
         ctx.reply("already banished".into()).await?;
         return Ok(());
     }
     do_banish(&ctx, &chatter, duration).await?;
-    ctx.reply("whoosh!".to_owned()).await?;
+    ctx.reply("whoosh!".into()).await?;
     Ok(())
 }
 
@@ -58,16 +66,14 @@ async fn banish(
 #[command(permission = Moderator)]
 async fn unbanish(ctx: CommandContext, chatter: RequiredChatter) -> Result<()> {
     if storage!(ctx, del, "kick:begone:{chatter}")? == 0 {
-        ctx.reply("was not there lmao".into()).await?;
-    } else {
-        tracing::info!(
-            id = chatter.id,
-            login = chatter.login,
-            "pulled out of shadow realm"
-        );
-        ctx.reply("the deed is done".to_owned()).await?;
+        return ctx.reply("was not there lmao".into()).await;
     }
-    Ok(())
+    tracing::info!(
+        id = chatter.id,
+        login = chatter.login,
+        "pulled out of shadow realm"
+    );
+    ctx.reply("the deed is done".into()).await
 }
 
 /// Check if a user was yeeted into the shadow realm.

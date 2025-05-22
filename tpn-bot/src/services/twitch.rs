@@ -154,6 +154,10 @@ impl Twitch {
         &self.inner.bot_id
     }
 
+    pub fn caster_id(&self) -> &str {
+        &self.inner.caster_id
+    }
+
     pub fn caster_login(&self) -> &str {
         &self.inner.caster_login
     }

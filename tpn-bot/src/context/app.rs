@@ -24,51 +24,53 @@ use crate::{commands::runner::CommandInterrupt, config::Config, services::Servic
 #[derive(Default)]
 struct AppState {
     holds: Vec<(String, Sender<()>)>,
-    interrupts: Vec<InterruptTicket>,
+    interrupts: Vec<Arc<InterruptTicketInner>>,
+}
+
+struct InterruptTicketInner {
+    chatter_id: String,
+    interrupted: AtomicBool,
+    ctx: AppContext,
 }
 
 #[derive(Clone)]
 pub struct InterruptTicket {
-    data: Arc<(String, AtomicBool)>,
-    handle: AppContext,
+    inner: Arc<InterruptTicketInner>,
 }
 
 impl InterruptTicket {
     pub fn interrupted(&self) -> bool {
-        self.data.1.load(Ordering::Relaxed)
-    }
-
-    pub fn set(&self) {
-        self.data.1.store(true, Ordering::Relaxed);
+        self.inner.interrupted.load(Ordering::Relaxed)
     }
 }
 
 impl Drop for InterruptTicket {
     fn drop(&mut self) {
-        let mut state = self.handle.inner.state.lock().unwrap();
+        let mut state = self.inner.ctx.inner.state.lock().unwrap();
         if let Some(pos) = state
             .interrupts
             .iter()
-            .position(|t| std::ptr::eq(&*t.data, &*self.data))
+            .position(|t| std::ptr::eq(&**t, &*self.inner))
         {
-            std::mem::forget(state.interrupts.swap_remove(pos));
+            state.interrupts.swap_remove(pos);
         }
     }
 }
 
 impl AppContext {
     pub fn interrupt_ticket(&self, chatter_id: &str) -> InterruptTicket {
-        let ticket = InterruptTicket {
-            data: Arc::new((chatter_id.to_string(), AtomicBool::new(false))),
-            handle: self.clone(),
-        };
+        let ticket = Arc::new(InterruptTicketInner {
+            chatter_id: chatter_id.to_string(),
+            interrupted: AtomicBool::new(false),
+            ctx: self.clone(),
+        });
         self.inner
             .state
             .lock()
             .unwrap()
             .interrupts
             .push(ticket.clone());
-        ticket
+        InterruptTicket { inner: ticket }
     }
 
     pub fn break_holds(&self) {
@@ -83,14 +85,14 @@ impl AppContext {
             if let Some(chatter_id) = chatter_id {
                 state.holds.retain(|h| h.0 != chatter_id);
                 for t in &state.interrupts {
-                    if t.data.0 == chatter_id {
-                        t.set();
+                    if t.chatter_id == chatter_id {
+                        t.interrupted.store(true, Ordering::Relaxed);
                     }
                 }
             } else {
                 state.holds.clear();
                 for t in &state.interrupts {
-                    t.set();
+                    t.interrupted.store(true, Ordering::Relaxed);
                 }
             }
         }
