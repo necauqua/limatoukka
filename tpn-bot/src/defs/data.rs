@@ -23,15 +23,12 @@ fn data_error(thing: &str) -> impl Fn(anyhow::Error) -> CommandFailure {
 /// Read the current seed
 #[command(global_gate = 15s, permission = Vip)]
 async fn seed(ctx: CommandContext) -> Result<()> {
-    match ctx
+    let seed = ctx
         .noita()
-        .with(|n| Ok(n.read_seed()?))
+        .with(|n| n.read_seed()?.context("no seed"))
         .await
-        .map_err(data_error("seed"))?
-    {
-        Some(seed) => ctx.reply(format!("{seed}")).await,
-        None => fail!("no data"),
-    }
+        .map_err(data_error("seed"))?;
+    ctx.reply(format!("{seed}")).await
 }
 
 /// Read the current death count
@@ -203,5 +200,20 @@ async fn pillar_done(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
             .collect::<Vec<_>>()
             .join(",\n"),
     )
+    .await
+}
+
+/// Prints the current player position in pixels
+#[command(permission = Caster)]
+async fn player_pos(ctx: CommandContext) -> Result<()> {
+    let (e, _) = ctx
+        .noita()
+        .with(|n| n.get_player()?.context("no player"))
+        .await
+        .map_err(data_error("player pos"))?;
+    ctx.reply(format!(
+        "x: {:.2}, y: {:.2}",
+        e.transform.pos.x, e.transform.pos.y
+    ))
     .await
 }
