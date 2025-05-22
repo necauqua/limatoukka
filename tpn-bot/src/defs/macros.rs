@@ -436,7 +436,7 @@ async fn set_text(ctx: CommandContext, name: String, value: String) -> Result<()
 /// Deletes a personal named value. Can delete more than one at once.
 #[command]
 async fn del(ctx: CommandContext, names: RestOfArgs) -> Result<()> {
-    if names.args.is_empty() {
+    if names.is_empty() {
         fail!("no names given");
     }
     let names = names.get(&ctx).await?;

@@ -142,14 +142,18 @@ impl<T: CommandArg> ArgExtractor for T {
 
 #[derive(Debug, Clone)]
 pub struct RestOfArgs {
-    pub args: Vec<Arg<String>>,
+    args: Vec<Arg<Option<String>>>,
 }
 
 impl RestOfArgs {
+    pub fn is_empty(&self) -> bool {
+        self.args.is_empty()
+    }
+
     pub async fn get(self, ctx: &CommandContext) -> ArgResult<VecDeque<String>> {
         let mut args = VecDeque::with_capacity(self.args.len());
         for arg in self.args {
-            args.push_back(arg.get(ctx).await?);
+            args.push_back(arg.get(ctx).await?.unwrap_or_default());
         }
         Ok(args)
     }
@@ -160,7 +164,7 @@ impl ArgExtractor for RestOfArgs {
     async fn extract(ctx: &CommandContext, args: &mut Args) -> ExtractorResult<Arg<Self>> {
         let mut rest = Vec::with_capacity(args.args.len());
         while !args.args.is_empty() {
-            rest.push(String::extract(ctx, args).await?);
+            rest.push(ArgExtractor::extract(ctx, args).await?);
         }
         Ok(Arg::Static(Self { args: rest }))
     }
