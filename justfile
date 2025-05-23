@@ -8,6 +8,8 @@ compat-dir := "noita/steam-compat-data"
 export STEAM_COMPAT_CLIENT_INSTALL_PATH := x"~/.local/share/Steam"
 export STEAM_COMPAT_DATA_PATH := justfile_dir() + "/" + compat-dir
 
+export TWITCH_PLAYS_NOITA := "1"
+
 _default:
     @just -l
 
@@ -32,7 +34,7 @@ start:
         noita.exe \
         -- \
         -no_logo_splashes \
-        -gamemode >/dev/null 2>/dev/null
+        -gamemode >/dev/null 2>&1 </dev/null &
 
 # Completely delete the instance, including stats, unlocks etc.
 full-reset:
@@ -75,7 +77,7 @@ run:
     # make sure obs capture is connected to this instance
     just obs-reset-display
 
-    just sound-setup &
+    just sound-setup
 
     # and just start the game now, in that instance
     vglrun just --color=always start 2> >(grep -v "wrong ELF class: ELFCLASS32" >&2)
@@ -83,7 +85,7 @@ run:
 stop:
     #!/usr/bin/env bash
     DISPLAY={{display}} xdotool key Alt+F4
-    while pgrep noita.exe >/dev/null; do
+    while just is-game-running; do
         sleep 0.1
     done
     pkill .exe
@@ -105,12 +107,12 @@ reset-restart:
     #!/usr/bin/env bash
     ./obs-files/hide-nocap.fish &
     sleep 0.2
-    just stop reset
-    sleep 2
-    just run
+    just stop reset run
 
 sound-setup:
-    wpexec pipewire-obs-thing.lua '{"display":"{{display}}"}'
+    #!/usr/bin/env bash
+    pkill wpexec
+    wpexec pipewire-obs-thing.lua '{"display":"{{display}}"}' >/dev/null 2>&1 </dev/null &
 
 # Force the XSH display capture input to reconnect to the X instance
 obs-reset-display:
@@ -127,42 +129,46 @@ obs-refresh input="chat message":
     echo '{"op":1,"d":{"rpcVersion":1}}'; \
     sleep 0.1; \
     echo '{"op":6,"d":{"requestType":"PressInputPropertiesButton","requestId":"1","requestData":{"inputName":"{{input}}","propertyName":"refreshnocache"}}}'; \
-    ) | websocat ws://localhost4455 >/dev/null
+    ) | websocat ws://localhost:4455 >/dev/null
 
 obs-stop-stream:
     @(\
     echo '{"op":1,"d":{"rpcVersion":1}}'; \
     sleep 0.1; \
     echo '{"op":6,"d":{"requestType":"StopStream","requestId":"1"}}'; \
-    ) | websocat ws://localhost4455 >/dev/null
+    ) | websocat ws://localhost:4455 >/dev/null
 
 obs-start-stream:
     @(\
     echo '{"op":1,"d":{"rpcVersion":1}}'; \
     sleep 0.1; \
     echo '{"op":6,"d":{"requestType":"StartStream","requestId":"1"}}'; \
-    ) | websocat ws://localhost4455 >/dev/null
+    ) | websocat ws://localhost:4455 >/dev/null
 
 obs-revive:
     #!/usr/bin/env bash
     # ughh, nixos wrappers
     if ! pgrep -x .obs-wrapped >/dev/null; then
-        obs --disable-shutdown-check & disown
+        obs --disable-shutdown-check >/dev/null 2>&1 </dev/null &
         sleep 10
-        just obs-start-stream
+        just sound-setup obs-start-stream
         echo true
     fi
 
 obs-restart-stream:
     just obs-stop-stream
     sleep 10
-    just sound-setup obs-start-stream & disown
+    just obs-start-stream
 
+[no-exit-message]
 is-game-running:
     #!/usr/bin/env bash
-    if pgrep noita.exe >/dev/null; then
-        echo true
-    fi
+    for pid in $(pgrep -f noita.exe); do
+        if cat /proc/$pid/environ 2>/dev/null | rg -q TWITCH_PLAYS_NOITA=1 ; then
+            exit 0
+        fi
+    done
+    exit 1
 
 [working-directory("obs-files")]
 start-intro-timer seconds="900":

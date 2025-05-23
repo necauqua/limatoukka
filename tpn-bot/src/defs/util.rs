@@ -74,7 +74,7 @@ async fn fix_obs_sound() -> Result<()> {
 #[command(sender_gate = 1m)]
 async fn is_game_running(ctx: CommandContext) -> Result<()> {
     ctx.reply(
-        if AppContext::just_bool("is-game-running").await? {
+        if AppContext::just_bool("is-game-running").await.is_ok() {
             "It is running currently, yes"
         } else {
             "The game is NOT running"

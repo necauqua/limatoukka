@@ -7,9 +7,7 @@ use twitch_api::helix::channels::modify_channel_information::*;
 use crate::{
     commands::{args::RequiredChatter, command},
     context::{app::AppContext, cmd::CommandContext},
-    fail,
-    services::messaging::PermissionLevel,
-    storage,
+    fail, storage,
 };
 
 pub async fn do_banish(
@@ -49,8 +47,8 @@ async fn banish(
     if chatter.id == ctx.twitch().caster_id() {
         return ctx.reply("🤨".into()).await;
     }
-    if ctx.message().sender.level >= PermissionLevel::Moderator {
-        fail!("can't banish a mod");
+    if chatter.id == ctx.twitch().bot_id() {
+        fail!("lol. lmao.")
     }
     if storage!(ctx, exists, "kick:begone:{chatter}")? != 0 {
         ctx.reply("already banished".into()).await?;

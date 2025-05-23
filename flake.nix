@@ -65,6 +65,7 @@
     {
       env.LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
         pkgsi686Linux.pulseaudio # for audio to work
+        pipewire.jack # for OBS audio to work 🤦
         openssl
         dbus
         xorg.libX11
