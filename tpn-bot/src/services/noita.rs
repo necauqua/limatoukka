@@ -14,9 +14,10 @@ use bitflags::bitflags;
 use noita_engine_reader::{
     Noita,
     discovery::KnownBuild,
-    memory::{MemoryStorage, PadBool, RawPtr},
+    memory::{MemoryStorage, PadBool, ProcessRef, RawPtr},
     types::components::{DamageModelComponent, ItemActionComponent, ItemComponent},
 };
+use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 use tokio::{
     sync::{
         Mutex,
@@ -43,6 +44,7 @@ pub enum NoitaEvent {
     StartedDrowning,
     ItemFound(ItemFound),
     PillarCompleted(String),
+    OtherPermanentFlag(String),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -181,12 +183,10 @@ impl NoitaHandle {
             if !new_flags.is_empty() {
                 last_flags = current_flags;
                 for flag in new_flags {
-                    if let Some(pillar) = PILLAR_FLAG_NAMES.get(&flag) {
-                        _ = ctx
-                            .noita()
-                            .events
-                            .send(NoitaEvent::PillarCompleted(pillar.clone()));
-                    }
+                    _ = ctx.noita().events.send(match PILLAR_FLAG_NAMES.get(&flag) {
+                        Some(pillar) => NoitaEvent::PillarCompleted(pillar.clone()),
+                        None => NoitaEvent::OtherPermanentFlag(flag),
+                    });
                 }
             }
         }
@@ -199,11 +199,6 @@ impl NoitaHandle {
         T: Send + 'static,
         F: FnMut(&mut Noita) -> Result<T> + Send + 'static,
     {
-        async fn find_noita() -> Result<Option<Noita>> {
-            // actually does take tens of milliseconds, so we offload it
-            Ok(tokio::task::spawn_blocking(|| Noita::lookup(KnownBuild::last().map())).await??)
-        }
-
         let mut noita = self.noita.lock().await;
         if noita.is_none() {
             *noita = find_noita().await?;
@@ -264,6 +259,33 @@ impl NoitaHandle {
     pub async fn test(&self) -> Result<()> {
         Ok(())
     }
+}
+
+async fn find_noita() -> Result<Option<Noita>> {
+    // actually does take tens of milliseconds, so we offload it
+    tokio::task::spawn_blocking(|| {
+        let mut system = System::new();
+        system.refresh_processes_specifics(
+            ProcessesToUpdate::All,
+            true,
+            ProcessRefreshKind::nothing()
+                .with_exe(UpdateKind::OnlyIfNotSet)
+                .with_environ(UpdateKind::OnlyIfNotSet),
+        );
+
+        let Some(process) = system
+            .processes_by_exact_name("noita.exe".as_ref())
+            .find(|p| {
+                p.thread_kind().is_none() && p.environ().contains(&"TWITCH_PLAYS_NOITA=1".into())
+            })
+        else {
+            return Ok(None);
+        };
+
+        let proc = ProcessRef::connect(process.pid().as_u32())?;
+        Ok(Some(Noita::new(proc, KnownBuild::last().map())))
+    })
+    .await?
 }
 
 struct NoitaState {

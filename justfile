@@ -88,8 +88,6 @@ stop:
     while just is-game-running; do
         sleep 0.1
     done
-    pkill .exe
-    pkill wine
     pkill -f pipewire-obs-thing.lua
     # this will fail to kill the main X instance, pfew
     pgrep X | tail -1 | xargs kill
