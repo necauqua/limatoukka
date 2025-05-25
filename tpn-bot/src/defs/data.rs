@@ -13,7 +13,7 @@ use crate::{
     commands::{args::RestOfArgs, command, runner::CommandFailure},
     context::cmd::CommandContext,
     fail,
-    services::noita::{PILLAR_FLAG_NAMES, PILLAR_FLAGS},
+    services::noita::{ACTION_FLAGS, ACTION_NAMES, PILLAR_FLAG_NAMES, PILLAR_FLAGS},
 };
 
 fn data_error(thing: &str) -> impl Fn(anyhow::Error) -> CommandFailure {
@@ -198,7 +198,7 @@ async fn pillar_todo(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
 
 /// Shows all the pillar achievements already completed in the running save.
 #[command(global_gate = 5s)]
-async fn pillar_done(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
+async fn pillars_done(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
     ctx.reply(
         PILLAR_FLAGS
             .intersection(&ctx.noita().read_flags().await?)
@@ -207,6 +207,54 @@ async fn pillar_done(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
             .into_iter()
             .take(top_n.unwrap_or(u32::MAX) as _)
             .map(|flag| PILLAR_FLAG_NAMES[&flag].clone())
+            .collect::<Vec<_>>()
+            .join(",\n"),
+    )
+    .await
+}
+
+/// Shows the amount of unique spells ever cast vs total.
+#[command(global_gate = 5s)]
+async fn spell_progress(ctx: CommandContext) -> Result<()> {
+    let total = ACTION_NAMES.len();
+    let done = ACTION_FLAGS
+        .intersection(&ctx.noita().read_flags().await?)
+        .count();
+    ctx.reply(format!(
+        "{:.2}%! ({done}/{total})",
+        (done as f32 / total as f32) * 100.0
+    ))
+    .await
+}
+
+/// Shows all the spells that were never cast in the running save.
+#[command(global_gate = 5s)]
+async fn spell_todo(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
+    ctx.reply(
+        ACTION_FLAGS
+            .difference(&ctx.noita().read_flags().await?)
+            .cloned()
+            .collect::<BTreeSet<_>>() // sort
+            .into_iter()
+            .take(top_n.unwrap_or(u32::MAX) as _)
+            .map(|flag| ACTION_NAMES[&flag].clone())
+            .collect::<Vec<_>>()
+            .join(",\n"),
+    )
+    .await
+}
+
+/// Shows all the spells that were already cast in the running save.
+#[command(global_gate = 5s)]
+async fn spells_done(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
+    ctx.reply(
+        ACTION_FLAGS
+            .intersection(&ctx.noita().read_flags().await?)
+            .cloned()
+            .collect::<BTreeSet<_>>() // sort
+            .into_iter()
+            .take(top_n.unwrap_or(u32::MAX) as _)
+            .map(|flag| ACTION_NAMES[&flag].clone())
             .collect::<Vec<_>>()
             .join(",\n"),
     )

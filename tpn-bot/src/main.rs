@@ -173,10 +173,10 @@ async fn noita_event(ctx: AppContext, event: NoitaEvent) -> Result<()> {
             ItemFound::Taikasauva => "Got the SUMMONTAIKASAUVA , the whole world is in your hands now",
         }.into()).await?,
         NoitaEvent::PillarCompleted(pillar) => ctx.send(format!("A new pillar level was erected! '{pillar}' is complete! shadowWizardJAM")).await?,
+        NoitaEvent::NewSpellCast(flag, name) => ctx.send(format!("A new spell was cast: {name} ({flag})")).await?,
         NoitaEvent::OtherPermanentFlag(flag) => ctx.send(format!("A permanent flag was set: {flag}")).await?,
         _ => {}
     }
-
     Ok(())
 }
 
