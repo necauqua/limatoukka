@@ -3,6 +3,7 @@ use std::{
     fmt::Debug,
     ops::{Deref, DerefMut},
     option::Option::Some,
+    pin::Pin,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -21,7 +22,7 @@ use tokio::{
         broadcast::{Receiver, Sender},
         oneshot,
     },
-    task::JoinHandle,
+    time::{Instant, Sleep},
 };
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite};
 use tracing::instrument;
@@ -216,7 +217,8 @@ pub struct EventSub {
     tx: Sender<Event>,
     prev: Option<WebSocket>,
     on_subscribed: Option<Arc<Notify>>,
-    canary: Option<JoinHandle<()>>,
+    keepalive_timeout: Duration,
+    canary: Pin<Box<Sleep>>,
 }
 
 impl EventSub {
@@ -226,12 +228,17 @@ impl EventSub {
             tx: Sender::new(16),
             prev: None,
             on_subscribed: Some(Default::default()),
-            canary: None,
+            keepalive_timeout: Duration::from_secs(10),
+            canary: Box::pin(tokio::time::sleep(Duration::from_secs(60))),
         }
     }
 
     async fn process_welcome_message(&mut self, data: SessionData<'_>) -> Result<()> {
         tracing::info!("got a welcome message");
+
+        self.keepalive_timeout = data
+            .keepalive_timeout_seconds
+            .map_or_else(|| Duration::from_secs(10), |s| Duration::from_secs(s as _));
 
         if let Some(mut prev) = self.prev.take() {
             prev.close(None).await?;
@@ -286,13 +293,9 @@ impl EventSub {
     }
 
     async fn keep_alive(&mut self) -> Result<()> {
-        if let Some(canary) = self.canary.take() {
-            canary.abort();
-        }
-        self.canary = Some(tokio::spawn(async {
-            tokio::time::sleep(Duration::from_secs(20)).await;
-            tracing::error!("received no keepalive");
-        }));
+        self.canary
+            .as_mut()
+            .reset(Instant::now() + self.keepalive_timeout + Duration::from_secs(5));
         Ok(())
     }
 
@@ -339,6 +342,10 @@ impl EventSub {
                     if let MessageResult::Reconnect { url } = self.process_message(msg?, ctx).await? {
                         self.prev = Some(std::mem::replace(&mut s, websocket_connect(&url).await?));
                     }
+                }
+                _ = &mut self.canary => {
+                    tracing::warn!("websocket keepalive timeout, reconnecting");
+                    self.prev = Some(std::mem::replace(&mut s, websocket_connect(&TWITCH_EVENTSUB_WEBSOCKET_URL).await?));
                 }
                 else => bail!("websocket closed without reconnect event"),
             }
@@ -392,7 +399,10 @@ impl EventSub {
                         metadata,
                         payload: _,
                     } => tracing::warn!(?metadata, "got a revocation event!"),
-                    _ => {}
+                    EventsubWebsocketData::Keepalive { .. } => {
+                        // noop, update the canary below
+                    }
+                    _ => unreachable!("EventsubWebsocketData got a new variant added"),
                 }
                 // twitch sends a keepalive every 10 seconds when *no other events are received*
                 self.keep_alive().await?;
@@ -413,8 +423,7 @@ async fn websocket_connect(url: &Url) -> Result<WebSocket> {
         Some(
             tungstenite::protocol::WebSocketConfig::default()
                 .max_message_size(Some(64 << 20)) // 64 MiB
-                .max_frame_size(Some(16 << 20)) // 16 MiB
-                .accept_unmasked_frames(false),
+                .max_frame_size(Some(16 << 20)), // 16 MiB
         ),
         false,
     )
