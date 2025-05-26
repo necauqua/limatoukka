@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
     fmt::Debug,
-    ops::{Deref, DerefMut},
     option::Option::Some,
     pin::Pin,
     sync::{Arc, Mutex},
@@ -24,7 +23,10 @@ use tokio::{
     },
     time::{Instant, Sleep},
 };
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite};
+use tokio_tungstenite::{
+    MaybeTlsStream, WebSocketStream,
+    tungstenite::{self, protocol::CloseFrame},
+};
 use tracing::instrument;
 use twitch_api::{
     HelixClient, TWITCH_EVENTSUB_WEBSOCKET_URL,
@@ -216,7 +218,7 @@ pub struct EventSub {
     twitch: Twitch,
     tx: Sender<Event>,
     prev: Option<WebSocket>,
-    on_subscribed: Option<Arc<Notify>>,
+    on_subscribed: Arc<Notify>,
     keepalive_timeout: Duration,
     canary: Pin<Box<Sleep>>,
 }
@@ -227,9 +229,9 @@ impl EventSub {
             twitch,
             tx: Sender::new(16),
             prev: None,
-            on_subscribed: Some(Default::default()),
+            on_subscribed: Default::default(),
             keepalive_timeout: Duration::from_secs(10),
-            canary: Box::pin(tokio::time::sleep(Duration::from_secs(60))),
+            canary: Box::pin(tokio::time::sleep(Duration::from_secs(15))),
         }
     }
 
@@ -239,6 +241,9 @@ impl EventSub {
         self.keepalive_timeout = data
             .keepalive_timeout_seconds
             .map_or_else(|| Duration::from_secs(10), |s| Duration::from_secs(s as _));
+
+        // reset the canary just in case the timeout was changed
+        self.keep_alive();
 
         if let Some(mut prev) = self.prev.take() {
             prev.close(None).await?;
@@ -285,26 +290,21 @@ impl EventSub {
             channel::ChannelHypeTrainEndV1,
         ];
 
-        if let Some(on_subscribed) = self.on_subscribed.take() {
-            on_subscribed.notify_waiters();
-        }
+        self.on_subscribed.notify_waiters();
 
         Ok(())
     }
 
-    async fn keep_alive(&mut self) -> Result<()> {
+    fn keep_alive(&mut self) {
         self.canary
             .as_mut()
             .reset(Instant::now() + self.keepalive_timeout + Duration::from_secs(5));
-        Ok(())
     }
 
     pub fn wait_for_full_init(&self) -> impl Future<Output = ()> + use<> {
         let notif = self.on_subscribed.clone();
-        async {
-            if let Some(notif) = notif {
-                notif.notified().await;
-            }
+        async move {
+            notif.notified().await;
         }
     }
 
@@ -339,15 +339,22 @@ impl EventSub {
                     Err(e) => tracing::warn!(error=?e, "old websocket error (probably closed)"),
                 },
                 Some(msg) = s.next() => {
-                    if let MessageResult::Reconnect { url } = self.process_message(msg?, ctx).await? {
-                        self.prev = Some(std::mem::replace(&mut s, websocket_connect(&url).await?));
+                    match self.process_message(msg?, ctx).await? {
+                        MessageResult::Ok => {},
+                        MessageResult::Reconnect { url } => {
+                            tracing::info!(%url, "reconnect event");
+                            self.prev = Some(std::mem::replace(&mut s, websocket_connect(&url).await?));
+                        },
+                        MessageResult::Closed(frame) => {
+                            tracing::warn!(?frame, "websocket closed");
+                            s = websocket_connect(&TWITCH_EVENTSUB_WEBSOCKET_URL).await?;
+                        },
                     }
                 }
                 _ = &mut self.canary => {
                     tracing::warn!("websocket keepalive timeout, reconnecting");
                     self.prev = Some(std::mem::replace(&mut s, websocket_connect(&TWITCH_EVENTSUB_WEBSOCKET_URL).await?));
                 }
-                else => bail!("websocket closed without reconnect event"),
             }
         }
     }
@@ -357,6 +364,8 @@ impl EventSub {
         msg: tungstenite::Message,
         ctx: &AppContext,
     ) -> Result<MessageResult> {
+        // twitch sends a keepalive every 10 seconds when *no other events are received*
+        self.keep_alive();
         match msg {
             tungstenite::Message::Text(s) => {
                 match Event::parse_websocket(&s)? {
@@ -373,7 +382,6 @@ impl EventSub {
                             .as_deref()
                             .and_then(|url| url.parse().ok())
                             .unwrap_or_else(|| TWITCH_EVENTSUB_WEBSOCKET_URL.clone());
-                        tracing::info!(%url, "reconnect event");
                         return Ok(MessageResult::Reconnect { url });
                     }
                     EventsubWebsocketData::Notification { metadata, payload } => {
@@ -404,17 +412,17 @@ impl EventSub {
                     }
                     _ => unreachable!("EventsubWebsocketData got a new variant added"),
                 }
-                // twitch sends a keepalive every 10 seconds when *no other events are received*
-                self.keep_alive().await?;
             }
             tungstenite::Message::Close(frame) => {
-                tracing::warn!(?frame, "websocket closed")
+                return Ok(MessageResult::Closed(frame));
             }
             _ => {}
         }
         Ok(MessageResult::Ok)
     }
 }
+
+type WebSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 async fn websocket_connect(url: &Url) -> Result<WebSocket> {
     tracing::info!(%url, "websocket connect");
@@ -428,41 +436,13 @@ async fn websocket_connect(url: &Url) -> Result<WebSocket> {
         false,
     )
     .await?;
-    Ok(WebSocket {
-        stream,
-        url: url.to_string(),
-    })
-}
-
-struct WebSocket {
-    stream: WebSocketStream<MaybeTlsStream<TcpStream>>,
-    url: String,
-}
-
-impl Drop for WebSocket {
-    fn drop(&mut self) {
-        let backtrace = std::backtrace::Backtrace::force_capture();
-        tracing::info!(url = self.url, "dropped websocket at:\n{backtrace:?}");
-    }
-}
-
-impl Deref for WebSocket {
-    type Target = WebSocketStream<MaybeTlsStream<TcpStream>>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.stream
-    }
-}
-
-impl DerefMut for WebSocket {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.stream
-    }
+    Ok(stream)
 }
 
 enum MessageResult {
     Ok,
     Reconnect { url: Url },
+    Closed(Option<CloseFrame>),
 }
 
 #[derive(Serialize, Deserialize)]
