@@ -158,7 +158,7 @@ fn mainloop_task(tasks: &mut JoinSet<()>, task: impl Future<Output = Result<()>>
 async fn noita_event(ctx: AppContext, event: NoitaEvent) -> Result<()> {
     match event {
         NoitaEvent::PlayerDeath => ctx.next_run().await?,
-        NoitaEvent::StartedDrowning => ctx.send("We are drowning btw HelloHowAreYouIAmUnderTheWater".into()).await?,
+        NoitaEvent::LowOxygen => ctx.send("Kinda getting low on O₂ btw HelloHowAreYouIAmUnderTheWater".into()).await?,
         NoitaEvent::Polymorphed => {
             if ctx.gate("polymorphed", Duration::from_secs(300)).await? {
                 ctx.send("Polymorphed ICANT".into()).await?

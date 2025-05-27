@@ -42,7 +42,7 @@ pub enum NoitaEvent {
     InventoryClosed,
     PlayerDeath,
     Polymorphed,
-    StartedDrowning,
+    LowOxygen,
     ItemFound(ItemFound),
     PillarCompleted(String),
     NewSpellCast(String, String),
@@ -81,7 +81,7 @@ impl NoitaHandle {
 
     pub async fn poll_state_updates(ctx: AppContext) {
         let mut inventory_open = Changeable::new(None);
-        let mut drowning = Changeable::new(None);
+        let mut low_oxygen = Changeable::new(None);
         let mut polied = Changeable::new(None);
         let mut dead = Changeable::new(None);
 
@@ -115,8 +115,8 @@ impl NoitaHandle {
                 });
             }
 
-            if drowning.was_set(state.as_ref().map(|n| n.drowning)) {
-                _ = ctx.noita().events.send(NoitaEvent::StartedDrowning);
+            if low_oxygen.was_set(state.as_ref().map(|n| n.low_oxygen)) {
+                _ = ctx.noita().events.send(NoitaEvent::LowOxygen);
             }
             if polied.was_set(state.as_ref().map(|n| n.polied)) {
                 _ = ctx.noita().events.send(NoitaEvent::Polymorphed);
@@ -305,20 +305,21 @@ async fn find_noita() -> Result<Option<Noita>> {
 
 struct NoitaState {
     inventory_open: bool,
-    drowning: bool,
+    low_oxygen: bool,
     polied: bool,
     dead: bool,
 }
 
-fn is_polied_or_drowning(noita: &mut Noita) -> io::Result<Option<(bool, bool)>> {
+fn is_polied_or_low_oxygen(noita: &mut Noita) -> io::Result<Option<(bool, bool)>> {
     match noita.get_player()? {
-        Some((entity, state)) => Ok(noita
+        Some((_, PlayerState::Polymorphed)) => Ok(Some((true, false))),
+        Some((entity, PlayerState::Normal)) => Ok(noita
             .component_store::<DamageModelComponent>()?
             .get(&entity)?
             .map(|c| {
                 (
-                    matches!(state, PlayerState::Polymorphed),
-                    c.air_needed.as_bool() && c.air_in_lungs <= 0.0,
+                    false,
+                    c.air_needed.as_bool() && c.air_in_lungs <= c.air_in_lungs_max / 2.0,
                 )
             })),
         _ => Ok(None),
@@ -333,7 +334,7 @@ impl NoitaState {
             .get()
             .as_bool();
 
-        let (polied, drowning) = is_polied_or_drowning(noita)?.unwrap_or_default();
+        let (polied, drowning) = is_polied_or_low_oxygen(noita)?.unwrap_or_default();
 
         // -> CONFIG_PLAYER_STATS.stats.dead
         let dead = RawPtr::of(0x01208784)
@@ -342,7 +343,7 @@ impl NoitaState {
             .as_bool();
         Ok(Self {
             inventory_open,
-            drowning,
+            low_oxygen: drowning,
             polied,
             dead,
         })

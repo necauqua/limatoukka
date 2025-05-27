@@ -34,7 +34,7 @@ start:
         noita.exe \
         -- \
         -no_logo_splashes \
-        -gamemode >/dev/null 2>&1 </dev/null &
+        -gamemode &
 
 # Completely delete the instance, including stats, unlocks etc.
 full-reset:
@@ -152,11 +152,6 @@ obs-revive:
         just sound-setup obs-start-stream
         echo true
     fi
-
-obs-restart-stream:
-    just obs-stop-stream
-    sleep 10
-    just obs-start-stream
 
 [no-exit-message]
 is-game-running:

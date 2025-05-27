@@ -116,11 +116,16 @@ async fn set_title(ctx: CommandContext, title: String) -> Result<()> {
     Ok(())
 }
 
-/// Stops and then starts the stream again, useful for when Twitch kills the
-/// stream due to the 48h limit and OBS does not realize.
-#[command(permission=Moderator, global_gate = 5m)]
-async fn obs_restart_stream() -> Result<()> {
-    AppContext::just("obs-restart-stream").await
+/// Tell OBS to stop the stream.
+#[command(permission=Moderator, global_gate = 2m)]
+async fn obs_stop_stream() -> Result<()> {
+    AppContext::just("obs-stop-stream").await
+}
+
+/// Tell OBS to start the stream.
+#[command(permission=Moderator, global_gate = 2m)]
+async fn obs_start_stream() -> Result<()> {
+    AppContext::just("obs-start-stream").await
 }
 
 /// An untested script that starts OBS and then starts the stream if OBS died.
