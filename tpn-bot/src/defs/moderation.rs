@@ -2,6 +2,7 @@ use std::time::{Duration, SystemTime};
 
 use anyhow::Result;
 use humantime_serde::re::humantime;
+use rustis::commands::GenericCommands;
 use twitch_api::helix::channels::modify_channel_information::*;
 
 use crate::{
@@ -126,8 +127,11 @@ async fn obs_restart_stream() -> Result<()> {
 /// Does nothing if the OBS process is running.
 #[command(permission=Moderator, global_gate = 5m)]
 async fn obs_revive(ctx: CommandContext) -> Result<()> {
-    if !AppContext::just_bool("obs-revive").await? {
-        fail!("OBS is running");
+    if AppContext::just_bool("obs-revive").await? {
+        ctx.reply("OBS was not running, started it up".into()).await
+    } else {
+        ctx.storage().del("gate:obs-revive").await?;
+        ctx.reply("OBS is running, you can try again if it's dying rn".into())
+            .await
     }
-    ctx.reply("OBS was not running, started it up".into()).await
 }
