@@ -9,7 +9,7 @@ use anyhow::Result;
 use rustis::commands::HashCommands;
 use tokio::sync::RwLock;
 
-use crate::commands::runner::CommandInterrupt;
+use crate::{commands::runner::CommandInterrupt, context::app::InterruptKind};
 
 use super::msg::MessageContext;
 
@@ -132,6 +132,15 @@ impl EvalContext {
     where
         F: Future<Output = ()>,
     {
-        (**self).interruptible(&self.shared.owner, f)
+        let interrupted = self.wait_for_interrupt();
+        async move {
+            tokio::select! {
+                kind = interrupted => match kind {
+                    InterruptKind::Break => Ok(()),
+                    InterruptKind::Interrupt => Err(CommandInterrupt),
+                },
+                _ = f => Ok(())
+            }
+        }
     }
 }

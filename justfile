@@ -180,3 +180,19 @@ stop-funny-rotation:
 cringe-scp-large-reply msg:
     echo {{quote(msg)}} > /tmp/last-reply.html
     rsync -e 'ssh -o IdentitiesOnly=yes -i ~/.ssh/main-deployer' /tmp/last-reply.html main-deployer@necauq.ua:.
+
+cringe-aws-tts-through-shell text:
+    echo {{quote(text)}} > /tmp/last-tts.txt
+    aws polly synthesize-speech \
+        --output-format ogg_vorbis \
+        --voice-id Brian \
+        --text "$(cat /tmp/last-tts.txt)" \
+        /tmp/last-tts.ogg
+    mpv \
+        --no-pause \
+        --no-terminal \
+        --ao=jack \
+        --jack-port="OBS Studio: audio" \
+        --audio-channels=stereo \
+        /tmp/last-tts.ogg
+    echo true

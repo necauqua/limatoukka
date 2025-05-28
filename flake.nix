@@ -61,6 +61,7 @@
           -config ${xdummy-conf} \
           $@
       '';
+      mpv = pkgs.mpv-unwrapped.override { jackaudioSupport = true; };
     in
     {
       env.LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
@@ -89,6 +90,7 @@
         openssl
         dbus
         xdotool
+        mpv
         xorg.libX11
 
         nodejs

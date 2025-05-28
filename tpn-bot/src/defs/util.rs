@@ -5,7 +5,10 @@ use crate::{
         args::{Chatter, HoldTime, RequiredChatter},
         command,
     },
-    context::{app::AppContext, cmd::CommandContext},
+    context::{
+        app::{AppContext, InterruptKind},
+        cmd::CommandContext,
+    },
     fail,
     services::messaging::PermissionLevel,
 };
@@ -125,17 +128,18 @@ async fn wait(ctx: CommandContext, duration: HoldTime) -> Result<()> {
 ///
 /// This is kind of a niche thing, most likely you need `interrupt~`.
 #[command]
-async fn r#break(ctx: CommandContext) -> Result<()> {
-    ctx.break_holds();
+async fn r#break(ctx: CommandContext, chatter: Option<RequiredChatter>) -> Result<()> {
+    ctx.interrupt(chatter.as_ref().map(|c| &*c.id), InterruptKind::Break);
     Ok(())
 }
 
 /// Stop running all current commands.
+///
 /// This is similar to `break~`, except the commands following the holds that
 /// get completed do not run.
 #[command]
 async fn interrupt(ctx: CommandContext, chatter: Option<RequiredChatter>) -> Result<()> {
-    ctx.interrupt(chatter.as_ref().map(|c| &*c.id));
+    ctx.interrupt(chatter.as_ref().map(|c| &*c.id), InterruptKind::Interrupt);
     Ok(())
 }
 
@@ -154,5 +158,37 @@ async fn flag(ctx: CommandContext, flag: String) -> Result<()> {
     } else {
         ctx.storage().set(format!("flags:{flag}"), "1").await?;
     }
+    Ok(())
+}
+
+/// Say something on stream through the TTS.
+///
+/// Only works for >= subscriber level, or from global macros.
+#[command(sender_gate = 1m)]
+async fn tts(ctx: CommandContext, msg: String) -> Result<()> {
+    if !ctx.in_global_macro && ctx.message().sender.level < PermissionLevel::Subscriber {
+        fail!("TTS is pay to win, or from global macros");
+    }
+    if msg.is_empty() {
+        fail!("message cannot be empty");
+    }
+
+    tracing::debug!(msg = msg, "sending TTS");
+    let mut child = AppContext::cringe_aws_tts_through_shell(&msg).await?;
+    let pid = child.id().unwrap();
+
+    tokio::select! {
+        _ = child.wait() => tracing::debug!(msg = msg, "finished TTS"),
+        _ = ctx.wait_for_interrupt() => {
+
+            // ugh meh
+            unsafe {
+                libc::killpg(pid as _, libc::SIGTERM);
+            }
+
+            child.wait().await?;
+        },
+    }
+
     Ok(())
 }

@@ -192,8 +192,6 @@ pub async fn eval(ctx: EvalContext, command_msg: CommandMessage) -> Vec<CommandE
         Err(errors) => return errors,
     };
 
-    let interrupt_ticket = ctx.interrupt_ticket(&ctx.shared.owner);
-
     tracing::trace!("eval: {command_msg}");
 
     let mut parallel = JoinSet::new();
@@ -209,7 +207,7 @@ pub async fn eval(ctx: EvalContext, command_msg: CommandMessage) -> Vec<CommandE
         }
     }
 
-    if interrupt_ticket.interrupted() {
+    if ctx.interrupted() {
         errors.push(CommandError::Interrupt);
     }
 

@@ -14,23 +14,44 @@ use rustis::commands::{
     GenericCommands, PubSubCommands, SetCondition, SetExpiration, StringCommands,
 };
 use tokio::{
-    process::Command,
-    sync::oneshot::{self, Sender},
+    process::{Child, Command},
+    sync::Notify,
     time::sleep,
 };
 
-use crate::{commands::runner::CommandInterrupt, config::Config, services::Services};
+use crate::{config::Config, services::Services};
 
 #[derive(Default)]
 struct AppState {
-    holds: Vec<(String, Sender<()>)>,
     interrupts: Vec<Arc<InterruptTicketInner>>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum InterruptKind {
+    Interrupt,
+    Break,
 }
 
 struct InterruptTicketInner {
     chatter_id: String,
     interrupted: AtomicBool,
+    notif_interrupt: Notify,
+    notif_break: Notify,
     ctx: AppContext,
+}
+
+impl InterruptTicketInner {
+    fn interrupt(&self, kind: InterruptKind) {
+        match kind {
+            InterruptKind::Interrupt => {
+                self.interrupted.store(true, Ordering::Relaxed);
+                self.notif_interrupt.notify_waiters();
+            }
+            InterruptKind::Break => {
+                self.notif_break.notify_waiters();
+            }
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -41,6 +62,16 @@ pub struct InterruptTicket {
 impl InterruptTicket {
     pub fn interrupted(&self) -> bool {
         self.inner.interrupted.load(Ordering::Relaxed)
+    }
+
+    pub fn wait(&self) -> impl Future<Output = InterruptKind> + use<> {
+        let inner = self.inner.clone();
+        async move {
+            tokio::select! {
+                _ = inner.notif_interrupt.notified() => InterruptKind::Interrupt,
+                _ = inner.notif_break.notified() => InterruptKind::Break,
+            }
+        }
     }
 }
 
@@ -62,6 +93,8 @@ impl AppContext {
         let ticket = Arc::new(InterruptTicketInner {
             chatter_id: chatter_id.to_string(),
             interrupted: AtomicBool::new(false),
+            notif_interrupt: Notify::new(),
+            notif_break: Notify::new(),
             ctx: self.clone(),
         });
         self.inner
@@ -73,26 +106,18 @@ impl AppContext {
         InterruptTicket { inner: ticket }
     }
 
-    pub fn break_holds(&self) {
-        for (_, tx) in self.inner.state.lock().unwrap().holds.drain(..) {
-            _ = tx.send(());
-        }
-    }
-
-    pub fn interrupt(&self, chatter_id: Option<&str>) {
+    pub fn interrupt(&self, chatter_id: Option<&str>, kind: InterruptKind) {
         {
-            let mut state = self.inner.state.lock().unwrap();
+            let state = self.inner.state.lock().unwrap();
             if let Some(chatter_id) = chatter_id {
-                state.holds.retain(|h| h.0 != chatter_id);
                 for t in &state.interrupts {
                     if t.chatter_id == chatter_id {
-                        t.interrupted.store(true, Ordering::Relaxed);
+                        t.interrupt(kind);
                     }
                 }
             } else {
-                state.holds.clear();
                 for t in &state.interrupts {
-                    t.interrupted.store(true, Ordering::Relaxed);
+                    t.interrupt(kind);
                 }
             }
         }
@@ -104,29 +129,6 @@ impl AppContext {
                 tracing::error!(?error, "failed to publish interrupt: {error:?}");
             }
         });
-    }
-
-    pub fn interruptible<F>(
-        &self,
-        chatter_id: &str,
-        f: F,
-    ) -> impl Future<Output = Result<(), CommandInterrupt>> + use<F>
-    where
-        F: Future<Output = ()>,
-    {
-        let (tx, rx) = oneshot::channel::<()>();
-        self.inner
-            .state
-            .lock()
-            .unwrap()
-            .holds
-            .push((chatter_id.to_owned(), tx));
-        async move {
-            tokio::select! {
-                r = rx => r.map_err(|_| CommandInterrupt),
-                _ = f => Ok(())
-            }
-        }
     }
 }
 
@@ -238,6 +240,15 @@ impl AppContext {
         Ok(())
     }
 
+    pub async fn cringe_aws_tts_through_shell(msg: &str) -> Result<Child> {
+        Ok(Command::new("setsid")
+            .args(["just", "cringe-aws-tts-through-shell", msg])
+            .env_remove("RUST_LOG")
+            .stderr(Stdio::piped())
+            .stdout(Stdio::null())
+            .spawn()?)
+    }
+
     pub async fn restart() -> Result<()> {
         Self::just("restart").await
     }
@@ -247,8 +258,6 @@ impl AppContext {
     }
 
     pub async fn next_run(&self) -> Result<()> {
-        self.interrupt(None);
-
         sleep(Duration::from_millis(500)).await;
 
         self.xdo().key("Enter").await?;
@@ -265,6 +274,8 @@ impl AppContext {
                 .await;
             sleep(Duration::from_secs(1)).await;
         }
+
+        self.interrupt(None, InterruptKind::Interrupt);
 
         self.storage()
             .del(["balance:blesses", "balance:curses", "best-inventory"])

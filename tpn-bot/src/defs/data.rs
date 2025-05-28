@@ -262,7 +262,7 @@ async fn spells_done(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
 }
 
 /// Prints the current player position in pixels
-#[command(permission = Caster)]
+#[command(permission = Moderator)]
 async fn player_pos(ctx: CommandContext) -> Result<()> {
     let (e, _) = ctx
         .noita()

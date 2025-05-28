@@ -8,7 +8,7 @@ use tokio::{task::JoinSet, time::sleep};
 use tpn_bot::{
     commands::runner,
     config::Config,
-    context::app::AppContext,
+    context::app::{AppContext, InterruptKind},
     logging,
     services::{
         Services, messaging,
@@ -130,7 +130,10 @@ async fn run(config: Config) -> Result<()> {
             // eh just panic the task on errors, we're shutting down anyway
             let chatter_id = String::from_utf8(chatter_id.unwrap().payload).unwrap();
             tracing::info!("received an interrupt from new instance");
-            handle.interrupt(Some(&*chatter_id).filter(|id| *id != "<all>"));
+            handle.interrupt(
+                Some(&*chatter_id).filter(|id| *id != "<all>"),
+                InterruptKind::Interrupt, // ehh guess break never worked across bot restarts
+            );
         }
     });
 

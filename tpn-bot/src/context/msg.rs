@@ -16,11 +16,12 @@ use tokio::time::sleep;
 
 use crate::services::messaging::Message;
 
-use super::app::AppContext;
+use super::app::{AppContext, InterruptTicket, InterruptKind};
 
 struct MessageState {
-    message: Message,
+    interrupt_ticket: InterruptTicket,
     repeats: AtomicU32,
+    message: Message,
 }
 
 #[derive(Clone)]
@@ -39,18 +40,27 @@ impl Deref for MessageContext {
 }
 
 impl MessageContext {
-    pub fn new(state: AppContext, message: Message) -> Self {
+    pub fn new(parent: AppContext, message: Message) -> Self {
         Self {
-            parent: state,
             state: Arc::new(MessageState {
-                message,
+                interrupt_ticket: parent.interrupt_ticket(&message.sender.id),
                 repeats: AtomicU32::new(0),
+                message,
             }),
+            parent,
         }
     }
 
     pub fn message(&self) -> &Message {
         &self.state.message
+    }
+
+    pub fn interrupted(&self) -> bool {
+        self.state.interrupt_ticket.interrupted()
+    }
+
+    pub fn wait_for_interrupt(&self) -> impl Future<Output = InterruptKind> + use<> {
+        self.state.interrupt_ticket.wait()
     }
 
     pub fn inc_repeats(&self) -> u32 {
