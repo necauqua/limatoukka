@@ -9,12 +9,15 @@ use anyhow::Result;
 use rustis::commands::HashCommands;
 use tokio::sync::RwLock;
 
-use crate::{commands::runner::CommandInterrupt, context::app::InterruptKind};
+use crate::{
+    commands::{args::Chatter, runner::CommandInterrupt},
+    context::app::InterruptKind,
+};
 
 use super::msg::MessageContext;
 
 pub struct EvalContextShared {
-    pub owner: String,
+    pub owner: Chatter,
     pub macro_args: VecDeque<String>,
 }
 
@@ -39,7 +42,10 @@ impl Deref for EvalContext {
 
 impl EvalContext {
     pub async fn new(parent: MessageContext) -> Result<Self> {
-        let owner = parent.message().sender.id.clone();
+        let owner = Chatter {
+            id: parent.message().sender.id.clone(),
+            login: parent.message().sender.login.clone(),
+        };
 
         let vars: HashMap<String, String> =
             parent.storage().hgetall(format!("vars:{owner}")).await?;
@@ -80,11 +86,11 @@ impl EvalContext {
 
     pub async fn nest_macro(
         &self,
-        owner: &str,
+        owner: Chatter,
         is_global: bool,
         args: VecDeque<String>,
     ) -> Result<Self> {
-        let vars = if self.shared.owner == owner {
+        let vars = if self.shared.owner.id == owner.id {
             self.vars.clone()
         } else {
             Arc::new(RwLock::new(
@@ -93,7 +99,7 @@ impl EvalContext {
         };
         Ok(Self {
             shared: Arc::new(EvalContextShared {
-                owner: owner.into(),
+                owner,
                 macro_args: args,
             }),
             vars,
@@ -111,6 +117,9 @@ impl EvalContext {
                 if let Some(i) = self.repeat_i {
                     return Some(i.to_string());
                 }
+            }
+            if name == "sender" {
+                return Some(self.shared.owner.login.clone());
             }
             if let Some(arg) = name
                 .parse::<u32>()

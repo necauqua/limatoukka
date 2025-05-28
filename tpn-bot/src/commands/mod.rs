@@ -24,7 +24,7 @@ pub type CommandPtr = fn(CommandContext, Args) -> PrepareFuture;
 #[derive(Debug)]
 pub struct CommandArgDesc {
     pub name: &'static str,
-    pub optional: bool,
+    pub optional: fn() -> Option<Cow<'static, str>>,
     pub desc: fn() -> Cow<'static, str>,
 }
 

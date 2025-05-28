@@ -24,7 +24,7 @@ async fn stat_impl(
     let mut must = vec![json!({ "term": { "irc.cmd": "PRIVMSG" } })];
 
     if let Some(chatter) = chatter {
-        must.push(json!({ "term": { "tags.user-id": chatter.id() } }));
+        must.push(json!({ "term": { "tags.user-id": chatter.id } }));
     }
     if let Some(word) = word {
         must.push(json!({ "match": { "message": word } }));
@@ -79,7 +79,7 @@ async fn edge_message(
         "must".into(),
         json!([
             { "term": { "irc.cmd": "PRIVMSG" } },
-            { "term": { "tags.user-id": chatter.id() } },
+            { "term": { "tags.user-id": chatter.id } },
         ]),
     );
 
@@ -227,7 +227,7 @@ async fn rank(ctx: CommandContext, chatter: Chatter) -> Result<()> {
             .get("key")
             .and_then(|k| k.as_str())
             .context("malformed aggregation reply")?
-            == chatter.id()
+            == chatter.id
         {
             found = Some((i + 1, prev.map(|p| p - count)));
             break;

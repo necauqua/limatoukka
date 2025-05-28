@@ -6,14 +6,17 @@ use rustis::commands::GenericCommands;
 use twitch_api::helix::channels::modify_channel_information::*;
 
 use crate::{
-    commands::{args::RequiredChatter, command},
+    commands::{
+        args::{Chatter, Required},
+        command,
+    },
     context::{app::AppContext, cmd::CommandContext},
     fail, storage,
 };
 
 pub async fn do_banish(
     ctx: &AppContext,
-    chatter: &RequiredChatter,
+    chatter: &Required<Chatter>,
     duration: Option<Duration>,
 ) -> Result<()> {
     if let Some(duration) = duration {
@@ -42,7 +45,7 @@ pub async fn do_banish(
 #[command(permission = TwitchStaff)]
 async fn banish(
     ctx: CommandContext,
-    chatter: RequiredChatter,
+    chatter: Required<Chatter>,
     duration: Option<Duration>,
 ) -> Result<()> {
     if chatter.id == ctx.twitch().caster_id() {
@@ -63,7 +66,7 @@ async fn banish(
 /// Restore users ability to use the bot, bringing them back from the shadow
 /// realm regardless of their crimes.
 #[command(permission = Moderator)]
-async fn unbanish(ctx: CommandContext, chatter: RequiredChatter) -> Result<()> {
+async fn unbanish(ctx: CommandContext, chatter: Required<Chatter>) -> Result<()> {
     if storage!(ctx, del, "kick:begone:{chatter}")? == 0 {
         return ctx.reply("was not there lmao".into()).await;
     }
@@ -80,7 +83,7 @@ async fn unbanish(ctx: CommandContext, chatter: RequiredChatter) -> Result<()> {
 /// If _you_ are yeeted, the bot ignores you utterly, so this won't work
 /// ¯\\\_(ツ)_/¯.
 #[command(sender_gate = 15s)]
-async fn banished(ctx: CommandContext, chatter: RequiredChatter) -> Result<()> {
+async fn banished(ctx: CommandContext, chatter: Required<Chatter>) -> Result<()> {
     ctx.reply(match storage!(ctx, pexpiretime, "kick:begone:{chatter}")? {
         -2 => "They're good".into(),
         -1 => "In the shadow realm xdd".into(),

@@ -12,7 +12,10 @@ use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
 
 use crate::{
-    commands::{args::RequiredChatter, command},
+    commands::{
+        args::{Chatter, Required},
+        command,
+    },
     config::Voting,
     context::{app::AppContext, cmd::CommandContext},
     fail,
@@ -234,7 +237,7 @@ where
 /// Be aware that there can be only one vote at a time and this command has a
 /// large per-user cooldown, so dont waste it.
 #[command(sender_gate = 5m)]
-async fn votekick(ctx: CommandContext, chatter: RequiredChatter) -> Result<()> {
+async fn votekick(ctx: CommandContext, chatter: Required<Chatter>) -> Result<()> {
     if ctx
         .storage()
         .exists(format!("kick:begone:{chatter}"))

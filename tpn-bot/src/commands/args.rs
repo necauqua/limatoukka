@@ -2,6 +2,7 @@ use std::{
     borrow::Cow,
     collections::VecDeque,
     fmt::{self, Debug, Display},
+    ops::Deref,
     time::Duration,
 };
 
@@ -86,11 +87,13 @@ pub type ExtractorResult<T> = Result<T, ExtractorError>;
 
 #[async_trait]
 pub trait ArgExtractor: Sized {
-    fn type_desc() -> Cow<'static, str>;
-
     async fn extract(ctx: &CommandContext, args: &mut Args) -> ExtractorResult<Arg<Self>>;
 
-    const OPTIONAL: bool = false;
+    fn type_desc() -> Cow<'static, str>;
+
+    fn optional_desc() -> Option<Cow<'static, str>> {
+        None
+    }
 }
 
 pub struct Args {
@@ -142,7 +145,9 @@ impl<T: CommandArg> ArgExtractor for T {
         <T as CommandArg>::type_desc()
     }
 
-    const OPTIONAL: bool = <T as CommandArg>::OPTIONAL;
+    fn optional_desc() -> Option<Cow<'static, str>> {
+        <T as CommandArg>::optional_desc()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -256,7 +261,9 @@ pub trait CommandArg: Send + Sized {
 
     fn type_desc() -> Cow<'static, str>;
 
-    const OPTIONAL: bool = false;
+    fn optional_desc() -> Option<Cow<'static, str>> {
+        None
+    }
 }
 
 #[async_trait]
@@ -272,7 +279,9 @@ impl<T: CommandArg> CommandArg for Option<T> {
         T::type_desc()
     }
 
-    const OPTIONAL: bool = true;
+    fn optional_desc() -> Option<Cow<'static, str>> {
+        Some("optional".into())
+    }
 }
 
 #[async_trait]
@@ -351,10 +360,12 @@ impl<const DEFAULT: u32, const MAX: u32> CommandArg for HoldTime<DEFAULT, MAX> {
     }
 
     fn type_desc() -> Cow<'static, str> {
-        format!("duration in milliseconds, at most {MAX}, defaults to {DEFAULT}. You can also specify whole seconds by appending 's'").into()
+        format!("duration in milliseconds, at most {MAX}").into()
     }
 
-    const OPTIONAL: bool = true;
+    fn optional_desc() -> Option<Cow<'static, str>> {
+        Some(format!("defaults to {DEFAULT}").into())
+    }
 }
 
 #[async_trait]
@@ -396,18 +407,15 @@ impl<const A: u32, const B: u32> CommandArg for InRange<A, B> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Chatter(String);
-
-impl Chatter {
-    pub fn id(&self) -> &str {
-        &self.0
-    }
+pub struct Chatter {
+    pub id: String,
+    pub login: String,
 }
 
 // most often used as part of a redis key
 impl Display for Chatter {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}", self.id)
     }
 }
 
@@ -415,13 +423,13 @@ impl Display for Chatter {
 impl CommandArg for Chatter {
     async fn parse_opt(ctx: &CommandContext, arg: Option<String>) -> ArgResult<Self> {
         let Some(login) = arg else {
-            return Ok(Self(ctx.shared.owner.clone()));
+            return Ok(ctx.shared.owner.clone());
         };
 
         let key = format!("chatter:{login}");
         let cached: Option<String> = ctx.storage().get(&key).await.map_err(|e| anyhow!(e))?;
-        if let Some(cached) = cached {
-            return Ok(Self(cached));
+        if let Some(id) = cached {
+            return Ok(Self { id, login });
         }
 
         let full = ctx
@@ -444,35 +452,42 @@ impl CommandArg for Chatter {
             .await
             .map_err(|e| anyhow!(e))?;
 
-        Ok(Self(user.id.take()))
+        Ok(Self {
+            id: user.id.take(),
+            login,
+        })
     }
 
     fn type_desc() -> Cow<'static, str> {
         "a user login, defaults to you".into()
     }
 
-    const OPTIONAL: bool = true;
+    fn optional_desc() -> Option<Cow<'static, str>> {
+        Some("defaults to you".into())
+    }
 }
 
 #[derive(Debug, Clone)]
-pub struct RequiredChatter {
-    pub id: String,
-    pub login: String,
+pub struct Required<T>(T);
+
+impl<T> Deref for Required<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
-impl Display for RequiredChatter {
+impl<T: Display> Display for Required<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.id)
+        self.0.fmt(f)
     }
 }
 
 #[async_trait]
-impl CommandArg for RequiredChatter {
+impl<T: CommandArg> CommandArg for Required<T> {
     async fn parse(ctx: &CommandContext, arg: String) -> ArgResult<Self> {
-        Ok(Self {
-            id: Chatter::parse(ctx, arg.clone()).await?.0,
-            login: arg,
-        })
+        Ok(Self(T::parse(ctx, arg.clone()).await?))
     }
 
     fn type_desc() -> Cow<'static, str> {

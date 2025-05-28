@@ -133,7 +133,7 @@ pub fn command(attrs: TokenStream, input: TokenStream) -> TokenStream {
 
                 doc_args.push(quote!(crate::commands::CommandArgDesc {
                     name: #name,
-                    optional: <#ty as crate::commands::args::ArgExtractor>::OPTIONAL,
+                    optional: || <#ty as crate::commands::args::ArgExtractor>::optional_desc(),
                     desc: || <#ty as crate::commands::args::ArgExtractor>::type_desc(),
                 }));
             }

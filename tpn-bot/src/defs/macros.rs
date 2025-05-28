@@ -197,11 +197,7 @@ async fn r#macro(
     };
     let _guard = ctx.status_wall().push(status).await;
 
-    let errors = runner::eval(
-        ctx.nest_macro(chatter.id(), global, args).await?,
-        command_msg,
-    )
-    .await;
+    let errors = runner::eval(ctx.nest_macro(chatter, global, args).await?, command_msg).await;
 
     if !errors.is_empty() {
         if errors.iter().any(|e| matches!(e, CommandError::Interrupt)) {

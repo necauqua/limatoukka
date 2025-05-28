@@ -88,10 +88,17 @@ fn main() -> Result<()> {
                     args: Some(
                         cmd.args
                             .iter()
-                            .map(|arg| CommandArgOut {
-                                name: arg.name.replace("_", "-"),
-                                doc: (arg.desc)().into_owned(),
-                                optional: arg.optional,
+                            .map(|arg| {
+                                let mut doc = (arg.desc)().into_owned();
+                                let opt = (arg.optional)();
+                                if let Some(opt) = opt.as_deref() {
+                                    doc.push_str(&format!(", {opt}"));
+                                }
+                                CommandArgOut {
+                                    name: arg.name.replace("_", "-"),
+                                    doc: (arg.desc)().into_owned(),
+                                    optional: opt.is_some(),
+                                }
                             })
                             .collect::<Vec<_>>(),
                     )
