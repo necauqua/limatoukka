@@ -1,7 +1,12 @@
-use std::time::Duration;
+use std::{collections::HashMap, sync::LazyLock, time::Duration};
 
 use anyhow::{Context, Result};
 use futures::FutureExt;
+use noita_engine_reader::{
+    Noita, PlayerState,
+    memory::MemoryStorage,
+    types::components::{AbilityComponent, ItemComponent},
+};
 use rustis::commands::StringCommands;
 use tokio::time::sleep;
 
@@ -175,17 +180,36 @@ async fn hotbar(ctx: CommandContext, slot: InRange<1, 24>) -> Result<()> {
     Ok(())
 }
 
-const WAND_START_X: i32 = 105; // + 60 * 4
-const WAND_START_Y: i32 = 273; // + 190 * 26
-
 /// A helper to move the mouse to the wand slot without you having to guess slot coordinates.
+///
+/// Especially useful as it takes into account different heights of wand sprites.
 #[command]
 async fn wand(ctx: CommandContext, wand: InRange<1, 4>, slot: InRange<1, 26>) -> Result<()> {
+    if !ctx.noita().is_inventory_open() {
+        fail!("inventory not open")
+    }
+
+    let wand_heights = ctx.noita().with(read_wands_sizes).await?;
+
+    let wand = wand.get() as usize;
+    let slot = slot.get() as i32;
+
+    if wand > wand_heights.len() {
+        fail!("no wand {wand}");
+    }
+    let (_, capacity) = wand_heights[wand - 1];
+    if slot > capacity {
+        fail!("wand {wand} has only {capacity} slots, not {slot}",);
+    }
+
+    let offset_y: i32 = wand_heights
+        .into_iter()
+        .take(wand)
+        .map(|(h, _)| 142 + h * 6)
+        .sum();
+
     ctx.xdo()
-        .mousemove(
-            WAND_START_X + 60 * (slot.get() as i32 - 1),
-            WAND_START_Y + 190 * (wand.get() as i32 - 1),
-        )
+        .mousemove(105 + 60 * (slot - 1), 87 + offset_y)
         .await?;
 
     // wait for a bit to allow the game to register the movement
@@ -193,3 +217,63 @@ async fn wand(ctx: CommandContext, wand: InRange<1, 4>, slot: InRange<1, 26>) ->
 
     Ok(())
 }
+
+fn read_wands_sizes(noita: &mut Noita) -> Result<Vec<(i32, i32)>> {
+    let Some((entity, PlayerState::Normal)) = noita.get_player()? else {
+        return Ok(vec![]);
+    };
+
+    let p = noita.proc().clone();
+
+    let Some(wand_tag) = noita.get_entity_tag_index("wand")? else {
+        return Ok(vec![]);
+    };
+
+    let mut inv_quick = None;
+    for child in entity.children.read(&p)?.read(&p)? {
+        let child = child.read(&p)?;
+        if &*child.name.read(&p)? == "inventory_quick" {
+            inv_quick = Some(child);
+            break;
+        }
+    }
+
+    let inv_quick = inv_quick.context("no inventory")?;
+    let item_store = noita.component_store::<ItemComponent>()?;
+    let ability_store = noita.component_store::<AbilityComponent>()?;
+
+    let mut wands = Vec::with_capacity(4);
+
+    for child in inv_quick.children.read(&p)?.read(&p)? {
+        let child = child.read(&p)?;
+        if !child.tags[wand_tag] {
+            continue;
+        }
+        let Some(ability) = ability_store.get(&child)? else {
+            continue;
+        };
+        let Some(item) = item_store.get(&child)? else {
+            continue;
+        };
+        let sprite = ability.sprite_file.read(&p)?;
+        let height = SPRITE_HEIGHTS.get(&sprite).cloned().unwrap_or(8); // 8 is the height of the starter idk
+        wands.push((
+            item.inventory_slot.x,
+            height,
+            ability.gun_config.deck_capacity,
+        ));
+    }
+    wands.sort_by_key(|(x, _, _)| *x);
+
+    Ok(wands.into_iter().map(|(_, h, c)| (h, c)).collect())
+}
+
+static SPRITE_HEIGHTS: LazyLock<HashMap<String, i32>> = LazyLock::new(|| {
+    include_str!("../../data/sprite-heights.csv")
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.split(',');
+            Some((parts.next()?.into(), parts.next()?.parse().ok()?))
+        })
+        .collect()
+});
