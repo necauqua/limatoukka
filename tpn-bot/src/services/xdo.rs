@@ -37,7 +37,6 @@ impl XDoClient {
     // at least it's way simpler than managing mpsc channels feeding a single
     // xdo instance or whatever (I totally did not have all that implemented)
     fn cmd(&self, args: &[&str]) -> impl Future<Output = Result<Vec<u8>>> + use<> {
-        tracing::debug!("xdotool: {args:?}");
         Command::new("xdotool")
             .env("DISPLAY", self.display.as_deref().unwrap_or(":0"))
             .args(args)
