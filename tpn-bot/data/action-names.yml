@@ -1,0 +1,422 @@
+action_bomb: Bomb
+action_light_bullet: Spark Bolt
+action_light_bullet_trigger: Spark Bolt With Trigger
+action_light_bullet_trigger_2: Spark Bolt With Double Trigger
+action_light_bullet_timer: Spark Bolt With Timer
+action_bullet: Magic Arrow
+action_bullet_trigger: Magic Arrow With Trigger
+action_bullet_timer: Magic Arrow With Timer
+action_heavy_bullet: Magic Bolt
+action_heavy_bullet_trigger: Magic Bolt With Trigger
+action_heavy_bullet_timer: Magic Bolt With Timer
+action_air_bullet: Burst Of Air
+action_slow_bullet: Energy Orb
+action_slow_bullet_trigger: Energy Orb With A Trigger
+action_slow_bullet_timer: Energy Orb With A Timer
+action_hook: Hookbolt
+action_black_hole: Black Hole
+action_black_hole_death_trigger: Black Hole With Death Trigger
+action_white_hole: White Hole
+action_black_hole_big: Giga Black Hole
+action_white_hole_big: Giga White Hole
+action_black_hole_giga: Omega Black Hole
+action_white_hole_giga: Omega White Hole
+action_tentacle_portal: Eldritch Portal
+action_spitter: Spitter Bolt
+action_spitter_timer: Spitter Bolt With Timer
+action_spitter_tier_2: Large Spitter Bolt
+action_spitter_tier_2_timer: Large Spitter Bolt With Timer
+action_spitter_tier_3: Giant Spitter Bolt
+action_spitter_tier_3_timer: Giant Spitter Bolt With Timer
+action_bubbleshot: Bubble Spark
+action_bubbleshot_trigger: Bubble Spark With Trigger
+action_disc_bullet: Disc Projectile
+action_disc_bullet_big: Giga Disc Projectile
+action_disc_bullet_bigger: Summon Omega Sawblade
+action_bouncy_orb: Energy Sphere
+action_bouncy_orb_timer: Energy Sphere With Timer
+action_rubber_ball: Bouncing Burst
+action_arrow: Arrow
+action_pollen: Pollen
+action_lance: Glowing Lance
+action_lance_holy: Holy Lance
+action_rocket: Magic Missile
+action_rocket_tier_2: Large Magic Missile
+action_rocket_tier_3: Giant Magic Missile
+action_grenade: Firebolt
+action_grenade_trigger: Firebolt With Trigger
+action_grenade_tier_2: Large Firebolt
+action_grenade_tier_3: Giant Firebolt
+action_grenade_anti: Odd Firebolt
+action_grenade_large: Dropper Bolt
+action_mine: Unstable Crystal
+action_mine_death_trigger: Unstable Crystal With Trigger
+action_pipe_bomb: Dormant Crystal
+action_pipe_bomb_death_trigger: Dormant Crystal With Trigger
+action_fish: Summon Fish
+action_exploding_deer: Summon Deercoy
+action_exploding_ducks: Flock Of Ducks
+action_worm_shot: Worm Launcher
+action_bomb_detonator: Explosive Detonator
+action_laser: Concentrated Light
+action_megalaser: Intense Concentrated Light
+action_lightning: Lightning Bolt
+action_ball_lightning: Ball Lightning
+action_laser_emitter: Plasma Beam
+action_laser_emitter_four: Plasma Beam Cross
+action_laser_emitter_cutter: Plasma Cutter
+action_digger: Digging Bolt
+action_powerdigger: Digging Blast
+action_chainsaw: Chainsaw
+action_luminous_drill: Luminous Drill
+action_laser_luminous_drill: Luminous Drill With Timer
+action_tentacle: Summon Tentacle
+action_tentacle_timer: Summon Tentacle With Timer
+action_heal_bullet: Healing Bolt
+action_antiheal: Deadly Heal
+action_spiral_shot: Spiral Shot
+action_magic_shield: Magic Guard
+action_big_magic_shield: Big Magic Guard
+action_chain_bolt: Chain Bolt
+action_fireball: Fireball
+action_meteor: Meteor
+action_flamethrower: Flamethrower
+action_iceball: Iceball
+action_slimeball: Slimeball
+action_darkflame: Path Of Dark Flame
+action_missile: Summon Missile
+action_funky_spell: ???
+action_pebble: Summon Rock Spirit
+action_dynamite: Dynamite
+action_glitter_bomb: Glitter Bomb
+action_buckshot: Triplicate Bolt
+action_freezing_gaze: Freezing Gaze
+action_glowing_bolt: Pinpoint Of Light
+action_spore_pod: Prickly Spore Pod
+action_glue_shot: Glue Ball
+action_bomb_holy: Holy Bomb
+action_bomb_holy_giga: Giga Holy Bomb
+action_propane_tank: Propane Tank
+action_bomb_cart: Bomb Cart
+action_cursed_orb: Cursed Sphere
+action_expanding_orb: Expanding Sphere
+action_crumbling_earth: Earthquake
+action_summon_rock: Rock
+action_summon_egg: Summon Egg
+action_summon_hollow_egg: Summon Hollow Egg
+action_tntbox: Summon Explosive Box
+action_tntbox_big: Summon Large Explosive Box
+action_swarm_fly: Summon Fly Swarm
+action_swarm_firebug: Summon Firebug Swarm
+action_swarm_wasp: Summon Wasp Swarm
+action_friend_fly: Summon Friendly Fly
+action_acidshot: Acid Ball
+action_thunderball: Thunder Charge
+action_firebomb: Firebomb
+action_soilball: Chunk Of Soil
+action_death_cross: Death Cross
+action_death_cross_big: Giga Death Cross
+action_infestation: Infestation
+action_wall_horizontal: Horizontal Barrier
+action_wall_vertical: Vertical Barrier
+action_wall_square: Square Barrier
+action_temporary_wall: Summon Wall
+action_temporary_platform: Summon Platform
+action_purple_explosion_field: Glittering Field
+action_delayed_spell: Delayed Spellcast
+action_long_distance_cast: Long-Distance Cast
+action_teleport_cast: Teleporting Cast
+action_super_teleport_cast: Warp Cast
+action_caster_cast: Inner Spell
+action_mist_radioactive: Toxic Mist
+action_mist_alcohol: Mist Of Spirits
+action_mist_slime: Slime Mist
+action_mist_blood: Blood Mist
+action_circle_fire: Circle Of Fire
+action_circle_acid: Circle Of Acid
+action_circle_oil: Circle Of Oil
+action_circle_water: Circle Of Water
+action_material_water: Water
+action_material_oil: Oil
+action_material_blood: Blood
+action_material_acid: Acid
+action_material_cement: Cement
+action_teleport_projectile: Teleport Bolt
+action_teleport_projectile_short: Small Teleport Bolt
+action_teleport_projectile_static: Return
+action_swapper_projectile: Swapper
+action_teleport_projectile_closer: Homebringer Teleport Bolt
+action_nuke: Nuke
+action_nuke_giga: Giga Nuke
+action_firework: Fireworks!
+action_summon_wandghost: Summon Taikasauva
+action_touch_gold: Touch Of Gold
+action_touch_water: Touch Of Water
+action_touch_oil: Touch Of Oil
+action_touch_alcohol: Touch Of Spirits
+action_touch_piss: Touch Of Gold?
+action_touch_grass: Touch Of Grass
+action_touch_blood: Touch Of Blood
+action_touch_smoke: Touch Of Smoke
+action_destruction: Destruction
+action_mass_polymorph: Muodonmuutos
+action_burst_2: Double Spell
+action_burst_3: Triple Spell
+action_burst_4: Quadruple Spell
+action_burst_8: Octuple Spell
+action_burst_x: Myriad Spell
+action_scatter_2: Double Scatter Spell
+action_scatter_3: Triple Scatter Spell
+action_scatter_4: Quadruple Scatter Spell
+action_i_shape: Formation - Behind Your Back
+action_y_shape: Formation - Bifurcated
+action_t_shape: Formation - Above And Below
+action_w_shape: Formation - Trifurcated
+action_circle_shape: Formation - Hexagon
+action_pentagram_shape: Formation - Pentagon
+action_i_shot: Iplicate Spell
+action_y_shot: Yplicate Spell
+action_t_shot: Tiplicate Spell
+action_w_shot: Wuplicate Spell
+action_quad_shot: Quplicate Spell
+action_penta_shot: Peplicate Spell
+action_hexa_shot: Heplicate Spell
+action_spread_reduce: Reduce Spread
+action_heavy_spread: Heavy Spread
+action_recharge: Reduce Recharge Time
+action_lifetime: Increase Lifetime
+action_lifetime_down: Reduce Lifetime
+action_nolla: Nolla
+action_slow_but_steady: Slow But Steady
+action_explosion_remove: Remove Explosion
+action_explosion_tiny: Concentrated Explosion
+action_laser_emitter_wider: Plasma Beam Enhancer
+action_mana_reduce: Add Mana
+action_blood_magic: Blood Magic
+action_money_magic: Gold To Power
+action_blood_to_power: Blood To Power
+action_duplicate: Spell Duplication
+action_quantum_split: Quantum Split
+action_gravity: Gravity
+action_gravity_anti: Anti-Gravity
+action_sinewave: Slithering Path
+action_chaotic_arc: Chaotic Path
+action_pingpong_path: Ping-Pong Path
+action_avoiding_arc: Avoiding Arc
+action_floating_arc: Floating Arc
+action_fly_downwards: Fly Downwards
+action_fly_upwards: Fly Upwards
+action_horizontal_arc: Horizontal Path
+action_line_arc: Linear Arc
+action_orbit_shot: Orbiting Arc
+action_spiraling_shot: Spiral Arc
+action_phasing_arc: Phasing Arc
+action_true_orbit: True Orbit
+action_bounce: Bounce
+action_remove_bounce: Remove Bounce
+action_homing: Homing
+action_anti_homing: Anti Homing
+action_homing_wand: Wand Homing
+action_homing_short: Short-Range Homing
+action_homing_rotate: Rotate Towards Foes
+action_homing_shooter: Boomerang
+action_autoaim: Auto-Aim
+action_homing_accelerating: Accelerative Homing
+action_homing_cursor: Aiming Arc
+action_homing_area: Projectile Area Teleport
+action_piercing_shot: Piercing Shot
+action_clipping_shot: Drilling Shot
+action_damage: Damage Plus
+action_damage_random: Random Damage
+action_bloodlust: Bloodlust
+action_damage_forever: Mana To Damage
+action_critical_hit: Critical Plus
+action_area_damage: Damage Field
+action_spells_to_power: Spells To Power
+action_essence_to_power: Essence To Power
+action_zero_damage: Null Shot
+action_heavy_shot: Heavy Shot
+action_light_shot: Light Shot
+action_knockback: Knockback
+action_recoil: Recoil
+action_recoil_damper: Recoil Damper
+action_speed: Speed Up
+action_accelerating_shot: Accelerating Shot
+action_decelerating_shot: Decelerating Shot
+action_explosive_projectile: Explosive Projectile
+action_clustermod: Clusterbolt
+action_water_to_poison: Water To Poison
+action_blood_to_acid: Blood To Acid
+action_lava_to_blood: Lava To Blood
+action_liquid_to_explosion: Liquid Detonation
+action_toxic_to_acid: Toxic Sludge To Acid
+action_static_to_sand: Ground To Sand
+action_transmutation: Chaotic Transmutation
+action_random_explosion: Chaos Magic
+action_necromancy: Necromancy
+action_light: Light
+action_explosion: Explosion
+action_explosion_light: Magical Explosion
+action_fire_blast: Explosion Of Brimstone
+action_poison_blast: Explosion Of Poison
+action_alcohol_blast: Explosion Of Spirits
+action_thunder_blast: Explosion Of Thunder
+action_berserk_field: Circle Of Fervour
+action_polymorph_field: Circle Of Transmogrification
+action_chaos_polymorph_field: Circle Of Unstable Metamorphosis
+action_electrocution_field: Circle Of Thunder
+action_freeze_field: Circle Of Stillness
+action_regeneration_field: Circle Of Vigour
+action_teleportation_field: Circle Of Displacement
+action_levitation_field: Circle Of Buoyancy
+action_shield_field: Circle Of Shielding
+action_projectile_transmutation_field: Projectile Transmutation Field
+action_projectile_thunder_field: Projectile Thunder Field
+action_projectile_gravity_field: Projectile Gravity Field
+action_vacuum_powder: Powder Vacuum Field
+action_vacuum_liquid: Liquid Vacuum Field
+action_vacuum_entities: Vacuum Field
+action_sea_lava: Sea Of Lava
+action_sea_alcohol: Sea Of Alcohol
+action_sea_oil: Sea Of Oil
+action_sea_water: Sea Of Water
+action_sea_swamp: Summon Swamp
+action_sea_acid: Sea Of Acid
+action_sea_acid_gas: Sea Of Flammable Gas
+action_sea_mimic: Sea Of Mimicium
+action_cloud_water: Rain Cloud
+action_cloud_oil: Oil Cloud
+action_cloud_blood: Blood Cloud
+action_cloud_acid: Acid Cloud
+action_cloud_thunder: Thundercloud
+action_electric_charge: Electric Charge
+action_matter_eater: Matter Eater
+action_freeze: Freeze Charge
+action_hitfx_burning_critical_hit: Critical On Burning
+action_hitfx_critical_water: Critical On Wet (water) Enemies
+action_hitfx_critical_oil: Critical On Oiled Enemies
+action_hitfx_critical_blood: Critical On Bloody Enemies
+action_hitfx_toxic_charm: Charm On Toxic Sludge
+action_hitfx_explosion_slime: Explosion On Slimy Enemies
+action_hitfx_explosion_slime_giga: Giant Explosion On Slimy Enemies
+action_hitfx_explosion_alcohol: Explosion On Drunk Enemies
+action_hitfx_explosion_alcohol_giga: Giant Explosion On Drunk Enemies
+action_hitfx_petrify: Petrify
+action_rocket_downwards: Downwards Bolt Bundle
+action_rocket_octagon: Octagonal Bolt Bundle
+action_fizzle: Fizzle
+action_bounce_explosion: Explosive Bounce
+action_bounce_spark: Bubbly Bounce
+action_bounce_laser: Concentrated Light Bounce
+action_bounce_laser_emitter: Plasma Beam Bounce
+action_bounce_larpa: Larpa Bounce
+action_bounce_small_explosion: Sparkly Bounce
+action_bounce_lightning: Lightning Bounce
+action_bounce_hole: Vacuum Bounce
+action_fireball_ray: Fireball Thrower
+action_lightning_ray: Lightning Thrower
+action_tentacle_ray: Tentacler
+action_laser_emitter_ray: Plasma Beam Thrower
+action_fireball_ray_line: Two-Way Fireball Thrower
+action_fireball_ray_enemy: Personal Fireball Thrower
+action_lightning_ray_enemy: Personal Lightning Caster
+action_tentacle_ray_enemy: Personal Tentacler
+action_gravity_field_enemy: Personal Gravity Field
+action_curse: Venomous Curse
+action_curse_wither_projectile: Weakening Curse - Projectiles
+action_curse_wither_explosion: Weakening Curse - Explosives
+action_curse_wither_melee: Weakening Curse - Melee
+action_curse_wither_electricity: Weakening Curse - Electricity
+action_orbit_discs: Sawblade Orbit
+action_orbit_fireballs: Fireball Orbit
+action_orbit_nukes: Nuke Orbit
+action_orbit_lasers: Plasma Beam Orbit
+action_orbit_larpa: Orbit Larpa
+action_chain_shot: Chain Spell
+action_arc_electric: Electric Arc
+action_arc_fire: Fire Arc
+action_arc_gunpowder: Gunpowder Arc
+action_arc_poison: Poison Arc
+action_crumbling_earth_projectile: Earthquake Shot
+action_x_ray: All-Seeing Eye
+action_unstable_gunpowder: Firecrackers
+action_acid_trail: Acid Trail
+action_poison_trail: Poison Trail
+action_oil_trail: Oil Trail
+action_water_trail: Water Trail
+action_gunpowder_trail: Gunpowder Trail
+action_fire_trail: Fire Trail
+action_burn_trail: Burning Trail
+action_torch: Torch
+action_torch_electric: Electric Torch
+action_energy_shield: Energy Shield
+action_energy_shield_sector: Energy Shield Sector
+action_energy_shield_shot: Projectile Energy Shield
+action_tiny_ghost: Summon Tiny Ghost
+action_ocarina_a: Ocarina - Note A
+action_ocarina_b: Ocarina - Note B
+action_ocarina_c: Ocarina - Note C
+action_ocarina_d: Ocarina - Note D
+action_ocarina_e: Ocarina - Note E
+action_ocarina_f: Ocarina - Note F
+action_ocarina_gsharp: Ocarina - Note G#
+action_ocarina_a2: Ocarina - Note A2
+action_kantele_a: Kantele - Note A
+action_kantele_d: Kantele - Note D
+action_kantele_dis: Kantele - Note D#
+action_kantele_e: Kantele - Note E
+action_kantele_g: Kantele - Note G
+action_random_spell: Random Spell
+action_random_projectile: Random Projectile Spell
+action_random_modifier: Random Modifier Spell
+action_random_static_projectile: Random Static Projectile Spell
+action_draw_random: Copy Random Spell
+action_draw_random_x3: Copy Random Spell Thrice
+action_draw_3_random: Copy Three Random Spells
+action_all_nukes: Spells To Nukes
+action_all_discs: Spells To Giga Sawblades
+action_all_rockets: Spells To Magic Missiles
+action_all_deathcrosses: Spells To Death Crosses
+action_all_blackholes: Spells To Black Holes
+action_all_acid: Spells To Acid
+action_all_spells: The End Of Everything
+action_summon_portal: Summon Portal
+action_add_trigger: Add Trigger
+action_add_timer: Add Timer
+action_add_death_trigger: Add Expiration Trigger
+action_larpa_chaos: Chaos Larpa
+action_larpa_downwards: Downwards Larpa
+action_larpa_upwards: Upwards Larpa
+action_larpa_chaos_2: Copy Trail
+action_larpa_death: Larpa Explosion
+action_alpha: Alpha
+action_gamma: Gamma
+action_tau: Tau
+action_omega: Omega
+action_mu: Mu
+action_phi: Phi
+action_sigma: Sigma
+action_zeta: Zeta
+action_divide_2: Divide By 2
+action_divide_3: Divide By 3
+action_divide_4: Divide By 4
+action_divide_10: Divide By 10
+action_meteor_rain: Meteorisade
+action_worm_rain: Matosade
+action_reset: Wand Refresh
+action_if_enemy: Requirement - Enemies
+action_if_projectile: Requirement - Projectile Spells
+action_if_hp: Requirement - Low Health
+action_if_half: Requirement - Every Other
+action_if_end: Requirement - Endpoint
+action_if_else: Requirement - Otherwise
+action_colour_red: Red Glimmer
+action_colour_orange: Orange Glimmer
+action_colour_green: Green Glimmer
+action_colour_yellow: Yellow Glimmer
+action_colour_purple: Purple Glimmer
+action_colour_blue: Blue Glimmer
+action_colour_rainbow: Rainbow Glimmer
+action_colour_invis: Invisible Spell
+action_rainbow_trail: Rainbow Trail
+action_cessation: Cessation

@@ -19,6 +19,7 @@ save-dir := compat-dir + "/pfx/drive_c/users/steamuser/AppData/LocalLow/Nolla_Ga
 start:
     # idempotently make sure things are in place:
     mkdir -p "{{save-dir}}/"{save_shared,save00/persistent/flags}
+    ln -sf "{{save-dir}}/save00" "{{noita-dir}}/save00"
     ln -f config.xml "{{save-dir}}/save_shared/config.xml"
     # just link .exe, .dll and data into a new cwd ¯\_(ツ)_/¯
     ln -sf "{{steam-common}}/Noita/"{*.dll,noita.exe,data} noita

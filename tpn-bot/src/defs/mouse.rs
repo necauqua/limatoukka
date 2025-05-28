@@ -268,12 +268,5 @@ fn read_wands_sizes(noita: &mut Noita) -> Result<Vec<(i32, i32)>> {
     Ok(wands.into_iter().map(|(_, h, c)| (h, c)).collect())
 }
 
-static SPRITE_HEIGHTS: LazyLock<HashMap<String, i32>> = LazyLock::new(|| {
-    include_str!("../../data/sprite-heights.csv")
-        .lines()
-        .filter_map(|line| {
-            let mut parts = line.split(',');
-            Some((parts.next()?.into(), parts.next()?.parse().ok()?))
-        })
-        .collect()
-});
+static SPRITE_HEIGHTS: LazyLock<HashMap<String, i32>> =
+    LazyLock::new(|| serde_yml::from_str(include_str!("../../data/sprite-heights.yml")).unwrap());
