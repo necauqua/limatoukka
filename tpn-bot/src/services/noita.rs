@@ -258,11 +258,14 @@ impl NoitaHandle {
         // same, meeh
         let mut dir = tokio::fs::read_dir(FLAG_PATH).await?;
         while let Some(f) = dir.next_entry().await? {
-            set.insert(
-                f.file_name()
-                    .into_string()
-                    .map_err(|_| anyhow!("bad file name"))?,
-            );
+            let name = f
+                .file_name()
+                .into_string()
+                .map_err(|_| anyhow!("bad file name"))?;
+            // this one is temporarily set by engine on startup and we sometimes catch it
+            if name != "_init_rendering_in_progress" {
+                set.insert(name);
+            }
         }
         Ok(set)
     }
