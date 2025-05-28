@@ -119,14 +119,18 @@ impl Args {
 impl<T: CommandArg> ArgExtractor for T {
     async fn extract(ctx: &CommandContext, args: &mut Args) -> ExtractorResult<Arg<Self>> {
         let idx = args.current_idx();
-        let arg = args.pop();
 
-        if let Some(arg) = &arg {
-            let parsed = neca_cmd::sub::Arg::parse(arg);
-            if !parsed.is_static() {
-                return Ok(Arg::Expandable(parsed));
+        let arg = match args.pop() {
+            None => None,
+            Some(arg) => {
+                let parsed = neca_cmd::sub::Arg::parse(&arg);
+                // make sure to expand escapes
+                match parsed.expand_static() {
+                    Some(arg) => Some(arg),
+                    None => return Ok(Arg::Expandable(parsed)),
+                }
             }
-        }
+        };
 
         T::parse_opt(ctx, arg)
             .await
