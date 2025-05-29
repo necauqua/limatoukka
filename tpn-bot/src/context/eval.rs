@@ -118,7 +118,7 @@ impl EvalContext {
                     return Some(i.to_string());
                 }
             }
-            if name == "sender" {
+            if name == "self" {
                 return Some(self.shared.owner.login.clone());
             }
             if let Some(arg) = name
