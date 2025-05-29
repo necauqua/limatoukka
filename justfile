@@ -172,12 +172,6 @@ start-intro-timer seconds="900":
 stop-intro-timer:
     pkill -f ./countdown.fish
 
-start-funny-rotation:
-    ./obs-files/rotate-lol.fish & disown
-
-stop-funny-rotation:
-    pkill -f ./rotate-lol.fish
-
 cringe-scp-large-reply msg:
     echo {{quote(msg)}} > /tmp/last-reply.html
     rsync -e 'ssh -o IdentitiesOnly=yes -i ~/.ssh/main-deployer' /tmp/last-reply.html main-deployer@necauq.ua:.
