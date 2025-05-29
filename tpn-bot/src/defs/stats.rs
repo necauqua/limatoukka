@@ -235,13 +235,20 @@ async fn rank(ctx: CommandContext, chatter: Chatter) -> Result<()> {
         prev = Some(count)
     }
 
+    let (whom, whom2) = match chatter.id == ctx.shared.owner.id {
+        true => ("You", "you"),
+        false => ("They", "them"),
+    };
+
     ctx.reply(match found {
         Some((found, None)) => {
             // found is always 1 here
-            format!("You are a top-{found} chatter. There is no god up there, other than you")
+            format!(
+                "{whom} are a top-{found} chatter. There is no god up there, other than {whom2}"
+            )
         }
         Some((found, Some(diff))) => {
-            format!("You are a top-{found} spammer, gz; {diff} messages left to climb up")
+            format!("{whom} are a top-{found} spammer, gz; {diff} messages left to climb up")
         }
         None => "Placed >999, not enough spam KEKW".into(),
     })

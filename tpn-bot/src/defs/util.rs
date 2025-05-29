@@ -1,7 +1,8 @@
-use std::time::Duration;
+use std::{fmt::Write as _, time::Duration};
 
 use crate::{
     commands::{
+        self,
         args::{Chatter, HoldTime, Required},
         command,
     },
@@ -15,7 +16,10 @@ use crate::{
 use anyhow::Result;
 use humantime_serde::re::humantime;
 use maud::html;
-use rustis::commands::{GenericCommands, StringCommands};
+use rustis::{
+    client::BatchPreparedCommand,
+    commands::{GenericCommands, HashCommands, StringCommands},
+};
 use tokio::time::sleep;
 
 /// Respond with "pong!".
@@ -188,6 +192,85 @@ async fn tts(ctx: CommandContext, msg: String) -> Result<()> {
 
             child.wait().await?;
         },
+    }
+
+    Ok(())
+}
+
+/// Get information about a macro or command.
+///
+/// If you see someone running some weird command, run
+/// `what-is:command:their-name~` to figure out what it was.
+#[command(sender_gate = 3s)]
+async fn what_is(ctx: CommandContext, name: String, to: Chatter) -> Result<()> {
+    let (personal, global): (Option<String>, Option<String>) = {
+        let storage = ctx.storage();
+        let mut p = storage.create_pipeline();
+        p.hget::<_, _, Option<String>>(format!("macros:{to}"), &name)
+            .queue();
+        p.hget::<_, _, Option<String>>("macros:global", &name)
+            .queue();
+        p.execute().await?
+    };
+
+    if let Some(script) = personal {
+        let whom = match to.id == ctx.shared.owner.id {
+            true => "your",
+            false => "their",
+        };
+        ctx.reply(format!("`{name}` is one of {whom} macros: {script}"))
+            .await?;
+    } else if let Some(script) = global {
+        ctx.reply(format!("`{name}` is a global macro: {script}"))
+            .await?;
+    } else if let Some(command) = commands::find(&name).filter(|c| !c.hidden) {
+        let mut s = String::new();
+
+        match command.shortcode {
+            Some(shortcode) => {
+                write!(&mut s, "`{}` (shortcode `{shortcode}`)", command.name)
+            }
+            None => write!(&mut s, "`{}`", command.name),
+        }
+        .unwrap();
+
+        s.push_str(" is a ");
+        if command.permission != PermissionLevel::Viewer {
+            s.push_str(&format!("{:?}", command.permission).to_lowercase());
+            s.push_str("-level ");
+        }
+        s.push_str("command");
+
+        if let Some(gate) = command.sender_gate {
+            write!(&mut s, ", sender gate {}", humantime::format_duration(gate)).unwrap();
+        }
+        if let Some(gate) = command.global_gate {
+            write!(&mut s, ", global gate {}", humantime::format_duration(gate)).unwrap();
+        }
+
+        let required = command
+            .args
+            .iter()
+            .filter(|a| (a.optional)().is_none())
+            .count();
+        let all = command.args.len();
+
+        if all == 0 {
+            s.push_str(". Takes no arguments");
+        } else if required == all {
+            if required == 1 {
+                write!(&mut s, ". Takes 1 argument").unwrap();
+            } else {
+                write!(&mut s, ". Takes {all} arguments").unwrap();
+            }
+        } else {
+            write!(&mut s, ". Takes {required}-{all} arguments").unwrap();
+        }
+
+        ctx.reply(s).await?;
+    } else {
+        ctx.reply(format!("`{name}` is not a macro or command"))
+            .await?;
     }
 
     Ok(())
