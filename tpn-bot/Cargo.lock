@@ -3572,6 +3572,7 @@ dependencies = [
  "opentelemetry_sdk",
  "paste",
  "pipe-channel",
+ "rand 0.9.1",
  "reedline",
  "reqwest",
  "rustis",

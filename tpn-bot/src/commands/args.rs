@@ -49,15 +49,6 @@ impl<T> Arg<T> {
     }
 }
 
-impl Arg<String> {
-    pub fn as_str(&self) -> &str {
-        match self {
-            Arg::Static(t) => t,
-            Arg::Expandable(arg) => arg.text(),
-        }
-    }
-}
-
 // no specialization :(
 impl Arg<RestOfArgs> {
     pub async fn get(self, _ctx: &CommandContext) -> ArgResult<RestOfArgs> {

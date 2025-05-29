@@ -401,18 +401,19 @@ async fn math(ctx: CommandContext, value: i64) -> Result<()> {
     ctx.reply(format!("= {value}")).await
 }
 
-/// Stores a personal named number that will be replaced in any commands you
+/// Stores number that will be replaced in any commands you
 /// call (including macros) if you reference it as `%name`.
 #[command]
 async fn set(ctx: CommandContext, name: String, value: i64) -> Result<()> {
-    set_text(ctx, name, value.to_string()).await
+    set_text(ctx, name, Some(value.to_string())).await
 }
 
-/// Stores a personal named value that will be replaced in any commands you
+/// Stores test that will be replaced in any commands you
 /// call (including macros) if you reference it as `%name`.
 #[command]
-async fn set_text(ctx: CommandContext, name: String, value: String) -> Result<()> {
+async fn set_text(ctx: CommandContext, name: String, value: Option<String>) -> Result<()> {
     let name = name.to_lowercase();
+    let value = value.unwrap_or_default();
 
     let mut tx = ctx.storage().create_transaction();
     let key = format!("vars:{}", ctx.shared.owner);
@@ -429,7 +430,22 @@ async fn set_text(ctx: CommandContext, name: String, value: String) -> Result<()
     }
 }
 
-/// Deletes a personal named value. Can delete more than one at once.
+/// Similar to `set~`, but the number is only stored for the duration of current evaluation context.
+#[command]
+async fn r#let(ctx: CommandContext, name: String, value: i64) -> Result<()> {
+    let_text(ctx, name, Some(value.to_string())).await
+}
+
+/// Similar to `set-text~`, but the text is only stored for the duration of current evaluation context.
+#[command]
+async fn let_text(ctx: CommandContext, name: String, value: Option<String>) -> Result<()> {
+    let name = name.to_lowercase();
+    let value = value.unwrap_or_default();
+    ctx.vars.write().await.insert(name, value);
+    Ok(())
+}
+
+/// Deletes a variable. Can delete more than one at once.
 #[command]
 async fn del(ctx: CommandContext, names: RestOfArgs) -> Result<()> {
     if names.is_empty() {
@@ -445,8 +461,8 @@ async fn del(ctx: CommandContext, names: RestOfArgs) -> Result<()> {
         )
         .await?
     {
-        0 => fail!("no vars deleted"),
-        1 => {}
+        // 0 => fail!("no vars deleted"),
+        0 | 1 => {}
         n => ctx.reply(format!("{n} vars deleted")).await?,
     }
     let mut vars = ctx.vars.write().await;
@@ -457,7 +473,7 @@ async fn del(ctx: CommandContext, names: RestOfArgs) -> Result<()> {
     Ok(())
 }
 
-/// Lists all of your personal named values.
+/// Lists all of your variables.
 #[command(sender_gate=5s)]
 async fn list_vars(ctx: CommandContext) -> Result<()> {
     let keys: Vec<String> = ctx
@@ -467,7 +483,17 @@ async fn list_vars(ctx: CommandContext) -> Result<()> {
     ctx.reply(keys.join(", ")).await
 }
 
-/// Clears all of your personal named values.
+/// A debug command that replies with the value of the given variable.
+#[command(sender_gate=5s)]
+async fn get(ctx: CommandContext, name: String) -> Result<()> {
+    ctx.reply(match ctx.vars.read().await.get(&name) {
+        Some(value) => format!("{name} = {value}"),
+        None => format!("no variable named `{name}`"),
+    })
+    .await
+}
+
+/// Clears all of your variables.
 #[command]
 async fn clear(ctx: CommandContext) -> Result<()> {
     ctx.storage()

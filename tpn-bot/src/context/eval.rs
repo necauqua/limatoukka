@@ -113,13 +113,15 @@ impl EvalContext {
 
     pub fn arg_expander(&self) -> impl FnMut(&str) -> Option<String> {
         |name| {
-            if name == "i" {
-                if let Some(i) = self.repeat_i {
-                    return Some(i.to_string());
+            match name {
+                "i" => {
+                    if let Some(i) = self.repeat_i {
+                        return Some(i.to_string());
+                    }
                 }
-            }
-            if name == "self" {
-                return Some(self.shared.owner.login.clone());
+                "self" => return Some(self.shared.owner.login.clone()),
+                "rand" => return Some(rand::random_range(0..100_i32).to_string()),
+                _ => {}
             }
             if let Some(arg) = name
                 .parse::<u32>()

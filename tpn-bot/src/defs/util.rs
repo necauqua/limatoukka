@@ -56,7 +56,13 @@ async fn last_error(ctx: CommandContext, chatter: Chatter) -> Result<()> {
         ctx.storage()
             .get::<_, Option<_>>(format!("last-error:{chatter}"))
             .await?
-            .unwrap_or_else(|| "No errors in your last message".into()),
+            .unwrap_or_else(|| {
+                let whom = match chatter.id == ctx.shared.owner.id {
+                    true => "your",
+                    false => "their",
+                };
+                format!("No errors in {whom} last message")
+            }),
     )
     .await
 }

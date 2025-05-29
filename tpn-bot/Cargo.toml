@@ -65,6 +65,7 @@ elasticsearch = "9.0.0-alpha.1"
 tokio-tungstenite = { version = "0.26.2", features = ["native-tls", "url"] }
 paste = "1.0.15"
 sysinfo = "0.35.1"
+rand = "0.9.1"
 
 [build-dependencies]
 anyhow = "1.0.97"
