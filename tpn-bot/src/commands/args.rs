@@ -338,20 +338,12 @@ impl<const DEFAULT: u32, const MAX: u32> CommandArg for HoldTime<DEFAULT, MAX> {
         let Some(input) = arg else {
             return Ok(Self(Duration::from_millis(DEFAULT as _)));
         };
-
         let millis = u32::parse(ctx, input).await?;
-
-        if millis <= MAX {
-            Ok(Self(Duration::from_millis(millis as _)))
-        } else {
-            Err(ArgError::Precondition(format!(
-                "duration must be at most {MAX}"
-            )))
-        }
+        Ok(Self(Duration::from_millis(millis.min(MAX) as _)))
     }
 
     fn type_desc() -> Cow<'static, str> {
-        format!("duration in milliseconds, at most {MAX}").into()
+        format!("duration in milliseconds, will be limited to at most {MAX}").into()
     }
 
     fn optional_desc() -> Option<Cow<'static, str>> {
@@ -416,6 +408,7 @@ impl CommandArg for Chatter {
         let Some(login) = arg else {
             return Ok(ctx.shared.owner.clone());
         };
+        let login = login.trim().to_lowercase();
 
         let key = format!("chatter:{login}");
         let cached: Option<String> = ctx.storage().get(&key).await.map_err(|e| anyhow!(e))?;
@@ -429,7 +422,7 @@ impl CommandArg for Chatter {
             .await
             .map_err(|e| anyhow!(e))?;
         let Some(user) = full else {
-            return Err(ArgError::Precondition("user does not exist".into()));
+            return Err(ArgError::Precondition(format!("user {login} not found")));
         };
 
         ctx.storage()
@@ -437,7 +430,7 @@ impl CommandArg for Chatter {
                 key,
                 user.id.as_str(),
                 SetCondition::None,
-                SetExpiration::Ex(3600),
+                SetExpiration::Ex(24 * 60 * 60),
                 false,
             )
             .await
@@ -450,7 +443,7 @@ impl CommandArg for Chatter {
     }
 
     fn type_desc() -> Cow<'static, str> {
-        "a user login, defaults to you".into()
+        "a user login".into()
     }
 
     fn optional_desc() -> Option<Cow<'static, str>> {
@@ -482,6 +475,6 @@ impl<T: CommandArg> CommandArg for Required<T> {
     }
 
     fn type_desc() -> Cow<'static, str> {
-        "a user login".into()
+        T::type_desc()
     }
 }

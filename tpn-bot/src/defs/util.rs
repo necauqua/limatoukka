@@ -101,7 +101,7 @@ async fn is_game_running(ctx: CommandContext) -> Result<()> {
 ///
 /// Very useful for multi-command messages.
 #[command(shortcode=w, no_wall)]
-async fn wait(ctx: CommandContext, duration: HoldTime) -> Result<()> {
+async fn wait(ctx: CommandContext, duration: HoldTime<500, 300_000>) -> Result<()> {
     let duration = duration.get();
     tracing::debug!(
         duration.ms = duration.as_millis(),
