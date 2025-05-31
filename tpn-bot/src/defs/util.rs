@@ -2,7 +2,7 @@ use std::{fmt::Write as _, time::Duration};
 
 use crate::{
     commands::{
-        self,
+        self, CommandTag,
         args::{Chatter, HoldTime, Required},
         command,
     },
@@ -70,7 +70,7 @@ async fn last_error(ctx: CommandContext, chatter: Chatter) -> Result<()> {
 /// Sometimes the capture dies (but the game is fine) because of my brittle scripts.
 ///
 /// Try running this first before doing a full restart etc etc.
-#[command(global_gate = 30s)]
+#[command(global_gate = 30s, OBSControl)]
 async fn fix_obs_capture() -> Result<()> {
     AppContext::just("obs-reset-display", &[]).await
 }
@@ -78,13 +78,13 @@ async fn fix_obs_capture() -> Result<()> {
 /// The sound setup is the most brittle jank thing actually, and dies most often.
 ///
 /// Try running this first before doing a full restart etc etc.
-#[command(global_gate = 30s)]
+#[command(global_gate = 30s, OBSControl)]
 async fn fix_obs_sound() -> Result<()> {
     AppContext::just("sound-setup", &[]).await
 }
 
 /// Check if noita.exe process is present, aka not dead.
-#[command(sender_gate = 1m)]
+#[command(sender_gate = 1m, NoitaData)]
 async fn is_game_running(ctx: CommandContext) -> Result<()> {
     ctx.reply(
         if AppContext::just_bool("is-game-running").await.is_ok() {
@@ -100,7 +100,7 @@ async fn is_game_running(ctx: CommandContext) -> Result<()> {
 /// Wait for a specified duration milliseconds.
 ///
 /// Very useful for multi-command messages.
-#[command(shortcode=w, no_wall)]
+#[command(shortcode=w, NoWall)]
 async fn wait(ctx: CommandContext, duration: HoldTime<500, 300_000>) -> Result<()> {
     let duration = duration.get();
     tracing::debug!(
@@ -229,7 +229,7 @@ async fn what_is(ctx: CommandContext, name: String, to: Chatter) -> Result<()> {
     } else if let Some(script) = global {
         ctx.reply(format!("`{name}` is a global macro: {script}"))
             .await?;
-    } else if let Some(command) = commands::find(&name).filter(|c| !c.hidden) {
+    } else if let Some(command) = commands::find(&name).filter(|c| !c.is(CommandTag::Hidden)) {
         let mut s = String::new();
 
         match command.shortcode {

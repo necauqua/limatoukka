@@ -4,7 +4,10 @@ use anyhow::Result;
 use humantime_serde::re::humantime;
 use serde::Serialize;
 use strum::{EnumMessage, IntoEnumIterator};
-use tpn_bot::{commands::CommandRegistration, services::messaging::PermissionLevel};
+use tpn_bot::{
+    commands::{CommandRegistration, CommandTag},
+    services::messaging::PermissionLevel,
+};
 
 fn capitalise(s: &str) -> String {
     let mut c = s.chars();
@@ -60,7 +63,7 @@ fn main() -> Result<()> {
     let mut categories = HashMap::new();
 
     for cmd in inventory::iter::<CommandRegistration> {
-        if cmd.hidden {
+        if cmd.is(CommandTag::Hidden) {
             continue;
         }
         let category = cmd.module_path.rsplit_once("::").unwrap().1.to_owned();

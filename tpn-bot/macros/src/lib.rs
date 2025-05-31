@@ -36,9 +36,8 @@ struct CommandMacroAttrs {
     permission: Option<MacroArg>,
     global_gate: Option<MacroArg>,
     sender_gate: Option<MacroArg>,
-    hidden: Option<MacroArg>,
     shortcode: Option<MacroArg>,
-    no_wall: Option<MacroArg>,
+    extras: Vec<MacroArg>,
 }
 
 impl Parse for CommandMacroAttrs {
@@ -50,10 +49,12 @@ impl Parse for CommandMacroAttrs {
                 "permission" => args.permission.replace(arg),
                 "global_gate" => args.global_gate.replace(arg),
                 "sender_gate" => args.sender_gate.replace(arg),
-                "hidden" => args.hidden.replace(arg),
                 "shortcode" => args.shortcode.replace(arg),
-                "no_wall" => args.no_wall.replace(arg),
-                _ => return Err(syn::Error::new(arg.name.span(), "Unknown argument")),
+                _ => {
+                    let prev = args.extras.iter().position(|a| a.name == arg.name);
+                    args.extras.push(arg);
+                    prev.map(|i| args.extras.swap_remove(i))
+                }
             };
             if let Some(prev) = prev {
                 return Err(syn::Error::new(
@@ -190,17 +191,6 @@ pub fn command(attrs: TokenStream, input: TokenStream) -> TokenStream {
             }
         }
     };
-    let hidden = match attrs.hidden {
-        Some(hidden) => {
-            let name = hidden.name;
-            if let Some(value) = hidden.value {
-                quote_spanned!(value.span() => #name: compile_error!("`hidden` attribute does not take a value"))
-            } else {
-                quote!(#name: true)
-            }
-        }
-        None => quote!(hidden: false),
-    };
     let shortcode = match attrs.shortcode {
         Some(shortcode) => {
             let name = shortcode.name;
@@ -213,17 +203,16 @@ pub fn command(attrs: TokenStream, input: TokenStream) -> TokenStream {
         }
         None => quote!(shortcode: None),
     };
-    let no_wall = match attrs.no_wall {
-        Some(no_wall) => {
-            let name = no_wall.name;
-            if let Some(value) = no_wall.value {
-                quote_spanned!(value.span() => #name: compile_error!("`no_wall` attribute does not take a value"))
-            } else {
-                quote!(#name: true)
-            }
+
+    let tags = attrs.extras.into_iter().map(|attr| {
+        if let Some(value) = attr.value {
+            let name = attr.name;
+            quote_spanned!(value.span() => #name: compile_error!("`{name}` attribute does not take a value"))
+        } else {
+            let name = attr.name;
+            quote!(crate::commands::CommandTag::#name)
         }
-        None => quote!(no_wall: false),
-    };
+    });
 
     quote! {
         #input
@@ -245,12 +234,11 @@ pub fn command(attrs: TokenStream, input: TokenStream) -> TokenStream {
                     #ident(#args).await
                 }) as crate::commands::CommandFuture)
             }),
+            tags: &[#(#tags),*],
             #permission,
             #global_gate,
             #sender_gate,
-            #hidden,
             #shortcode,
-            #no_wall,
         });
     }
     .into()

@@ -171,7 +171,7 @@ async fn yoink(
 ///
 /// Also you can run a macro recorded by someone else by appending their login
 /// as the third argument.
-#[command(shortcode=q, no_wall)]
+#[command(shortcode=q, NoWall)]
 async fn r#macro(
     ctx: CommandContext,
     name: String,
@@ -225,7 +225,7 @@ const REPEAT_LIMIT: u32 = 1000;
 /// The total limit of repetitions in a given message is 1000! This counts all
 /// repetitions, nested in each other or inside of macros etc etc. Once the
 /// limit is reached, the command will error out.
-#[command(no_wall)]
+#[command(NoWall)]
 async fn repeat(ctx: CommandContext, times: InRange<0, 1000>, script: RawScript) -> Result<()> {
     let times = times.get();
 
@@ -264,7 +264,7 @@ async fn repeat(ctx: CommandContext, times: InRange<0, 1000>, script: RawScript)
 ///
 /// Additionally, there is an optional name that you can attach to the group to
 /// have it shown on the status wall.
-#[command(shortcode=g, no_wall)]
+#[command(shortcode=g, NoWall)]
 async fn group(
     ctx: CommandContext,
     script: Script,
@@ -295,7 +295,7 @@ async fn group(
 /// The difference is that any script errors are ignored, and this command
 /// always succeeds, without preventing the repeats from continuing or setting
 /// last-error.
-#[command(no_wall)]
+#[command(NoWall)]
 async fn r#try(ctx: CommandContext, script: Script) -> Result<()> {
     let status = html! {
         span style="color: #E38AF0" { (ctx.message().sender.name) } ": " (ctx.command) " " (ctx.nesting_str())
@@ -322,7 +322,7 @@ async fn r#try(ctx: CommandContext, script: Script) -> Result<()> {
 ///
 /// The difference is that only one `lock` script can run at a time, if
 /// one is already running this command does nothing.
-#[command(shortcode=b, no_wall)]
+#[command(shortcode=b, NoWall)]
 async fn lock(ctx: CommandContext, script: Script) -> Result<()> {
     let exclusive = ctx
         .storage()
@@ -372,7 +372,7 @@ async fn lock(ctx: CommandContext, script: Script) -> Result<()> {
 /// ```tpn
 /// stalling: repeat:5:" wait~ up~ "~
 /// ```
-#[command(permission=Subscriber, no_wall)]
+#[command(permission=Subscriber, NoWall)]
 async fn r#loop(ctx: CommandContext, script: RawScript) -> Result<()> {
     let entry = ctx.status_wall().allocate().await;
 

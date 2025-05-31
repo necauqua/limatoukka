@@ -36,18 +36,35 @@ pub struct CommandRegistration {
     pub module_path: &'static str,
     pub line_number: u32,
     pub handler: CommandPtr,
+    pub tags: &'static [CommandTag],
     /// Which minimum permission level is needed to use this command
     pub permission: PermissionLevel,
     /// A global timeout before the command can be used again
     pub global_gate: Option<Duration>,
     /// A timeout before the command can be used again by the same user
     pub sender_gate: Option<Duration>,
-    /// Whether the command should not be shown in documentation
-    pub hidden: bool,
     /// An ultra-short version of the command
     pub shortcode: Option<&'static str>,
+}
+
+impl CommandRegistration {
+    pub fn is(&self, tag: CommandTag) -> bool {
+        self.tags.contains(&tag)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandTag {
+    /// Whether the command should not be shown in documentation
+    Hidden,
     /// Whether the command should not be shown on the wall
-    pub no_wall: bool,
+    NoWall,
+    /// Whether the command is for controlling the game
+    NoitaControl,
+    /// Whether the command is for reading the game state
+    NoitaData,
+    /// Whether the command is for controlling OBS
+    OBSControl,
 }
 
 inventory::collect!(CommandRegistration);

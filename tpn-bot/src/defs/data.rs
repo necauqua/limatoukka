@@ -27,7 +27,7 @@ fn data_error(thing: &str) -> impl Fn(anyhow::Error) -> CommandFailure {
 }
 
 /// Read the current seed
-#[command(global_gate = 15s, permission = Vip)]
+#[command(global_gate = 15s, permission = Vip, NoitaData)]
 async fn seed(ctx: CommandContext) -> Result<()> {
     let seed = ctx
         .noita()
@@ -38,7 +38,7 @@ async fn seed(ctx: CommandContext) -> Result<()> {
 }
 
 /// Read the current death count
-#[command(global_gate = 15s, shortcode=deaths)]
+#[command(global_gate = 15s, shortcode=deaths, NoitaData)]
 async fn death_count(ctx: CommandContext) -> Result<()> {
     let stats = ctx
         .noita()
@@ -49,7 +49,7 @@ async fn death_count(ctx: CommandContext) -> Result<()> {
 }
 
 /// The amount of kicks registered by the game in the current run
-#[command(global_gate = 15s)]
+#[command(global_gate = 15s, NoitaData)]
 async fn kicks(ctx: CommandContext) -> Result<()> {
     let kicks = ctx
         .noita()
@@ -61,7 +61,7 @@ async fn kicks(ctx: CommandContext) -> Result<()> {
 }
 
 /// Read the currently picked up perks. Look ma, streamer wands at home!
-#[command(global_gate = 5s)]
+#[command(global_gate = 5s, NoitaData)]
 async fn perks(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
     let perks = ctx
         .noita()
@@ -101,7 +101,7 @@ async fn perks(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
 }
 
 /// Read the current non-1 damage multipliers of the player entity.
-#[command(global_gate = 5s, permission = Vip)]
+#[command(global_gate = 5s, permission = Vip, NoitaData)]
 async fn damage_multipliers(ctx: CommandContext) -> Result<()> {
     let dmc = ctx
         .noita()
@@ -151,7 +151,7 @@ async fn damage_multipliers(ctx: CommandContext) -> Result<()> {
 }
 
 /// Checks if the persistent flag was set in the running save.
-#[command(global_gate = 5s)]
+#[command(global_gate = 5s, NoitaData)]
 async fn check_flag(ctx: CommandContext, flag: String) -> Result<()> {
     if flag.contains("/") || flag.contains("..") {
         fail!("nice try bucko");
@@ -166,7 +166,7 @@ async fn check_flag(ctx: CommandContext, flag: String) -> Result<()> {
 }
 
 /// Shows the amount of completed pillars vs total.
-#[command(global_gate = 5s)]
+#[command(global_gate = 5s, NoitaData)]
 async fn pillar_progress(ctx: CommandContext) -> Result<()> {
     let total = PILLAR_FLAGS.len();
     let done = PILLAR_FLAGS
@@ -180,7 +180,7 @@ async fn pillar_progress(ctx: CommandContext) -> Result<()> {
 }
 
 /// Shows all the pillar achievements not yet completed in the running save.
-#[command(global_gate = 5s)]
+#[command(global_gate = 5s, NoitaData)]
 async fn pillar_todo(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
     ctx.reply(
         PILLAR_FLAGS
@@ -197,7 +197,7 @@ async fn pillar_todo(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
 }
 
 /// Shows all the pillar achievements already completed in the running save.
-#[command(global_gate = 5s)]
+#[command(global_gate = 5s, NoitaData)]
 async fn pillars_done(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
     ctx.reply(
         PILLAR_FLAGS
@@ -214,7 +214,7 @@ async fn pillars_done(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
 }
 
 /// Shows the amount of unique spells ever cast vs total.
-#[command(global_gate = 5s)]
+#[command(global_gate = 5s, NoitaData)]
 async fn spell_progress(ctx: CommandContext) -> Result<()> {
     let total = ACTION_NAMES.len();
     let done = ACTION_FLAGS
@@ -228,7 +228,7 @@ async fn spell_progress(ctx: CommandContext) -> Result<()> {
 }
 
 /// Shows all the spells that were never cast in the running save.
-#[command(global_gate = 5s)]
+#[command(global_gate = 5s, NoitaData)]
 async fn spell_todo(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
     ctx.reply(
         ACTION_FLAGS
@@ -245,7 +245,7 @@ async fn spell_todo(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
 }
 
 /// Shows all the spells that were already cast in the running save.
-#[command(global_gate = 5s)]
+#[command(global_gate = 5s, NoitaData)]
 async fn spells_done(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
     ctx.reply(
         ACTION_FLAGS
@@ -262,7 +262,7 @@ async fn spells_done(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
 }
 
 /// Prints the current player position in pixels
-#[command(permission = Moderator)]
+#[command(permission = Moderator, NoitaData)]
 async fn player_pos(ctx: CommandContext) -> Result<()> {
     let (e, _) = ctx
         .noita()
@@ -297,7 +297,7 @@ async fn entity_tags(ctx: &CommandContext) -> Result<Vec<Bitset512>> {
 /// Count the amount of loaded entities.
 ///
 /// Can be filtered down by tags, for example `entity-count:gold_nugget~`.
-#[command(permission = Subscriber, sender_gate = 5s)]
+#[command(permission = Subscriber, sender_gate = 5s, NoitaData)]
 async fn entity_count(ctx: CommandContext, tags: RestOfArgs) -> Result<()> {
     let tags = tags.get(&ctx).await?;
 
@@ -338,7 +338,7 @@ async fn entity_count(ctx: CommandContext, tags: RestOfArgs) -> Result<()> {
 }
 
 /// Aggregate a top list of tags that mark loaded entities.
-#[command(permission = Vip, sender_gate = 5s)]
+#[command(permission = Vip, sender_gate = 5s, NoitaData)]
 async fn entity_tag_counts(ctx: CommandContext) -> Result<()> {
     let entity_tags = entity_tags(&ctx).await.map_err(data_error("entity tags"))?;
     let mut tag_counts = [0; 512];

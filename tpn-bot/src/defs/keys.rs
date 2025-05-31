@@ -22,43 +22,43 @@ async fn mv(ctx: CommandContext, duration: HoldTime, key: &'static str) -> Resul
 }
 
 /// Hold <kbd>W</kbd> for the specified duration.
-#[command(shortcode=u)]
+#[command(shortcode=u, NoitaControl)]
 async fn up(ctx: CommandContext, duration: HoldTime) -> Result<()> {
     mv(ctx, duration, "w").await
 }
 
 /// Hold <kbd>A</kbd> for the specified duration.
-#[command(shortcode=l)]
+#[command(shortcode=l, NoitaControl)]
 async fn left(ctx: CommandContext, duration: HoldTime) -> Result<()> {
     mv(ctx, duration, "a").await
 }
 
 /// Hold <kbd>S</kbd> for the specified duration.
-#[command(shortcode=d)]
+#[command(shortcode=d, NoitaControl)]
 async fn down(ctx: CommandContext, duration: HoldTime) -> Result<()> {
     mv(ctx, duration, "s").await
 }
 
 /// Hold <kbd>D</kbd> for the specified duration.
-#[command(shortcode=r)]
+#[command(shortcode=r, NoitaControl)]
 async fn right(ctx: CommandContext, duration: HoldTime) -> Result<()> {
     mv(ctx, duration, "d").await
 }
 
 /// Press <kbd>E</kbd>.
-#[command(shortcode=i)]
+#[command(shortcode=i, NoitaControl)]
 async fn interact(ctx: CommandContext) -> Result<()> {
     ctx.xdo().key("e").await
 }
 
 /// Press <kbd>F</kbd>.
-#[command(shortcode=k)]
+#[command(shortcode=k, NoitaControl)]
 async fn kick(ctx: CommandContext) -> Result<()> {
     ctx.xdo().key("f").await
 }
 
 /// Press <kbd>1</kbd> through <kbd>8</kbd>.
-#[command(shortcode=s)]
+#[command(shortcode=s, NoitaControl)]
 async fn slot(ctx: CommandContext, slot: InRange<1, 8>) -> Result<()> {
     ctx.xdo().key(&slot.get().to_string()).await
 }
@@ -69,7 +69,7 @@ async fn slot(ctx: CommandContext, slot: InRange<1, 8>) -> Result<()> {
 /// Also this command moves the mouse to the top left corner of the screen to
 /// force mouse movement after opening the inventory, since if you don't move
 /// it the game does not register hovering over slots lol.
-#[command(shortcode=o)]
+#[command(shortcode=o, NoitaControl)]
 async fn open_inventory(ctx: CommandContext) -> Result<()> {
     if ctx.noita().is_inventory_open() {
         return Ok(());
@@ -92,7 +92,7 @@ async fn open_inventory(ctx: CommandContext) -> Result<()> {
 /// Press <kbd>Tab</kbd> _only if_ the inventory is opened.
 ///
 /// This command also waits for the game inventory state to actually change.
-#[command(shortcode=x)]
+#[command(shortcode=x, NoitaControl)]
 async fn close_inventory(ctx: CommandContext) -> Result<()> {
     if !ctx.noita().is_inventory_open() {
         return Ok(());
@@ -119,7 +119,7 @@ async fn close_inventory(ctx: CommandContext) -> Result<()> {
 /// And yes, chatters will be able to move the mouse around and click stuff, so
 /// this command is kinda annoying without `full-stop~` as they could mess up
 /// the settings or start a different gamemode.
-#[command(permission = Moderator)]
+#[command(permission = Moderator, NoitaControl)]
 async fn pause(ctx: CommandContext) -> Result<()> {
     ctx.xdo().key("Escape").await
 }

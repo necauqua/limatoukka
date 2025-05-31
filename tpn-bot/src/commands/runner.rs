@@ -15,6 +15,7 @@ use tracing::{Instrument, Span, debug_span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::{
+    commands::CommandTag,
     context::{
         app::AppContext,
         cmd::{CommandDescriptor, CommandToken},
@@ -312,7 +313,7 @@ async fn run_command(ctx: CommandContext, fut: CommandFuture) -> Result<()> {
     let status = html! {
         span style="color: #E38AF0" { (ctx.message().sender.name) } ": " (ctx.command) " " (ctx.nesting_str())
     };
-    let _guard = if r.no_wall {
+    let _guard = if r.is(CommandTag::NoWall) {
         None
     } else {
         Some(ctx.status_wall().push(status).await)

@@ -101,7 +101,7 @@ async fn banished(ctx: CommandContext, chatter: Required<Chatter>) -> Result<()>
 }
 
 /// Set the stream title, common moderation command, nothing special here.
-#[command(permission = Moderator, global_gate = 5s, hidden)]
+#[command(permission = Moderator, global_gate = 5s, Hidden)]
 async fn set_title(ctx: CommandContext, title: String) -> Result<()> {
     ctx.twitch()
         .caster_call(async |t| {
@@ -120,20 +120,20 @@ async fn set_title(ctx: CommandContext, title: String) -> Result<()> {
 }
 
 /// Tell OBS to stop the stream.
-#[command(permission=Moderator, global_gate = 2m)]
+#[command(permission=Moderator, global_gate = 2m, OBSControl)]
 async fn obs_stop_stream() -> Result<()> {
     AppContext::just("obs-stop-stream", &[]).await
 }
 
 /// Tell OBS to start the stream.
-#[command(permission=Moderator, global_gate = 2m)]
+#[command(permission=Moderator, global_gate = 2m, OBSControl)]
 async fn obs_start_stream() -> Result<()> {
     AppContext::just("obs-start-stream", &[]).await
 }
 
 /// An untested script that starts OBS and then starts the stream if OBS died.
 /// Does nothing if the OBS process is running.
-#[command(permission=Moderator, global_gate = 5m)]
+#[command(permission=Moderator, global_gate = 5m, OBSControl)]
 async fn obs_revive(ctx: CommandContext) -> Result<()> {
     if AppContext::just_bool("obs-revive").await? {
         ctx.reply("OBS was not running, started it up".into()).await

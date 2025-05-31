@@ -43,7 +43,7 @@ async fn player_screen_pos(noita: &NoitaHandle) -> Result<(f32, f32)> {
 ///
 /// This is extremely useful, for example `slot:5~ look:0:-70~ hold~` to douse
 /// Minä.
-#[command]
+#[command(NoitaControl)]
 async fn look(ctx: CommandContext, dx: i32, dy: i32, duration: HoldTime<0>) -> Result<()> {
     if duration.get() == Duration::ZERO {
         let (px, py) = player_screen_pos(ctx.noita()).await?;
@@ -80,7 +80,7 @@ async fn look(ctx: CommandContext, dx: i32, dy: i32, duration: HoldTime<0>) -> R
 ///
 /// The screen is 1920x1080, and the origin is in the center of it,
 /// so `mouse:0:0~` will move the mouse to the center of the screen.
-#[command(shortcode=m)]
+#[command(shortcode=m, NoitaControl)]
 async fn mouse(ctx: CommandContext, x: i32, y: i32, duration: HoldTime<0>) -> Result<()> {
     let duration = duration.get();
     if duration == Duration::ZERO {
@@ -110,7 +110,7 @@ async fn mouse(ctx: CommandContext, x: i32, y: i32, duration: HoldTime<0>) -> Re
 }
 
 /// Move the mouse relative to its current position.
-#[command(shortcode=mm)]
+#[command(shortcode=mm, NoitaControl)]
 async fn mouse_move(ctx: CommandContext, dx: i32, dy: i32, duration: HoldTime<0>) -> Result<()> {
     if duration.get() == Duration::ZERO {
         return ctx.xdo().mousemove_relative(dx, dy).await;
@@ -121,7 +121,7 @@ async fn mouse_move(ctx: CommandContext, dx: i32, dy: i32, duration: HoldTime<0>
 }
 
 /// Click the left mouse button.
-#[command(shortcode=c)]
+#[command(shortcode=c, NoitaControl)]
 async fn click(ctx: CommandContext) -> Result<()> {
     if ctx
         .storage()
@@ -136,7 +136,7 @@ async fn click(ctx: CommandContext) -> Result<()> {
 }
 
 /// Click the right mouse button.
-#[command]
+#[command(NoitaControl)]
 async fn throw(ctx: CommandContext) -> Result<()> {
     ctx.xdo().click(3).await
 }
@@ -149,7 +149,7 @@ async fn throw(ctx: CommandContext) -> Result<()> {
 /// ```
 /// You can replace `hotbar:8~` with something like `mouse:0:0~` if you want a
 /// little tomfoolery, but that will get you voted into the shadow realm.
-#[command(shortcode=h)]
+#[command(shortcode=h, NoitaControl)]
 async fn hold(ctx: CommandContext, millis: super::HoldTime) -> Result<()> {
     super::hold(
         ctx,
@@ -168,7 +168,7 @@ static HOTBAR_XS: [i32; 24] = [
 static HOTBAR_Y: i32 = 91;
 
 /// A helper to move the mouse to the hotbar slot without you having to guess slot coordinates.
-#[command]
+#[command(NoitaControl)]
 async fn hotbar(ctx: CommandContext, slot: InRange<1, 24>) -> Result<()> {
     ctx.xdo()
         .mousemove(HOTBAR_XS[slot.get() as usize - 1], HOTBAR_Y)
@@ -183,7 +183,7 @@ async fn hotbar(ctx: CommandContext, slot: InRange<1, 24>) -> Result<()> {
 /// A helper to move the mouse to the wand slot without you having to guess slot coordinates.
 ///
 /// Especially useful as it takes into account different heights of wand sprites.
-#[command]
+#[command(NoitaControl)]
 async fn wand(ctx: CommandContext, wand: InRange<1, 4>, slot: InRange<1, 26>) -> Result<()> {
     if !ctx.noita().is_inventory_open() {
         fail!("inventory not open")

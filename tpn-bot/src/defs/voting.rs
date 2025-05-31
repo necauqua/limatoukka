@@ -272,7 +272,7 @@ async fn votekick(ctx: CommandContext, chatter: Required<Chatter>) -> Result<()>
 ///
 /// Be aware that there can be only one vote at a time and this command has a
 /// large per-user cooldown, so dont waste it.
-#[command(sender_gate = 5m)]
+#[command(sender_gate = 5m, NoitaControl)]
 async fn vote_restart(ctx: CommandContext) -> Result<()> {
     let config = ctx.config().restart_votes.clone();
     vote_trigger(
@@ -288,7 +288,7 @@ async fn vote_restart(ctx: CommandContext) -> Result<()> {
 
 /// (Re)start the game immediately. This is the same as a successful
 /// `vote-restart~`, but instant.
-#[command(permission = Verified, global_gate = 2m)]
+#[command(permission = Verified, global_gate = 2m, NoitaControl)]
 async fn restart(ctx: CommandContext) -> Result<()> {
     ctx.restart().await
 }
@@ -301,7 +301,7 @@ async fn restart(ctx: CommandContext) -> Result<()> {
 ///
 /// Be aware that there can be only one vote at a time and this command has a
 /// large per-user cooldown, so dont waste it.
-#[command(sender_gate = 5m)]
+#[command(sender_gate = 5m, NoitaControl)]
 async fn vote_reset(ctx: CommandContext) -> Result<()> {
     let config = ctx.config().reset_votes.clone();
     vote_trigger(
@@ -317,7 +317,7 @@ async fn vote_reset(ctx: CommandContext) -> Result<()> {
 
 /// Reset the game (deleting the current world) immediately. This is the same
 /// as a successful `vote-reset~`, but instant.
-#[command(permission = Moderator, global_gate = 2m)]
+#[command(permission = Moderator, global_gate = 2m, NoitaControl)]
 async fn reset(ctx: CommandContext) -> Result<()> {
     ctx.reset().await
 }
