@@ -1,15 +1,6 @@
-use maud::{Markup, html};
-use neca_cmd::{CommandMessage, CommandType};
-use std::fmt::Display;
+use maud::{Markup, PreEscaped, html};
+use neca_cmd::{CommandMessage, sub::Arg};
 use wasm_bindgen::prelude::*;
-
-struct Name(String, CommandType);
-
-impl Display for Name {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.1.write_command(f, &self.0)
-    }
-}
 
 #[wasm_bindgen]
 pub fn tokenize(input: String) -> Result<String, JsValue> {
@@ -20,10 +11,10 @@ fn parse(input: &str) -> CommandMessage {
     let mut msg = CommandMessage::parse(input);
     for seq in &mut msg.parallel {
         for cmd in seq {
-            lazy_regex::regex_if!(r#"^(?<name>.+?)(?<n>\d+s?)$"#, &cmd.name, {
-                cmd.args.push_front(n.to_owned());
-                cmd.name = name.into();
-            });
+            if let Some((name, n)) = cmd.name.split_inline_number() {
+                cmd.args.push_front(Arg::simple(n.to_owned()));
+                cmd.name.name = name.into();
+            };
         }
     }
     msg
@@ -34,27 +25,30 @@ fn tokenize_impl(input: CommandMessage) -> Markup {
         return html!(span.none { "none" });
     }
     html! {
-        @for (i, seq) in input.parallel.into_iter().enumerate() {
-            div.seq {
-                @for (j, cmd) in seq.into_iter().enumerate() {
-                    div.cmd {
-                        span.pos {
-                            "("(i) "," (j) ") "
-                        }
-                        span.name {
-                            (Name(cmd.name, cmd.tpe))
-                        }
-                        div.args {
-                            @for (k, arg) in cmd.args.into_iter().enumerate() {
-                                div.arg {
-                                    span { (k + 1)": " }
-                                    @let parsed_arg = parse(&arg);
-                                    @if parsed_arg.is_empty() {
-                                        span { "\"" span.lit { (arg) } "\"" }
-                                    } @else {
-                                        details {
-                                            summary { "\"" span.lit { (arg) } "\"" }
-                                            (tokenize_impl(parsed_arg))
+        div.parallel {
+            @for (i, seq) in input.parallel.into_iter().enumerate() {
+                div.seq {
+                    @for (j, cmd) in seq.into_iter().enumerate() {
+                        div.cmd {
+                            span.pos {
+                                "("(i) "," (j) ") "
+                            }
+                            span.name {
+                                (cmd.name)
+                            }
+                            div.args {
+                                @for (k, arg) in cmd.args.into_iter().enumerate() {
+                                    div.arg {
+                                        span { (k + 1)": " }
+                                        @let rendered = render_arg(&arg);
+                                        @let parsed_arg = parse(arg.text());
+                                        @if parsed_arg.is_empty() {
+                                            span { "\"" span.lit { (rendered) } "\"" }
+                                        } @else {
+                                            details {
+                                                summary { "\"" span.lit { (rendered) } "\"" }
+                                                (tokenize_impl(parsed_arg))
+                                            }
                                         }
                                     }
                                 }
@@ -67,20 +61,15 @@ fn tokenize_impl(input: CommandMessage) -> Markup {
     }
 }
 
-// // Called by our JS entry point to run the example
-// #[wasm_bindgen(start)]
-// fn run() -> Result<(), JsValue> {
-//     // Use `web_sys`'s global `window` function to get a handle on the global
-//     // window object.
-//     let window = web_sys::window().expect("no global `window` exists");
-//     let document = window.document().expect("should have a document on window");
-//     let body = document.body().expect("document should have a body");
-
-//     // Manufacture the element we're gonna append
-//     let val = document.create_element("p")?;
-//     val.set_text_content(Some("Hello from Rust!"));
-
-//     body.append_child(&val)?;
-
-//     Ok(())
-// }
+fn render_arg(arg: &Arg) -> Markup {
+    // meh
+    PreEscaped(arg.expand(&mut |name| Some(html! {
+        span.sub {
+            @if name.parse::<u32>().ok().is_some_and(|n| n != 0) {
+                abbr title=(format!("This will be replaced verbatim with macro parameter #{name}")) { "%" (name) }
+            } @else {
+                abbr title=(format!("This will be replaced verbatim with the contents of variable `{name}`")) { "%" (name) }
+            }
+        }
+    }.0)))
+}

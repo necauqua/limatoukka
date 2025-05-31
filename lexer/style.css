@@ -1,104 +1,116 @@
 body {
-  font-family: JetBrains Mono, mono;
-  height: 100%;
-  margin: 0;
-  display: flex;
-  background: #1d1f21;
-  color: #c9cacc;
+    font-family:
+        JetBrains Mono,
+        mono;
+    height: 100%;
+    margin: 0;
+    display: flex;
+    background: #1d1f21;
+    color: #c9cacc;
+}
+
+.hide {
+    visibility: hidden;
 }
 
 #content {
-  margin: 2rem auto;
-  width: 80%;
+    margin: 2rem auto;
+    width: 80%;
 }
 
 p {
-  color: #999;
+    color: #999;
 }
 
 #input {
-  width: 100%;
-  height: 30%;
-  padding: 12px 20px;
-  /* box-sizing: border-box; */
-  border: 2px solid #222;
-  border-radius: 10px;
-  color: #c9cacc;
-  background-color: #2b2f34;
-  font-size: 16px;
-  /* resize: none; */
-  outline: none;
+    width: 100%;
+    height: 30%;
+    padding: 12px 20px;
+    /* box-sizing: border-box; */
+    border: 2px solid #222;
+    border-radius: 10px;
+    color: #c9cacc;
+    background-color: #2b2f34;
+    font-size: 16px;
+    /* resize: none; */
+    outline: none;
 }
 
 button {
-  padding: 0.2rem 0.4rem;
-  border: 2px solid #222;
-  border-radius: 10px;
-  color: #c9cacc;
-  background-color: #2b2f34;
+    padding: 0.2rem 0.4rem;
+    border: 2px solid #222;
+    border-radius: 10px;
+    color: #c9cacc;
+    background-color: #2b2f34;
 
-  transition: color 0.2s;
+    transition: color 0.2s;
 
-  &:hover {
-    color: #d480aa;
-    background: #373b3e;
-  }
+    &:hover {
+        color: #d480aa;
+        background: #373b3e;
+    }
 }
 
 #buttons {
-  display: flex;
-  margin: 0.5rem;
-  gap: 0.5rem;
-  justify-content: end;
+    display: flex;
+    margin: 0.5rem;
+    gap: 0.5rem;
+    justify-content: end;
 }
 
 #output {
-  display: flex;
-  flex-direction: column;
+    overflow: scroll;
 }
 
-.none {
-  margin-left: 1rem;
+.none,
+.error {
+    margin-left: 1rem;
+}
+
+.sub {
+    color: orange;
+}
+
+.parallel {
+    display: flex;
+    gap: 2rem;
 }
 
 .seq {
-  padding: 0.2rem 0;
-
-  &:not(:last-child) {
-    border-bottom: 2px solid gray;
-  }
+    padding: 0 2rem 0 0;
 }
 
 .cmd {
-  margin: 0.5rem 0;
-  padding-left: 0.5rem;
-  border-left: 3px solid gray;
+    white-space: nowrap;
+    margin: 0.5rem 0;
+    padding-left: 0.5rem;
+    border-left: 3px solid gray;
 }
 
 .pos {
-  font-size: 0.5rem;
-  vertical-align: middle;
+    font-size: 0.5rem;
+    vertical-align: middle;
 }
 
 .name {
-  font-weight: bold;
-  color: #a363d5;
+    font-weight: bold;
+    color: #a363d5;
 }
 
 .arg {
-  margin-left: 1rem;
-  display: flex;
-  gap: 0.5rem;
+    margin-left: 1rem;
+    display: flex;
+    gap: 0.5rem;
 }
 
 .lit {
-  color: #38a23d;
+    color: #38a23d;
 }
 
 details {
-  flex-grow: 1;
+    flex-grow: 1;
 }
 
 summary {
-  cursor: pointer;
+    cursor: pointer;
 }

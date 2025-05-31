@@ -1,25 +1,45 @@
 <html>
+    <head>
+        <meta content="text/html;charset=utf-8" http-equiv="Content-Type" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    </head>
 
-<head>
-  <meta content="text/html;charset=utf-8" http-equiv="Content-Type" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-</head>
+    <body class="hide">
+        <div id="content">
+            <h2>Simple TPN Command Tokenizer</h2>
+            <p>
+                This uses the exact same code to extract commands from a given
+                message as the TPN bot itself.
+            </p>
+            <p>
+                It will also highlight the variables that will be replaced in
+                the args, and try to recursively expand any args that also
+                contain commands.
+            </p>
 
-<body>
-  <div id="content">
-    <h2>Simple TPN Command Tokenizer</h2>
-    <p>This uses the exact same code to extract commands from a given message as the TPN bot itself.</p>
-    <p>However, this does not touch argument expansion (math, macro params and variables) at all.</p>
-
-    <textarea id="input" placeholder="Enter a message with commands to check how it will be parsed"></textarea>
-    <div id="buttons">
-      <button id="expand" onclick="document.querySelectorAll('details').forEach(d => d.open = true)">expand all</button>
-      <button id="collapse" onclick="document.querySelectorAll('details').forEach(d => d.open = false)">collapse
-        all</button>
-    </div>
-    <p>What commands the bot sees in that message:</p>
-    <div id="output" />
-  </div>
-</body>
-
+            <textarea
+                id="input"
+                placeholder="Enter a message with commands to check how it will be parsed"
+            ></textarea>
+            <div id="buttons" style="visibility: hidden">
+                <button
+                    id="expand"
+                    onclick="document.querySelectorAll('details').forEach(d => d.open = true)"
+                >
+                    expand all
+                </button>
+                <button
+                    id="collapse"
+                    onclick="document.querySelectorAll('details').forEach(d => d.open = false)"
+                >
+                    collapse all
+                </button>
+            </div>
+            <p>What commands the bot sees in that message:</p>
+            <div id="output">
+                <span class="none">none</span>
+            </div>
+            <div style="height: 5rem" />
+        </div>
+    </body>
 </html>

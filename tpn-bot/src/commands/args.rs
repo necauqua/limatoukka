@@ -17,7 +17,7 @@ use crate::context::cmd::CommandContext;
 use neca_cmd::{
     CommandMessage,
     calc::{Calculator, CalculatorError},
-    sub::Arg as NArg,
+    sub::{Arg as NArg, ArgType},
 };
 
 #[derive(Debug, Error)]
@@ -61,7 +61,14 @@ impl<T: CommandArg> Arg<T> {
         match self {
             Arg::Static(t) => Ok(t),
             Arg::Expandable(arg) => {
-                let arg = Some(arg.expand(&mut ctx.arg_expander())?).filter(|s| !s.is_empty());
+                let expanded = arg.expand(&mut ctx.arg_expander());
+                let arg = Some(expanded)
+                    .filter(|s| !s.is_empty())
+                    .map(|s| match arg.tpe() {
+                        ArgType::Math => Calculator::eval(&s).map(|n| n.to_string()),
+                        _ => Ok(s),
+                    })
+                    .transpose()?;
                 Ok(CommandArg::parse_opt(ctx, arg).await?)
             }
         }
@@ -110,11 +117,14 @@ impl<T: CommandArg> ArgExtractor for T {
 
         let arg = match args.pop() {
             None => None,
-            Some(arg) => match arg
-                .expand_static()
-                .map_err(|e| ExtractorError::BadArgument(idx, e.into()))?
-            {
-                Some(text) => Some(text),
+            Some(arg) => match arg.expand_static() {
+                Some(text) => Some(match arg.tpe() {
+                    ArgType::Math => match Calculator::eval(&text) {
+                        Ok(n) => n.to_string(),
+                        Err(e) => return Err(ExtractorError::BadArgument(idx, e.into())),
+                    },
+                    _ => text,
+                }),
                 None => return Ok(Arg::Expandable(arg)),
             },
         };
