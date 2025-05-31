@@ -96,7 +96,7 @@ fn main() -> Result<()> {
                                 }
                                 CommandArgOut {
                                     name: arg.name.replace("_", "-"),
-                                    doc: (arg.desc)().into_owned(),
+                                    doc,
                                     optional: opt.is_some(),
                                 }
                             })
