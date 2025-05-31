@@ -17,6 +17,7 @@ use crate::context::cmd::CommandContext;
 use neca_cmd::{
     CommandMessage,
     calc::{Calculator, CalculatorError},
+    sub::Arg as NArg,
 };
 
 #[derive(Debug, Error)]
@@ -24,23 +25,16 @@ pub enum ExtractorError {
     #[error("argument #{idx}: {1}", idx = .0 + 1)]
     BadArgument(usize, ArgError),
     #[error("unexpected argument #{idx}: {1}", idx = .0 + 1)]
-    UnexpectedArgument(usize, String),
+    UnexpectedArgument(usize, NArg),
 }
 
 #[derive(Debug, Clone)]
 pub enum Arg<T> {
     Static(T),
-    Expandable(neca_cmd::sub::Arg),
+    Expandable(NArg),
 }
 
 impl<T> Arg<T> {
-    pub fn map<U>(self, f: impl FnOnce(T) -> U) -> Arg<U> {
-        match self {
-            Arg::Static(t) => Arg::Static(f(t)),
-            Arg::Expandable(arg) => Arg::Expandable(arg),
-        }
-    }
-
     pub fn unwrap_static(self) -> T {
         match self {
             Arg::Static(t) => t,
@@ -67,7 +61,7 @@ impl<T: CommandArg> Arg<T> {
         match self {
             Arg::Static(t) => Ok(t),
             Arg::Expandable(arg) => {
-                let arg = Some(arg.expand(&mut ctx.arg_expander())).filter(|s| !s.is_empty());
+                let arg = Some(arg.expand(&mut ctx.arg_expander())?).filter(|s| !s.is_empty());
                 Ok(CommandArg::parse_opt(ctx, arg).await?)
             }
         }
@@ -88,12 +82,12 @@ pub trait ArgExtractor: Sized {
 }
 
 pub struct Args {
-    args: VecDeque<String>,
+    args: VecDeque<NArg>,
     len: usize,
 }
 
 impl Args {
-    pub fn new(args: VecDeque<String>) -> Self {
+    pub fn new(args: VecDeque<NArg>) -> Self {
         Self {
             len: args.len(),
             args,
@@ -104,8 +98,8 @@ impl Args {
         self.len - self.args.len()
     }
 
-    pub fn pop(&mut self) -> Option<String> {
-        self.args.pop_front().filter(|s| !s.is_empty())
+    pub fn pop(&mut self) -> Option<NArg> {
+        self.args.pop_front().filter(|s| !s.text().is_empty())
     }
 }
 
@@ -116,14 +110,13 @@ impl<T: CommandArg> ArgExtractor for T {
 
         let arg = match args.pop() {
             None => None,
-            Some(arg) => {
-                let parsed = neca_cmd::sub::Arg::parse(&arg);
-                // make sure to expand escapes
-                match parsed.expand_static() {
-                    Some(arg) => Some(arg),
-                    None => return Ok(Arg::Expandable(parsed)),
-                }
-            }
+            Some(arg) => match arg
+                .expand_static()
+                .map_err(|e| ExtractorError::BadArgument(idx, e.into()))?
+            {
+                Some(text) => Some(text),
+                None => return Ok(Arg::Expandable(arg)),
+            },
         };
 
         T::parse_opt(ctx, arg)
@@ -188,7 +181,7 @@ impl ArgExtractor for RawScript {
             .pop()
             .ok_or_else(|| ExtractorError::BadArgument(idx, ArgError::Missing))?;
 
-        let commands = CommandMessage::parse(&arg);
+        let commands = CommandMessage::parse(arg.text());
         if commands.is_empty() {
             return Err(ExtractorError::BadArgument(
                 idx,
@@ -200,7 +193,7 @@ impl ArgExtractor for RawScript {
     }
 
     fn type_desc() -> Cow<'static, str> {
-        "a script string, will not have it's vars expanded".into()
+        "a script string that _will not have it's vars expanded_".into()
     }
 }
 
@@ -471,7 +464,7 @@ impl<T: Display> Display for Required<T> {
 #[async_trait]
 impl<T: CommandArg> CommandArg for Required<T> {
     async fn parse(ctx: &CommandContext, arg: String) -> ArgResult<Self> {
-        Ok(Self(T::parse(ctx, arg.clone()).await?))
+        Ok(Self(T::parse(ctx, arg).await?))
     }
 
     fn type_desc() -> Cow<'static, str> {

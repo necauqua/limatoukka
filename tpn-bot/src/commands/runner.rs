@@ -3,7 +3,7 @@ use std::any::Any;
 use anyhow::Result;
 use humantime_serde::re::humantime;
 use maud::html;
-use neca_cmd::{CommandExpr, CommandMessage};
+use neca_cmd::{CommandExpr, CommandMessage, sub::Arg};
 use opentelemetry::trace::Status;
 use rustis::{
     client::BatchPreparedCommand,
@@ -130,8 +130,8 @@ async fn find_command(
     match res {
         Ok((personal, global)) if personal || global => {
             // empty string for current username, to allow macro args to immediately follow
-            expr.args.push_front(String::new());
-            expr.args.push_front(name.to_owned());
+            expr.args.push_front(Arg::default());
+            expr.args.push_front(Arg::simple(name.to_owned()));
             Some(*super::MACRO)
         }
         _ => None,
@@ -157,7 +157,7 @@ async fn prepare_command(
         Some(r) => Some(r),
         None => match token.name.split_inline_number() {
             Some((name, n)) => {
-                cmd_expr.args.push_front(n.to_owned());
+                cmd_expr.args.push_front(Arg::simple(n.to_owned()));
                 find_command(ctx, name, &mut cmd_expr).await
             }
             None => None,

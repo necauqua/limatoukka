@@ -401,17 +401,14 @@ async fn math(ctx: CommandContext, value: i64) -> Result<()> {
     ctx.reply(format!("= {value}")).await
 }
 
-/// Stores number that will be replaced in any commands you
+/// Stores text that will be replaced in any commands you
 /// call (including macros) if you reference it as `%name`.
+///
+/// Note that while this command accepts text, an argument wrapped in
+/// parenthesis - without quotes or braces - will be passed through the
+/// calculator first as if the command expected a number.
 #[command]
-async fn set(ctx: CommandContext, name: String, value: i64) -> Result<()> {
-    set_text(ctx, name, Some(value.to_string())).await
-}
-
-/// Stores test that will be replaced in any commands you
-/// call (including macros) if you reference it as `%name`.
-#[command]
-async fn set_text(ctx: CommandContext, name: String, value: Option<String>) -> Result<()> {
+async fn set(ctx: CommandContext, name: String, value: Option<String>) -> Result<()> {
     let name = name.to_lowercase();
     let value = value.unwrap_or_default();
 
@@ -430,15 +427,9 @@ async fn set_text(ctx: CommandContext, name: String, value: Option<String>) -> R
     }
 }
 
-/// Similar to `set~`, but the number is only stored for the duration of current evaluation context.
+/// Similar to `set~`, but the text is only stored for the chat message being executed.
 #[command]
-async fn r#let(ctx: CommandContext, name: String, value: i64) -> Result<()> {
-    let_text(ctx, name, Some(value.to_string())).await
-}
-
-/// Similar to `set-text~`, but the text is only stored for the duration of current evaluation context.
-#[command]
-async fn let_text(ctx: CommandContext, name: String, value: Option<String>) -> Result<()> {
+async fn r#let(ctx: CommandContext, name: String, value: Option<String>) -> Result<()> {
     let name = name.to_lowercase();
     let value = value.unwrap_or_default();
     ctx.vars.write().await.insert(name, value);
