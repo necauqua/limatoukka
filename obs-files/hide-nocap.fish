@@ -1,7 +1,7 @@
 #!/usr/bin/env fish
 
 set -l scene main
-set -l source nocapture
+set -l source nocap
 
 set -l itemId (begin
     echo '{"op":1,"d":{"rpcVersion":1}}'
