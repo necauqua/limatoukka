@@ -72,7 +72,7 @@ async fn last_error(ctx: CommandContext, chatter: Chatter) -> Result<()> {
 /// Try running this first before doing a full restart etc etc.
 #[command(global_gate = 30s)]
 async fn fix_obs_capture() -> Result<()> {
-    AppContext::just("obs-reset-display").await
+    AppContext::just("obs-reset-display", &[]).await
 }
 
 /// The sound setup is the most brittle jank thing actually, and dies most often.
@@ -80,7 +80,7 @@ async fn fix_obs_capture() -> Result<()> {
 /// Try running this first before doing a full restart etc etc.
 #[command(global_gate = 30s)]
 async fn fix_obs_sound() -> Result<()> {
-    AppContext::just("sound-setup").await
+    AppContext::just("sound-setup", &[]).await
 }
 
 /// Check if noita.exe process is present, aka not dead.

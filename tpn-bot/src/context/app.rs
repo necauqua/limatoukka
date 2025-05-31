@@ -185,10 +185,11 @@ impl AppContext {
     }
 
     // eh I couldnt be bothered lol
-    pub async fn just(script: &str) -> Result<()> {
+    pub async fn just(script: &str, extra_args: &[&str]) -> Result<()> {
         // we just send it and *dont* wait for like noita.exe to finish
         let _res = Command::new("setsid")
             .args(["just", script])
+            .args(extra_args)
             .env_remove("RUST_LOG")
             .stderr(Stdio::null())
             .stdout(Stdio::null())
@@ -249,15 +250,27 @@ impl AppContext {
             .spawn()?)
     }
 
-    pub async fn restart() -> Result<()> {
-        Self::just("restart").await
+    async fn get_gamemode(&self) -> Result<&'static str> {
+        let nightmare: Option<String> = self.storage().get("flags:nightmare").await?;
+        Ok(match nightmare {
+            Some(_) => "2",
+            None => "0",
+        })
     }
 
-    pub async fn reset() -> Result<()> {
-        Self::just("reset-restart").await
+    pub async fn restart(&self) -> Result<()> {
+        Self::just("restart", &[self.get_gamemode().await?]).await
+    }
+
+    pub async fn reset(&self) -> Result<()> {
+        Self::just("reset-restart", &[self.get_gamemode().await?]).await
     }
 
     pub async fn next_run(&self) -> Result<()> {
+        self.storage()
+            .del(["balance:blesses", "balance:curses", "best-inventory"])
+            .await?;
+
         sleep(Duration::from_millis(500)).await;
 
         self.xdo().key("Enter").await?;
@@ -277,11 +290,7 @@ impl AppContext {
 
         self.interrupt(None, InterruptKind::Interrupt);
 
-        self.storage()
-            .del(["balance:blesses", "balance:curses", "best-inventory"])
-            .await?;
-
-        Self::restart().await?;
+        self.restart().await?;
         Ok(())
     }
 }

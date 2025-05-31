@@ -16,7 +16,7 @@ _default:
 save-dir := compat-dir + "/pfx/drive_c/users/steamuser/AppData/LocalLow/Nolla_Games_Noita"
 
 # Start the Noita instance
-start:
+start mode="0":
     # idempotently make sure things are in place:
     mkdir -p "{{save-dir}}/"{save_shared,save00/persistent/flags}
     ln -sf "{{save-dir}}/save00" "{{noita-dir}}/save00"
@@ -35,7 +35,7 @@ start:
         noita.exe \
         -- \
         -no_logo_splashes \
-        -gamemode &
+        -gamemode {{mode}} &
 
 # Completely delete the instance, including stats, unlocks etc.
 full-reset:
@@ -55,7 +55,7 @@ no-intro:
     just set-flag intro_has_played
 
 # Start the game in a separate X instance
-run:
+run mode="0":
     #!/usr/bin/env bash
     # function cleanup() {
     #     # so that the last frame is not frozen
@@ -81,7 +81,7 @@ run:
     just sound-setup
 
     # and just start the game now, in that instance
-    vglrun just --color=always start 2> >(grep -v "wrong ELF class: ELFCLASS32" >&2)
+    vglrun just --color=always start {{mode}} 2> >(grep -v "wrong ELF class: ELFCLASS32" >&2)
 
 stop:
     #!/usr/bin/env bash
@@ -94,19 +94,19 @@ stop:
     pgrep X | tail -1 | xargs kill
     just obs-reset-display
 
-restart:
+restart mode="0":
     #!/usr/bin/env bash
     ./obs-files/hide-nocap.fish &
     sleep 0.2
     just stop
     sleep 2
-    just run
+    just run {{mode}}
 
-reset-restart:
+reset-restart mode="0":
     #!/usr/bin/env bash
     ./obs-files/hide-nocap.fish &
     sleep 0.2
-    just stop reset run
+    just stop reset run {{mode}}
 
 sound-setup:
     #!/usr/bin/env bash
@@ -149,7 +149,7 @@ obs-revive:
     # ughh, nixos wrappers
     if ! pgrep -x .obs-wrapped >/dev/null; then
         obs --disable-shutdown-check >/dev/null 2>&1 </dev/null &
-        sleep 10
+        sleep 4
         just sound-setup obs-start-stream
         echo true
     fi

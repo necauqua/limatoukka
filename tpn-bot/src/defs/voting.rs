@@ -17,7 +17,7 @@ use crate::{
         command,
     },
     config::Voting,
-    context::{app::AppContext, cmd::CommandContext},
+    context::cmd::CommandContext,
     fail,
     services::status_wall::EntryKey,
 };
@@ -281,7 +281,7 @@ async fn vote_restart(ctx: CommandContext) -> Result<()> {
         html! { span style="color: orange" { "Restart the game" } },
         "Restart the game".into(),
         config,
-        AppContext::restart(),
+        ctx.restart(),
     )
     .await
 }
@@ -289,8 +289,8 @@ async fn vote_restart(ctx: CommandContext) -> Result<()> {
 /// (Re)start the game immediately. This is the same as a successful
 /// `vote-restart~`, but instant.
 #[command(permission = Verified, global_gate = 2m)]
-async fn restart() -> Result<()> {
-    AppContext::restart().await
+async fn restart(ctx: CommandContext) -> Result<()> {
+    ctx.restart().await
 }
 
 /// This allows to start a vote to restart the game and ***delete the world***,
@@ -310,7 +310,7 @@ async fn vote_reset(ctx: CommandContext) -> Result<()> {
         html! { span style="color: red" { "Reset the game" } },
         "Reset the game".into(),
         config,
-        AppContext::reset(),
+        ctx.reset(),
     )
     .await
 }
@@ -318,6 +318,6 @@ async fn vote_reset(ctx: CommandContext) -> Result<()> {
 /// Reset the game (deleting the current world) immediately. This is the same
 /// as a successful `vote-reset~`, but instant.
 #[command(permission = Moderator, global_gate = 2m)]
-async fn reset() -> Result<()> {
-    AppContext::reset().await
+async fn reset(ctx: CommandContext) -> Result<()> {
+    ctx.reset().await
 }

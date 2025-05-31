@@ -122,13 +122,13 @@ async fn set_title(ctx: CommandContext, title: String) -> Result<()> {
 /// Tell OBS to stop the stream.
 #[command(permission=Moderator, global_gate = 2m)]
 async fn obs_stop_stream() -> Result<()> {
-    AppContext::just("obs-stop-stream").await
+    AppContext::just("obs-stop-stream", &[]).await
 }
 
 /// Tell OBS to start the stream.
 #[command(permission=Moderator, global_gate = 2m)]
 async fn obs_start_stream() -> Result<()> {
-    AppContext::just("obs-start-stream").await
+    AppContext::just("obs-start-stream", &[]).await
 }
 
 /// An untested script that starts OBS and then starts the stream if OBS died.
