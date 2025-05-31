@@ -40,6 +40,9 @@ fn print_inner_errors(errors: &[CommandError]) -> String {
 /// ```
 #[command(shortcode=mr)]
 async fn macro_record(ctx: CommandContext, name: String, script: RawScript) -> Result<()> {
+    if script.commands.original.len() > 8192 {
+        fail!("script too long (max 8192 chars)");
+    }
     let name = name.to_lowercase();
 
     if let Err(errors) = runner::prepare_commands(&ctx, &script.commands).await {
@@ -76,6 +79,9 @@ async fn macro_delete(ctx: CommandContext, name: String) -> Result<()> {
 /// Stores a string as a global macro, meaning it can be used by everyone.
 #[command(permission=Moderator, shortcode=gmr)]
 async fn global_macro_record(ctx: CommandContext, name: String, script: RawScript) -> Result<()> {
+    if script.commands.original.len() > 8192 {
+        fail!("script too long (max 8192 chars)");
+    }
     let name = name.to_lowercase();
     ctx.storage()
         .hset("macros:global", (&name, &script.commands.original))
@@ -409,8 +415,11 @@ async fn math(ctx: CommandContext, value: i64) -> Result<()> {
 /// calculator first as if the command expected a number.
 #[command]
 async fn set(ctx: CommandContext, name: String, value: Option<String>) -> Result<()> {
-    let name = name.to_lowercase();
     let value = value.unwrap_or_default();
+    if value.len() > 8192 {
+        fail!("value too long (max 8192 chars)");
+    }
+    let name = name.to_lowercase();
 
     let mut tx = ctx.storage().create_transaction();
     let key = format!("vars:{}", ctx.shared.owner);
@@ -430,8 +439,11 @@ async fn set(ctx: CommandContext, name: String, value: Option<String>) -> Result
 /// Similar to `set~`, but the text is only stored for the chat message being executed.
 #[command]
 async fn r#let(ctx: CommandContext, name: String, value: Option<String>) -> Result<()> {
-    let name = name.to_lowercase();
     let value = value.unwrap_or_default();
+    if value.len() > 1048576 {
+        fail!("value too long (max 1048576 chars)");
+    }
+    let name = name.to_lowercase();
     ctx.vars.write().await.insert(name, value);
     Ok(())
 }
