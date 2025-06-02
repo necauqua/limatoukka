@@ -302,13 +302,20 @@ async fn entity_count(ctx: CommandContext, tags: RestOfArgs) -> Result<()> {
     let tags = tags.get(&ctx).await?;
 
     // cringe lmao
-    let mut msg_tags = tags.iter().map(|s| &**s).collect::<Vec<_>>().join(",");
+    let mut msg_tags = tags
+        .iter()
+        .filter_map(|s| s.as_deref())
+        .collect::<Vec<_>>()
+        .join(",");
 
     let tag_indices = ctx
         .noita()
         .with(move |n| {
             let mut indices = Vec::with_capacity(tags.len());
             for tag in tags.iter() {
+                let Some(tag) = tag else {
+                    continue;
+                };
                 if let Some(index) = n.get_entity_tag_index(tag)? {
                     indices.push(index);
                 } else {

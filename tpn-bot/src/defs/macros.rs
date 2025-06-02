@@ -460,7 +460,10 @@ async fn del(ctx: CommandContext, names: RestOfArgs) -> Result<()> {
         .storage()
         .hdel(
             format!("vars:{}", ctx.shared.owner),
-            names.iter().collect::<Vec<_>>(), // ugh
+            names
+                .iter()
+                .filter_map(|n| n.as_deref())
+                .collect::<Vec<_>>(), // ugh
         )
         .await?
     {
@@ -469,7 +472,7 @@ async fn del(ctx: CommandContext, names: RestOfArgs) -> Result<()> {
         n => ctx.reply(format!("{n} vars deleted")).await?,
     }
     let mut vars = ctx.vars.write().await;
-    for name in names {
+    for name in names.into_iter().flatten() {
         vars.remove(&name);
     }
 

@@ -106,7 +106,7 @@ impl Args {
     }
 
     pub fn pop(&mut self) -> Option<NArg> {
-        self.args.pop_front().filter(|s| !s.text().is_empty())
+        self.args.pop_front()
     }
 }
 
@@ -129,7 +129,7 @@ impl<T: CommandArg> ArgExtractor for T {
             },
         };
 
-        T::parse_opt(ctx, arg)
+        T::parse_opt(ctx, arg.filter(|s| !s.is_empty()))
             .await
             .map_err(|e| ExtractorError::BadArgument(idx, e))
             .map(Arg::Static)
@@ -154,10 +154,10 @@ impl RestOfArgs {
         self.args.is_empty()
     }
 
-    pub async fn get(self, ctx: &CommandContext) -> ArgResult<VecDeque<String>> {
+    pub async fn get(self, ctx: &CommandContext) -> ArgResult<VecDeque<Option<String>>> {
         let mut args = VecDeque::with_capacity(self.args.len());
         for arg in self.args {
-            args.push_back(arg.get(ctx).await?.unwrap_or_default());
+            args.push_back(arg.get(ctx).await?);
         }
         Ok(args)
     }

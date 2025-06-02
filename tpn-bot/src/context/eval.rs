@@ -18,7 +18,7 @@ use super::msg::MessageContext;
 
 pub struct EvalContextShared {
     pub owner: Chatter,
-    pub macro_args: VecDeque<String>,
+    pub macro_args: VecDeque<Option<String>>,
 }
 
 #[derive(Clone)]
@@ -88,7 +88,7 @@ impl EvalContext {
         &self,
         owner: Chatter,
         is_global: bool,
-        args: VecDeque<String>,
+        args: VecDeque<Option<String>>,
     ) -> Result<Self> {
         let vars = if self.shared.owner.id == owner.id {
             self.vars.clone()
@@ -123,12 +123,12 @@ impl EvalContext {
                 "rand" => return Some(rand::random_range(0..100_i32).to_string()),
                 _ => {}
             }
-            if let Some(arg) = name
-                .parse::<u32>()
-                .ok()
-                .filter(|n| *n != 0)
-                .and_then(|n| self.shared.macro_args.get((n - 1) as _))
-            {
+            if let Some(arg) = name.parse::<u32>().ok().filter(|n| *n != 0).and_then(|n| {
+                self.shared
+                    .macro_args
+                    .get((n - 1) as _)
+                    .and_then(|opt| opt.as_ref())
+            }) {
                 return Some(arg.clone());
             }
             // meh
