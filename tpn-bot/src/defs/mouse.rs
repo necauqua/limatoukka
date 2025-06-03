@@ -257,11 +257,21 @@ fn read_wands_sizes(noita: &mut Noita) -> Result<Vec<(i32, i32)>> {
         };
         let sprite = ability.sprite_file.read(&p)?;
         let height = SPRITE_HEIGHTS.get(&sprite).cloned().unwrap_or(8); // 8 is the height of the starter idk
-        wands.push((
-            item.inventory_slot.x,
-            height,
-            ability.gun_config.deck_capacity,
-        ));
+
+        let mut capacity = ability.gun_config.deck_capacity;
+
+        // yay noita
+        for child in child.children.read(&p)?.read(&p)? {
+            let child = child.read(&p)?;
+            let Some(item) = item_store.get(&child)? else {
+                continue;
+            };
+            if item.permanently_attached.as_bool() {
+                capacity -= 1;
+            }
+        }
+
+        wands.push((item.inventory_slot.x, height, capacity));
     }
     wands.sort_by_key(|(x, _, _)| *x);
 
