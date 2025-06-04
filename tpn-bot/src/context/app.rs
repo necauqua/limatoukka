@@ -258,12 +258,25 @@ impl AppContext {
         })
     }
 
+    async fn get_set_seed(&self) -> Result<String> {
+        let seed: Option<String> = self.storage().get("set-seed").await?;
+        Ok(seed.unwrap_or_default())
+    }
+
     pub async fn restart(&self) -> Result<()> {
-        Self::just("restart", &[self.get_gamemode().await?]).await
+        Self::just(
+            "restart",
+            &[self.get_gamemode().await?, &self.get_set_seed().await?],
+        )
+        .await
     }
 
     pub async fn reset(&self) -> Result<()> {
-        Self::just("reset-restart", &[self.get_gamemode().await?]).await
+        Self::just(
+            "reset-restart",
+            &[self.get_gamemode().await?, &self.get_set_seed().await?],
+        )
+        .await
     }
 
     pub async fn next_run(&self) -> Result<()> {

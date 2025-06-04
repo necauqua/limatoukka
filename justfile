@@ -16,7 +16,10 @@ _default:
 save-dir := compat-dir + "/pfx/drive_c/users/steamuser/AppData/LocalLow/Nolla_Games_Noita"
 
 # Start the Noita instance
-start mode="0":
+start mode="0" seed="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+
     # idempotently make sure things are in place:
     mkdir -p "{{save-dir}}/"{save_shared,save00/persistent/flags}
     ln -sf "{{save-dir}}/save00" "{{noita-dir}}/save00"
@@ -25,6 +28,14 @@ start mode="0":
     ln -sf "{{steam-common}}/Noita/"{*.dll,noita.exe,data} noita
     # stop release notes popup (config must have the same hash string)
     echo -n static > {{noita-dir}}/_version_hash.txt
+
+    if [ -n "{{seed}}" ]; then
+        sed -ri "s/seed = [0-9]+/seed = {{seed}}/g" {{noita-dir}}/mods/tpn-seed/init.lua
+        sed -i 's/enabled="0" name="tpn-seed"/enabled="1" name="tpn-seed"/g' {{save-dir}}/save00/mod_config.xml
+    else
+        sed -i 's/enabled="1" name="tpn-seed"/enabled="0" name="tpn-seed"/g' {{save-dir}}/save00/mod_config.xml
+    fi
+
     # just run it lol
     # so we wrap the noita.exe in proton to run it on linux,
     # wrap that in steam-run to run it on NixOS,
@@ -55,7 +66,7 @@ no-intro:
     just set-flag intro_has_played
 
 # Start the game in a separate X instance
-run mode="0":
+run mode="0" seed="":
     #!/usr/bin/env bash
     # function cleanup() {
     #     # so that the last frame is not frozen
@@ -81,7 +92,7 @@ run mode="0":
     just sound-setup
 
     # and just start the game now, in that instance
-    vglrun just --color=always start {{mode}} 2> >(grep -v "wrong ELF class: ELFCLASS32" >&2)
+    vglrun just --color=always start {{mode}} {{seed}} 2> >(grep -v "wrong ELF class: ELFCLASS32" >&2)
 
 stop:
     #!/usr/bin/env bash
@@ -94,19 +105,19 @@ stop:
     pgrep X | tail -1 | xargs kill
     just obs-reset-display
 
-restart mode="0":
+restart mode="0" seed="":
     #!/usr/bin/env bash
     ./obs-files/hide-nocap.fish &
     sleep 0.2
     just stop
     sleep 2
-    just run {{mode}}
+    just run {{mode}} {{seed}}
 
-reset-restart mode="0":
+reset-restart mode="0" seed="":
     #!/usr/bin/env bash
     ./obs-files/hide-nocap.fish &
     sleep 0.2
-    just stop reset run {{mode}}
+    just stop reset run {{mode}} {{seed}}
 
 sound-setup:
     #!/usr/bin/env bash

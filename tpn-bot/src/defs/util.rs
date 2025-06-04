@@ -155,9 +155,10 @@ async fn interrupt(ctx: CommandContext, chatter: Option<Required<Chatter>>) -> R
 
 /// Set a bot flag.
 ///
-/// Two flags that currently do things are `full-stop` and
-/// `no-restarts` - first one disables processing any commands from non-mods,
-/// and the latter one disables the game restarting on player death.
+/// Flags that currently do things are:
+///   - `full-stop`: disables processing any commands from non-mods
+///   - `no-restarts`: disables the game restarting on player death
+///   - `nightmare`: enables the nightmare mode
 ///
 /// If the flag argument is prefixed with `-` it is removed if it was set
 /// previously.
@@ -169,6 +170,20 @@ async fn flag(ctx: CommandContext, flag: String) -> Result<()> {
         ctx.storage().set(format!("flags:{flag}"), "1").await?;
     }
     Ok(())
+}
+
+/// Makes the bot start the game with a specific seed.
+#[command(permission = Moderator)]
+async fn fix_seed(ctx: CommandContext, seed: u32) -> Result<()> {
+    ctx.storage().set("set-seed", seed).await?;
+    ctx.reply("Seed set".into()).await
+}
+
+/// Undoes the effect of `fix_seed~`, so the game will start with a random seed again.
+#[command(permission = Moderator)]
+async fn unfix_seed(ctx: CommandContext) -> Result<()> {
+    ctx.storage().del("set-seed").await?;
+    ctx.reply("Seed unset".into()).await
 }
 
 /// Say something on stream through the TTS.
