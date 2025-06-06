@@ -65,34 +65,24 @@ set-flag flag:
 no-intro:
     just set-flag intro_has_played
 
-# Start the game in a separate X instance
-run mode="0" seed="":
+setup-x:
     #!/usr/bin/env bash
-    # function cleanup() {
-    #     # so that the last frame is not frozen
-    #     just obs-reset-display
-    #     # just stop
-    # }
-    # trap cleanup INT TERM EXIT
-
     xdummy {{display}} 2>/dev/null &
     sleep 0.1
 
-    export DISPLAY={{display}}
-
     # hide stupid X cursor when the game is not running
-    xsetroot -cursor none.xbm none.xbm
+    env DISPLAY={{display}} xsetroot -cursor none.xbm none.xbm
 
     # set root color to magenta to chromakey the nocapture thing below the thing
-    xsetroot -solid "#ff00ff"
+    env DISPLAY={{display}} xsetroot -solid "#ff00ff"
 
     # make sure obs capture is connected to this instance
     just obs-reset-display
 
-    just sound-setup
-
-    # and just start the game now, in that instance
-    vglrun just --color=always start {{mode}} {{seed}} 2> >(grep -v "wrong ELF class: ELFCLASS32" >&2)
+# Start the game in a separate X instance
+run mode="0" seed="":
+    # just start the game on the display from the setup-x step
+    env DISPLAY={{display}} vglrun just --color=always start {{mode}} {{seed}} 2> >(grep -v "wrong ELF class: ELFCLASS32" >&2)
 
 stop:
     #!/usr/bin/env bash
@@ -100,10 +90,6 @@ stop:
     while just is-game-running; do
         sleep 0.1
     done
-    pkill -f pipewire-obs-thing.lua
-    # this will fail to kill the main X instance, pfew
-    pgrep X | tail -1 | xargs kill
-    just obs-reset-display
 
 restart mode="0" seed="":
     #!/usr/bin/env bash
@@ -121,7 +107,7 @@ reset-restart mode="0" seed="":
 
 sound-setup:
     #!/usr/bin/env bash
-    pkill wpexec
+    pkill -f pipewire-obs-thing.lua
     wpexec pipewire-obs-thing.lua '{"display":"{{display}}"}' >/dev/null 2>&1 </dev/null &
 
 # Force the XSH display capture input to reconnect to the X instance
