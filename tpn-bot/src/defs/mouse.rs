@@ -1,7 +1,6 @@
 use std::{collections::HashMap, sync::LazyLock, time::Duration};
 
 use anyhow::{Context, Result};
-use futures::FutureExt;
 use noita_engine_reader::{
     Noita, PlayerState,
     memory::MemoryStorage,
@@ -59,20 +58,26 @@ async fn look(ctx: CommandContext, dx: i32, dy: i32, duration: HoldTime<0>) -> R
     let mut interval = tokio::time::interval(Duration::from_millis(millis as _));
     let ticks = ((duration.get().as_millis() as u32) / millis).max(1);
 
-    for i in 0..ticks {
-        ctx.interruptible(interval.tick().map(|_| ())).await?;
+    ctx.interruptible(async {
+        for i in 0..ticks {
+            interval.tick().await;
 
-        let t = (i + 1) as f32 / ticks as f32;
+            let t = (i + 1) as f32 / ticks as f32;
 
-        let (px, py) = player_screen_pos(ctx.noita()).await?;
-        let ex = px + dx as f32;
-        let ey = py + dy as f32;
+            let (px, py) = player_screen_pos(ctx.noita()).await?;
+            let ex = px + dx as f32;
+            let ey = py + dy as f32;
 
-        let ix = sx as f32 + (ex - sx as f32) * t;
-        let iy = sy as f32 + (ey - sy as f32) * t;
+            let ix = sx as f32 + (ex - sx as f32) * t;
+            let iy = sy as f32 + (ey - sy as f32) * t;
 
-        ctx.xdo().mousemove(ix as _, iy as _).await?;
-    }
+            ctx.xdo().mousemove(ix as _, iy as _).await?;
+        }
+        anyhow::Ok(())
+    })
+    .await?
+    .unwrap_or(Ok(()))?;
+
     Ok(())
 }
 
@@ -96,16 +101,22 @@ async fn mouse(ctx: CommandContext, x: i32, y: i32, duration: HoldTime<0>) -> Re
     let mut interval = tokio::time::interval(Duration::from_millis(millis as _));
     let ticks = ((duration.as_millis() as u32) / millis).max(1);
 
-    for i in 0..ticks {
-        ctx.interruptible(interval.tick().map(|_| ())).await?;
+    ctx.interruptible(async {
+        for i in 0..ticks {
+            interval.tick().await;
 
-        let t = (i + 1) as f32 / ticks as f32;
+            let t = (i + 1) as f32 / ticks as f32;
 
-        let ix = sx as f32 + dx * t;
-        let iy = sy as f32 + dy * t;
+            let ix = sx as f32 + dx * t;
+            let iy = sy as f32 + dy * t;
 
-        ctx.xdo().mousemove(ix as _, iy as _).await?;
-    }
+            ctx.xdo().mousemove(ix as _, iy as _).await?;
+        }
+        anyhow::Ok(())
+    })
+    .await?
+    .unwrap_or(Ok(()))?;
+
     Ok(())
 }
 

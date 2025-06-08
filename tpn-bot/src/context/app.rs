@@ -67,6 +67,9 @@ impl InterruptTicket {
     pub fn wait(&self) -> impl Future<Output = InterruptKind> + use<> {
         let inner = self.inner.clone();
         async move {
+            if inner.interrupted.load(Ordering::Relaxed) {
+                return InterruptKind::Interrupt;
+            }
             tokio::select! {
                 _ = inner.notif_interrupt.notified() => InterruptKind::Interrupt,
                 _ = inner.notif_break.notified() => InterruptKind::Break,

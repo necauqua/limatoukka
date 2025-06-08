@@ -136,21 +136,21 @@ impl EvalContext {
         }
     }
 
-    pub fn interruptible<F>(
+    pub fn interruptible<F, R>(
         &self,
         f: F,
-    ) -> impl Future<Output = Result<(), CommandInterrupt>> + use<F>
+    ) -> impl Future<Output = Result<Option<R>, CommandInterrupt>> + use<F, R>
     where
-        F: Future<Output = ()>,
+        F: Future<Output = R>,
     {
         let interrupted = self.wait_for_interrupt();
         async move {
             tokio::select! {
                 kind = interrupted => match kind {
-                    InterruptKind::Break => Ok(()),
+                    InterruptKind::Break => Ok(None),
                     InterruptKind::Interrupt => Err(CommandInterrupt),
                 },
-                _ = f => Ok(())
+                r = f => Ok(Some(r))
             }
         }
     }
