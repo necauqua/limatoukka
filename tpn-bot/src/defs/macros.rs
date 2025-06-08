@@ -142,8 +142,30 @@ async fn macro_list(ctx: CommandContext, chatter: Chatter) -> Result<()> {
 /// List global macros recorded.
 #[command(sender_gate=5s, shortcode=gml)]
 async fn global_macro_list(ctx: CommandContext) -> Result<()> {
-    let keys: Vec<String> = ctx.storage().hkeys("macros:global").await?;
-    ctx.reply(keys.join(", ")).await
+    let mut keys: Vec<(String, String)> = ctx.storage().hgetall("macros:global").await?;
+    keys.sort_unstable_by(|(a, _), (b, _)| a.cmp(b));
+
+    // we assume the global macro list will always overflow the single message length
+    // and be rendered as HTML lmao
+    let reply = html! {
+        style {
+            "td { padding: 0.5rem; }"
+            "td:first-child { white-space: nowrap; }"
+        }
+        table {
+            tr {
+                th { "Global Macro" }
+                th { "What it does" }
+            }
+            @for (name, script) in keys {
+                tr {
+                    td { (name) }
+                    td { (script) }
+                }
+            }
+        }
+    };
+    ctx.reply(reply.0).await
 }
 
 /// Copy someones macro to yourself.

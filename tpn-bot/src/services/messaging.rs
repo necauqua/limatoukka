@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use anyhow::Result;
-use maud::{DOCTYPE, html};
+use maud::{DOCTYPE, PreEscaped, html};
 use strum::{EnumIter, EnumMessage, IntoStaticStr};
 use tokio::{
     fs::File,
@@ -198,7 +198,7 @@ impl MessagingClient {
                             body style="height: 100%; margin:0; display: flex" {
                                 div style="font-family: 'JetBrains Mono',mono; margin: auto; padding: 2rem; max-width: 40rem" {
                                     h3 { "Reply to @"(message.sender.name) ": " (message.text) }
-                                    div style="white-space: pre-wrap" { (text) }
+                                    div style="white-space: pre-wrap" { (PreEscaped(text)) } // just allow it eh
                                 }
                             }
                         }
