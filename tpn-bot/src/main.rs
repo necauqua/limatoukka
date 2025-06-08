@@ -296,7 +296,7 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
         }) => {
             tracing::info!(
                 user.id = data.user_id.as_deref().map(|u| u.as_str()),
-                user.login = data.user_id.as_deref().map(|u| u.as_str()),
+                user.login = data.user_login.as_deref().map(|u| u.as_str()),
                 tier = ?data.tier,
                 amount = data.total,
                 total = data.cumulative_total,
@@ -331,7 +331,7 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
         }) => {
             tracing::info!(
                 user.id = data.user_id.as_deref().map(|u| u.as_str()),
-                user.login = data.user_id.as_deref().map(|u| u.as_str()),
+                user.login = data.user_login.as_deref().map(|u| u.as_str()),
                 amount = data.bits,
                 text = data.message,
                 "cheer"
