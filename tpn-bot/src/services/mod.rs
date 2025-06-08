@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use chat_log::ChatLog;
 use messaging::MessagingClient;
 use noita::NoitaHandle;
 use status_wall::StatusWall;
@@ -7,6 +8,7 @@ use storage::Storage;
 use twitch::Twitch;
 use xdo::XDoClient;
 
+pub mod chat_log;
 pub mod messaging;
 pub mod noita;
 pub mod status_wall;
@@ -59,6 +61,7 @@ macro_rules! services {
 services! {
     messaging: MessagingClient,
     storage: Storage,
+    chat_log: ChatLog,
     xdo: XDoClient,
     noita: NoitaHandle,
     status_wall: StatusWall,

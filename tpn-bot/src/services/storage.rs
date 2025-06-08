@@ -1,33 +1,20 @@
 use std::ops::{Deref, DerefMut};
 
 use anyhow::Result;
-use elasticsearch::{Elasticsearch, auth::Credentials, http::transport::Transport};
 use rustis::client::{Client, Transaction};
 use serde::de::DeserializeOwned;
-use tracing::Span;
 
 use crate::config::Config;
 
 pub struct Storage {
     client: Client,
-    stats: Elasticsearch,
 }
 
 impl Storage {
     pub async fn new(config: &Config) -> Result<Self> {
-        let transport = Transport::single_node(&config.elastic.url)?;
-        transport.set_auth(Credentials::EncodedApiKey(config.elastic.api_key.clone()));
-
         Ok(Self {
             client: Client::connect(&*config.valkey).await?,
-            stats: Elasticsearch::new(transport),
         })
-    }
-
-    pub fn stats(&self) -> &Elasticsearch {
-        // hacky hack hack egh
-        Span::current().record("otel.name", "elasticsearch call");
-        &self.stats
     }
 }
 

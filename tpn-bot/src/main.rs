@@ -11,7 +11,9 @@ use tpn_bot::{
     context::app::{AppContext, InterruptKind},
     logging,
     services::{
-        Services, messaging,
+        Services,
+        chat_log::ChatLog,
+        messaging,
         noita::{ItemFound, NoitaEvent, NoitaHandle},
         status_wall::StatusWall,
         storage::Storage,
@@ -35,6 +37,7 @@ use twitch_api::{
 };
 
 async fn run(config: Config) -> Result<()> {
+    let chat_log = ChatLog::new(&config).await?;
     let storage = Storage::new(&config).await?;
     let xdo = XDoClient::new(config.display.clone());
 
@@ -51,6 +54,7 @@ async fn run(config: Config) -> Result<()> {
         Services::new(
             messaging,
             storage,
+            chat_log,
             xdo,
             NoitaHandle::default(),
             StatusWall::default(),
