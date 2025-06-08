@@ -247,16 +247,16 @@ impl NoitaHandle {
         }
         // could've read PersistentFlagManager from memory, which would prob be a bit faster?.
         // but meh
-        let exists = tokio::fs::try_exists(PathBuf::from(FLAG_PATH).join(flag))
-            .await
-            .is_ok_and(|b| b);
-        Ok(exists)
+        let mut path = self.with(get_flag_dir).await?;
+        path.push(flag);
+        Ok(tokio::fs::try_exists(path).await.is_ok_and(|b| b))
     }
 
     pub async fn read_flags(&self) -> Result<HashSet<String>> {
         let mut set = HashSet::new();
         // same, meeh
-        let mut dir = tokio::fs::read_dir(FLAG_PATH).await?;
+        let path = self.with(get_flag_dir).await?;
+        let mut dir = tokio::fs::read_dir(path).await?;
         while let Some(f) = dir.next_entry().await? {
             let name = f
                 .file_name()
@@ -269,10 +269,15 @@ impl NoitaHandle {
         }
         Ok(set)
     }
+}
 
-    pub async fn test(&self) -> Result<()> {
-        Ok(())
-    }
+fn get_flag_dir(noita: &mut Noita) -> Result<PathBuf> {
+    let path = noita.proc().steam_compat_data_path();
+    let mut path = PathBuf::from(path);
+    path.push(
+        "pfx/drive_c/users/steamuser/AppData/LocalLow/Nolla_Games_Noita/save00/persistent/flags",
+    );
+    Ok(path)
 }
 
 #[derive(Debug, Error)]
@@ -454,8 +459,6 @@ impl Changeable<Option<bool>> {
         self.changed(next) && next == Some(true)
     }
 }
-
-static FLAG_PATH: &str = "../noita/save00/persistent/flags";
 
 pub static PILLAR_FLAGS: LazyLock<HashSet<String>> =
     LazyLock::new(|| PILLAR_FLAG_NAMES.keys().cloned().collect());
