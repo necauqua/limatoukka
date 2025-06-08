@@ -16,7 +16,7 @@ use tokio::time::sleep;
 
 use crate::services::messaging::Message;
 
-use super::app::{AppContext, InterruptTicket, InterruptKind};
+use super::app::{AppContext, InterruptKind, InterruptTicket};
 
 struct MessageState {
     interrupt_ticket: InterruptTicket,
@@ -57,6 +57,12 @@ impl MessageContext {
 
     pub fn interrupted(&self) -> bool {
         self.state.interrupt_ticket.interrupted()
+    }
+
+    pub fn local_interrupt(&self) {
+        self.state
+            .interrupt_ticket
+            .interrupt(InterruptKind::Interrupt);
     }
 
     pub fn wait_for_interrupt(&self) -> impl Future<Output = InterruptKind> + use<> {

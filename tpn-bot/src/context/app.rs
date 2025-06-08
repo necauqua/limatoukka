@@ -64,6 +64,10 @@ impl InterruptTicket {
         self.inner.interrupted.load(Ordering::Relaxed)
     }
 
+    pub fn interrupt(&self, kind: InterruptKind) {
+        self.inner.interrupt(kind);
+    }
+
     pub fn wait(&self) -> impl Future<Output = InterruptKind> + use<> {
         let inner = self.inner.clone();
         async move {

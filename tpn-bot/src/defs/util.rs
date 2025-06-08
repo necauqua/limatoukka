@@ -153,6 +153,16 @@ async fn interrupt(ctx: CommandContext, chatter: Option<Required<Chatter>>) -> R
     Ok(())
 }
 
+/// Interrupt all commands *originating from the current message*.
+///
+/// On it's own this does nothing, but it can be used to limit the duration of
+/// the current message or similar.
+#[command]
+async fn discard(ctx: CommandContext) -> Result<()> {
+    ctx.local_interrupt();
+    Ok(())
+}
+
 /// Set a bot flag.
 ///
 /// Flags that currently do things are:
