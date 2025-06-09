@@ -19,7 +19,10 @@ use tokio::{
     time::sleep,
 };
 
-use crate::{config::Config, services::Services};
+use crate::{
+    config::Config,
+    services::{Services, storage::BalanceMessage},
+};
 
 #[derive(Default)]
 struct AppState {
@@ -287,9 +290,8 @@ impl AppContext {
     }
 
     pub async fn next_run(&self) -> Result<()> {
-        self.storage()
-            .del(["balance:blesses", "balance:curses", "best-inventory"])
-            .await?;
+        self.storage().modify_balance(BalanceMessage::Reset).await?;
+        self.storage().del("best-inventory").await?;
 
         sleep(Duration::from_millis(500)).await;
 

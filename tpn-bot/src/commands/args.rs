@@ -9,7 +9,6 @@ use std::{
 use anyhow::anyhow;
 use async_trait::async_trait;
 use humantime_serde::re::humantime;
-use rustis::commands::{SetCondition, SetExpiration, StringCommands};
 use thiserror::Error;
 
 use crate::context::cmd::CommandContext;
@@ -413,36 +412,23 @@ impl CommandArg for Chatter {
         };
         let login = login.trim().to_lowercase();
 
-        let key = format!("chatter:{login}");
-        let cached: Option<String> = ctx.storage().get(&key).await.map_err(|e| anyhow!(e))?;
-        if let Some(id) = cached {
-            return Ok(Self { id, login });
-        }
+        let id = ctx
+            .storage()
+            .cache(Duration::from_secs(24 * 60 * 60), "twitch-id")?
+            .get(&login, async || {
+                let full = ctx
+                    .twitch()
+                    .call(async |t| t.helix.get_user_from_login(&login, &t.token).await)
+                    .await
+                    .map_err(|e| anyhow!(e))?;
+                let Some(user) = full else {
+                    return Err(ArgError::Precondition(format!("user {login} not found")));
+                };
+                Ok(user.id.take())
+            })
+            .await?;
 
-        let full = ctx
-            .twitch()
-            .call(async |t| t.helix.get_user_from_login(&login, &t.token).await)
-            .await
-            .map_err(|e| anyhow!(e))?;
-        let Some(user) = full else {
-            return Err(ArgError::Precondition(format!("user {login} not found")));
-        };
-
-        ctx.storage()
-            .set_with_options(
-                key,
-                user.id.as_str(),
-                SetCondition::None,
-                SetExpiration::Ex(24 * 60 * 60),
-                false,
-            )
-            .await
-            .map_err(|e| anyhow!(e))?;
-
-        Ok(Self {
-            id: user.id.take(),
-            login,
-        })
+        Ok(Self { id, login })
     }
 
     fn type_desc() -> Cow<'static, str> {

@@ -1,10 +1,4 @@
-use std::cmp::Ordering;
-
 use anyhow::Result;
-use rustis::{
-    client::BatchPreparedCommand,
-    commands::{ExpireOption, GenericCommands, StringCommands},
-};
 
 use crate::{commands::args::HoldTime, context::cmd::CommandContext};
 
@@ -30,30 +24,21 @@ where
     D: FnOnce(&CommandContext) -> RD,
     U: FnOnce(&CommandContext) -> RU,
 {
-    let key = format!("holds:{key}");
-    let mut tx = ctx.storage().create_transaction();
-    tx.incr(&key).queue();
-    tx.pexpire(&key, 60_000, ExpireOption::Nx).forget(); // just in case
-    if tx.execute::<i64>().await? == 1 {
+    let hold = ctx.storage().hold(key)?;
+
+    if hold.down().await? {
         if let Err(e) = down(&ctx).await {
-            _ = ctx.storage().decr(&key).await;
+            _ = hold.up().await;
             return Err(e);
         }
     }
 
     let sleep = ctx.interruptible(tokio::time::sleep(duration.get())).await;
 
-    let counter = ctx.storage().decr(&key).await?;
-
-    match counter.cmp(&0) {
-        Ordering::Equal => up(&ctx).await?,
-        Ordering::Less => {
-            // oopsie
-            ctx.storage().del(&key).await?;
-            up(&ctx).await?;
-        }
-        _ => {}
+    if hold.up().await? {
+        up(&ctx).await?;
     }
+
     sleep?;
 
     Ok(())

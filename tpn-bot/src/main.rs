@@ -16,7 +16,7 @@ use tpn_bot::{
         messaging,
         noita::{ItemFound, NoitaEvent, NoitaHandle},
         status_wall::StatusWall,
-        storage::Storage,
+        storage::{BalanceMessage, Storage},
         twitch::{EventSub, Twitch},
         xdo::XDoClient,
     },
@@ -206,11 +206,11 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
                     true
                 }
                 "BLESS THE RUN" => {
-                    ctx.storage().incr("balance:blesses").await?;
+                    ctx.storage().modify_balance(BalanceMessage::Bless).await?;
                     true
                 }
                 "CURSE THE RUN" => {
-                    ctx.storage().incr("balance:curses").await?;
+                    ctx.storage().modify_balance(BalanceMessage::Curse).await?;
                     true
                 }
                 _ => false,

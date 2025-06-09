@@ -1,7 +1,6 @@
 use std::cmp::Ordering as Ord;
 
 use anyhow::Result;
-use rustis::commands::StringCommands;
 
 use crate::{
     commands::{
@@ -109,11 +108,7 @@ async fn rank(ctx: CommandContext, chatter: Chatter) -> Result<()> {
 /// Get the bless/curse balance for the current run
 #[command(sender_gate = 3s)]
 async fn balance(ctx: CommandContext) -> Result<()> {
-    let [blesses, curses]: [i64; 2] = ctx
-        .storage()
-        .mget(["balance:blesses", "balance:curses"])
-        .await?;
-
+    let (blesses, curses) = ctx.storage().get_balance().await?;
     let balance = blesses - curses;
 
     match balance.cmp(&0) {
