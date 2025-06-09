@@ -2,7 +2,7 @@ use std::time::{Duration, SystemTime};
 
 use anyhow::Result;
 use humantime_serde::re::humantime;
-use rustis::commands::GenericCommands;
+use rustis::commands::{GenericCommands, StringCommands};
 use twitch_api::helix::channels::modify_channel_information::*;
 
 use crate::{
@@ -11,7 +11,7 @@ use crate::{
         command,
     },
     context::{app::AppContext, cmd::CommandContext},
-    fail, storage,
+    fail,
 };
 
 pub async fn do_banish(
@@ -20,15 +20,17 @@ pub async fn do_banish(
     duration: Option<Duration>,
 ) -> Result<()> {
     if let Some(duration) = duration {
-        storage!(
-            ctx,
-            psetex,
-            "kick:begone:{chatter}",
-            { duration.as_millis() as _ },
-            { 1 }
-        )?;
+        ctx.storage()
+            .psetex(
+                format!("kick:begone:{chatter}"),
+                duration.as_millis() as _,
+                1,
+            )
+            .await?;
     } else {
-        storage!(ctx, set, "kick:begone:{chatter}", { 1 })?;
+        ctx.storage()
+            .set(format!("kick:begone:{chatter}"), 1)
+            .await?;
     }
     tracing::info!(
         id = chatter.id,
@@ -54,7 +56,12 @@ async fn banish(
     if chatter.id == ctx.twitch().bot_id() {
         fail!("lol. lmao.")
     }
-    if storage!(ctx, exists, "kick:begone:{chatter}")? != 0 {
+    if ctx
+        .storage()
+        .exists(format!("kick:begone:{chatter}"))
+        .await?
+        != 0
+    {
         ctx.reply("already banished".into()).await?;
         return Ok(());
     }
@@ -67,7 +74,7 @@ async fn banish(
 /// realm regardless of their crimes.
 #[command(permission = Moderator)]
 async fn unbanish(ctx: CommandContext, chatter: Required<Chatter>) -> Result<()> {
-    if storage!(ctx, del, "kick:begone:{chatter}")? == 0 {
+    if ctx.storage().del(format!("kick:begone:{chatter}")).await? == 0 {
         return ctx.reply("was not there lmao".into()).await;
     }
     tracing::info!(
@@ -84,19 +91,25 @@ async fn unbanish(ctx: CommandContext, chatter: Required<Chatter>) -> Result<()>
 /// ¯\\\_(ツ)_/¯.
 #[command(sender_gate = 15s)]
 async fn banished(ctx: CommandContext, chatter: Required<Chatter>) -> Result<()> {
-    ctx.reply(match storage!(ctx, pexpiretime, "kick:begone:{chatter}")? {
-        -2 => "They're good".into(),
-        -1 => "In the shadow realm xdd".into(),
-        time => {
-            let now = SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_millis();
-            let left = Duration::from_millis((time - now as i64).unsigned_abs());
-            let left = humantime::format_duration(left);
-            format!("still {left} to go welp")
-        }
-    })
+    ctx.reply(
+        match ctx
+            .storage()
+            .pexpiretime(format!("kick:begone:{chatter}"))
+            .await?
+        {
+            -2 => "They're good".into(),
+            -1 => "In the shadow realm xdd".into(),
+            time => {
+                let now = SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis();
+                let left = Duration::from_millis((time - now as i64).unsigned_abs());
+                let left = humantime::format_duration(left);
+                format!("still {left} to go welp")
+            }
+        },
+    )
     .await
 }
 

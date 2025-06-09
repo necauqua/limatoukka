@@ -79,21 +79,3 @@ impl DerefMut for TransactionRef {
         &mut self.transaction
     }
 }
-
-#[macro_export]
-macro_rules! storage {
-    ($ctx:expr, $call:ident, $($args:tt),*) => {
-        {
-            #[allow(unused_imports)]
-            use rustis::commands::{GenericCommands as _, StringCommands as _};
-            $ctx.storage().$call($(storage!(_ $args)),*).await
-        }
-    };
-    (_ $key:literal) => {
-        format!($key)
-    };
-    (_ $other:tt) => {
-        #[allow(unused_braces)]
-        $other
-    }
-}

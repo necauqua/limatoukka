@@ -20,7 +20,6 @@ use tpn_bot::{
         twitch::{EventSub, Twitch},
         xdo::XDoClient,
     },
-    storage,
 };
 
 use tracing::{Instrument, Span, instrument};
@@ -207,11 +206,11 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
                     true
                 }
                 "BLESS THE RUN" => {
-                    storage!(ctx, incr, "balance:blesses")?;
+                    ctx.storage().incr("balance:blesses").await?;
                     true
                 }
                 "CURSE THE RUN" => {
-                    storage!(ctx, incr, "balance:curses")?;
+                    ctx.storage().incr("balance:curses").await?;
                     true
                 }
                 _ => false,

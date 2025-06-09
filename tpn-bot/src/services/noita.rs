@@ -17,6 +17,7 @@ use noita_engine_reader::{
     memory::{MemoryStorage, PadBool, ProcessRef, RawPtr},
     types::components::{DamageModelComponent, ItemActionComponent, ItemComponent},
 };
+use rustis::commands::StringCommands;
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 use thiserror::Error;
 use tokio::{
@@ -28,7 +29,7 @@ use tokio::{
 };
 use tracing::instrument;
 
-use crate::{context::app::AppContext, storage};
+use crate::context::app::AppContext;
 
 pub struct NoitaHandle {
     noita: Mutex<Option<Noita>>,
@@ -85,7 +86,11 @@ impl NoitaHandle {
         let mut polied = Changeable::new(None);
         let mut dead = Changeable::new(None);
 
-        let best_inv = storage!(ctx, get, "best-inventory").unwrap_or_default();
+        let best_inv = ctx
+            .storage()
+            .get("best-inventory")
+            .await
+            .unwrap_or_default();
         let mut best_inv = Inventory::from_bits_truncate(best_inv);
 
         let mut last_flags = ctx.noita().read_flags().await.unwrap_or_default();
@@ -175,7 +180,7 @@ impl NoitaHandle {
                     _ = ctx.noita().events.send(E::ItemFound(I::TouchOfGold));
                 }
 
-                if let Err(e) = storage!(ctx, set, "best-inventory", { best_inv.bits() }) {
+                if let Err(e) = ctx.storage().set("best-inventory", best_inv.bits()).await {
                     tracing::error!(error=?e, "failed to save best-inventory");
                 }
             }
