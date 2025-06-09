@@ -153,10 +153,14 @@ impl RestOfArgs {
         self.args.is_empty()
     }
 
-    pub async fn get(self, ctx: &CommandContext) -> ArgResult<VecDeque<Option<String>>> {
+    pub async fn get(self, ctx: &CommandContext) -> ExtractorResult<VecDeque<Option<String>>> {
         let mut args = VecDeque::with_capacity(self.args.len());
-        for arg in self.args {
-            args.push_back(arg.get(ctx).await?);
+        for (i, arg) in self.args.into_iter().enumerate() {
+            args.push_back(
+                arg.get(ctx)
+                    .await
+                    .map_err(|e| ExtractorError::BadArgument(i, e))?,
+            );
         }
         Ok(args)
     }
