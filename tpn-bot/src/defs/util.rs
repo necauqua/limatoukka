@@ -182,15 +182,27 @@ async fn flag(ctx: CommandContext, flag: String) -> Result<()> {
     Ok(())
 }
 
+/// Makes the bot start the game in nightmare/ng.
+#[command(permission = Vip)]
+async fn set_nightmare(ctx: CommandContext, value: bool) -> Result<()> {
+    if value {
+        ctx.storage().set("flags:nightmare", "1").await?;
+        ctx.reply("Nightmare mode enabled".into()).await
+    } else {
+        ctx.storage().del("flags:nightmare").await?;
+        ctx.reply("Nightmare mode disabled".into()).await
+    }
+}
+
 /// Makes the bot start the game with a specific seed.
-#[command(permission = Moderator)]
+#[command(permission = Vip)]
 async fn fix_seed(ctx: CommandContext, seed: u32) -> Result<()> {
     ctx.storage().set("set-seed", seed).await?;
     ctx.reply("Seed set".into()).await
 }
 
 /// Undoes the effect of `fix_seed~`, so the game will start with a random seed again.
-#[command(permission = Moderator)]
+#[command(permission = Vip)]
 async fn unfix_seed(ctx: CommandContext) -> Result<()> {
     ctx.storage().del("set-seed").await?;
     ctx.reply("Seed unset".into()).await

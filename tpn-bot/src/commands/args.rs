@@ -293,6 +293,23 @@ impl CommandArg for String {
 }
 
 #[async_trait]
+impl CommandArg for bool {
+    async fn parse(_ctx: &CommandContext, input: String) -> ArgResult<Self> {
+        match input.trim().to_lowercase().as_str() {
+            "true" | "t" | "yes" | "y" | "1" => Ok(true),
+            "false" | "f" | "no" | "n" | "0" => Ok(false),
+            _ => Err(ArgError::WrongType(
+                "a boolean value (true/t/yes/y/1 or false/f/no/n/0)",
+            )),
+        }
+    }
+
+    fn type_desc() -> Cow<'static, str> {
+        "a boolean value (true/t/yes/y/1 or false/f/no/n/0)".into()
+    }
+}
+
+#[async_trait]
 impl CommandArg for i32 {
     async fn parse(_ctx: &CommandContext, input: String) -> ArgResult<Self> {
         Calculator::eval(&input)?
