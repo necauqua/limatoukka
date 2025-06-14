@@ -93,7 +93,7 @@ impl NoitaHandle {
             .unwrap_or_default();
         let mut best_inv = Inventory::from_bits_truncate(best_inv);
 
-        let mut last_flags = ctx.noita().read_flags().await.unwrap_or_default();
+        let mut last_flags = ctx.noita().read_flags().await.ok();
 
         let mut last_inv_update = Instant::now();
         let mut inv_errored = false;
@@ -185,14 +185,20 @@ impl NoitaHandle {
                 }
             }
 
+            let Some(last_flags_ref) = last_flags.as_ref() else {
+                // no flags read yet, skip
+                last_flags = ctx.noita().read_flags().await.ok();
+                continue;
+            };
+
             let current_flags = ctx.noita().read_flags().await.unwrap_or_default();
             let new_flags = current_flags
-                .difference(&last_flags)
+                .difference(last_flags_ref)
                 .cloned()
                 .collect::<Vec<_>>();
 
             if !new_flags.is_empty() {
-                last_flags = current_flags;
+                last_flags = Some(current_flags);
                 for flag in new_flags {
                     _ = ctx.noita().events.send(
                         if let Some(pillar) = PILLAR_FLAG_NAMES.get(&flag) {
@@ -304,7 +310,7 @@ async fn find_noita() -> Result<Option<Noita>> {
         let Some(process) = system
             .processes_by_exact_name("noita.exe".as_ref())
             .find(|p| {
-                p.thread_kind().is_none() && p.environ().contains(&"TWITCH_PLAYS_NOITA=1".into())
+                p.thread_kind().is_none() // && p.environ().contains(&"TWITCH_PLAYS_NOITA=1".into())
             })
         else {
             return Ok(None);
