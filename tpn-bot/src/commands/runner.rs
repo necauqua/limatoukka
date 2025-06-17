@@ -167,6 +167,10 @@ async fn prepare_command(
     let Some(registration) = found else {
         return Err(CommandError::UnknownCommand(token));
     };
+    // meh just hardcode this for now
+    if registration.is(CommandTag::NoitaControl) || registration.is(CommandTag::OBSControl) {
+        return Err(CommandError::DisabledCommand(token));
+    }
 
     let desc = CommandDescriptor {
         registration,
@@ -341,6 +345,8 @@ impl CommandFailure {
 pub enum CommandError {
     #[error("{0:#}: command does not exist")]
     UnknownCommand(CommandToken),
+    #[error("{0:#}: command is disabled")]
+    DisabledCommand(CommandToken),
     #[error("{0:#}: no permission")]
     PermissionError(CommandDescriptor),
     #[error("{0:#}: {1}")]

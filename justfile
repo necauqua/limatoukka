@@ -180,11 +180,16 @@ cringe-aws-tts-through-shell text:
         --voice-id Brian \
         --text "$(cat /tmp/last-tts.txt)" \
         /tmp/last-tts.ogg
+    # mpv \
+    #     --no-pause \
+    #     --no-terminal \
+    #     --ao=jack \
+    #     --jack-port="OBS Studio: audio" \
+    #     --audio-channels=stereo \
+    #     /tmp/last-tts.ogg
     mpv \
         --no-pause \
         --no-terminal \
-        --ao=jack \
-        --jack-port="OBS Studio: audio" \
         --audio-channels=stereo \
         /tmp/last-tts.ogg
     echo true

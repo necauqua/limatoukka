@@ -7,7 +7,7 @@ default-run = "tpn-bot"
 
 [dependencies]
 tpn-bot-macros = { path = "macros" }
-noita-engine-reader = { path = "../../noita-utility-box/noita-engine-reader" }
+noita-engine-reader = { path = "../../noita/noita-utility-box/noita-engine-reader" }
 neca-cmd = "0.3.0"
 
 anyhow = "1.0.97"
