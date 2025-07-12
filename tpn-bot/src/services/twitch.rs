@@ -21,6 +21,7 @@ use tokio::{
         broadcast::{Receiver, Sender},
         oneshot,
     },
+    task::JoinSet,
     time::{Instant, Sleep},
 };
 use tokio_tungstenite::{
@@ -34,10 +35,15 @@ use twitch_api::{
     helix::{
         ClientRequestError, HelixRequestDeleteError, HelixRequestGetError, HelixRequestPatchError,
         HelixRequestPostError, HelixRequestPutError, Scope,
+        points::{
+            CreateCustomRewardBody, CreateCustomRewardRequest, CustomReward,
+            UpdateCustomRewardBody, UpdateCustomRewardRequest,
+        },
     },
     twitch_oauth2::{
         AccessToken, RefreshToken, TwitchToken as _, UserToken, UserTokenBuilder, url::Url,
     },
+    types::RewardId,
 };
 use twitch_irc::login::{CredentialsPair, LoginCredentials};
 
@@ -211,6 +217,95 @@ impl Twitch {
             .caster_token
             .call(&self.inner.client.helix, &self.inner.caster_id, f)
             .await
+    }
+
+    pub async fn create_reward(&self, body: CreateCustomRewardBody<'_>) -> Result<bool> {
+        let res = self
+            .caster_call(async |t| {
+                let request = CreateCustomRewardRequest::broadcaster_id(t.caster_id);
+                t.helix.req_post(request, body.clone(), &t.token).await
+            })
+            .await;
+
+        let Err(e) = res else {
+            return Ok(true);
+        };
+        match e.downcast_ref::<ClientRequestError<reqwest::Error>>() {
+            Some(ClientRequestError::HelixRequestPostError(HelixRequestPostError::Error {
+                status: StatusCode::BAD_REQUEST,
+                message,
+                ..
+            })) if message == "CREATE_CUSTOM_REWARD_DUPLICATE_REWARD" => Ok(false),
+            _ => Err(e),
+        }
+    }
+
+    pub async fn update_reward(
+        &self,
+        id: RewardId,
+        body: UpdateCustomRewardBody<'_>,
+    ) -> Result<()> {
+        self.caster_call(async |t| {
+            let request = UpdateCustomRewardRequest::new(t.caster_id, id.clone());
+            t.helix.req_patch(request, body.clone(), &t.token).await
+        })
+        .await?;
+        Ok(())
+    }
+
+    async fn get_rewards(&self) -> Result<Vec<CustomReward>> {
+        self.caster_call(async |t| {
+            t.helix
+                .get_all_custom_rewards(t.caster_id, false, &t.token)
+                .await
+        })
+        .await
+    }
+
+    pub async fn unpause_rewards(&self) -> Result<()> {
+        let rewards = self.get_rewards().await?;
+
+        let mut join_set = JoinSet::new();
+
+        for reward in rewards {
+            if !reward.is_paused {
+                tracing::info!(reward.title, "reward already unpaused, skipping");
+                continue;
+            }
+            tracing::info!(reward.title, "unpausing reward");
+            let request = UpdateCustomRewardBody::builder()
+                .is_paused(Some(false))
+                .build();
+            let handle = self.clone();
+            join_set.spawn(async move { handle.update_reward(reward.id, request).await });
+        }
+
+        join_set.join_all().await;
+
+        Ok(())
+    }
+
+    pub async fn pause_rewards(&self) -> Result<()> {
+        let rewards = self.get_rewards().await?;
+
+        let mut join_set = JoinSet::new();
+
+        for reward in rewards {
+            if reward.is_paused {
+                tracing::info!(reward.title, "reward already paused, skipping");
+                continue;
+            }
+            tracing::info!(reward.title, "pausing reward");
+            let request = UpdateCustomRewardBody::builder()
+                .is_paused(Some(true))
+                .build();
+            let handle = self.clone();
+            join_set.spawn(async move { handle.update_reward(reward.id, request).await });
+        }
+
+        join_set.join_all().await;
+
+        Ok(())
     }
 }
 
@@ -586,7 +681,7 @@ mod tests {
         layer::SubscriberExt,
         util::SubscriberInitExt,
     };
-    use twitch_api::helix::points::{CreateCustomRewardBody, CreateCustomRewardRequest};
+    use twitch_api::helix::points::CreateCustomRewardBody;
 
     use crate::services::{Services, storage::Storage};
 
@@ -630,28 +725,6 @@ mod tests {
         eventsub.run(ctx).await
     }
 
-    async fn create_reward(twitch: &Twitch, body: CreateCustomRewardBody<'_>) -> Result<bool> {
-        let res = twitch
-            .caster_call(async |t| {
-                let request = CreateCustomRewardRequest::broadcaster_id(t.caster_id);
-                t.helix.req_post(request, body.clone(), &t.token).await?;
-                Ok(())
-            })
-            .await;
-
-        let Err(e) = res else {
-            return Ok(true);
-        };
-        match e.downcast_ref::<ClientRequestError<reqwest::Error>>() {
-            Some(ClientRequestError::HelixRequestPostError(HelixRequestPostError::Error {
-                status: StatusCode::BAD_REQUEST,
-                message,
-                ..
-            })) if message == "CREATE_CUSTOM_REWARD_DUPLICATE_REWARD" => Ok(false),
-            _ => Err(e),
-        }
-    }
-
     #[tokio::test]
     #[ignore]
     async fn bootstrap_rewards() -> Result<()> {
@@ -661,44 +734,44 @@ mod tests {
     async fn do_bootstrap_rewards() -> Result<()> {
         let twitch = Twitch::new(&Config::load()?).await?;
 
-        let created_hello = create_reward(
-            &twitch,
-            CreateCustomRewardBody::builder()
-                .title("hello there")
-                .prompt(Some("hiii".into()))
-                .cost(1)
-                .background_color(Some("#3F3F3F".into()))
-                .is_max_per_user_per_stream_enabled(true)
-                .max_per_user_per_stream(1)
-                .build(),
-        )
-        .await?;
+        let created_hello = twitch
+            .create_reward(
+                CreateCustomRewardBody::builder()
+                    .title("hello there")
+                    .prompt(Some("hiii".into()))
+                    .cost(1)
+                    .background_color(Some("#3F3F3F".into()))
+                    .is_max_per_user_per_stream_enabled(true)
+                    .max_per_user_per_stream(1)
+                    .build(),
+            )
+            .await?;
 
-        let created_bless = create_reward(
-            &twitch,
-            CreateCustomRewardBody::builder()
-                .title("BLESS THE RUN")
-                .prompt(Some("thx! :)".into()))
-                .cost(500)
-                .background_color(Some("#E600D3".into()))
-                .is_global_cooldown_enabled(true)
-                .global_cooldown_seconds(180)
-                .build(),
-        )
-        .await?;
+        let created_bless = twitch
+            .create_reward(
+                CreateCustomRewardBody::builder()
+                    .title("BLESS THE RUN")
+                    .prompt(Some("thx! :)".into()))
+                    .cost(500)
+                    .background_color(Some("#E600D3".into()))
+                    .is_global_cooldown_enabled(true)
+                    .global_cooldown_seconds(180)
+                    .build(),
+            )
+            .await?;
 
-        let created_curse = create_reward(
-            &twitch,
-            CreateCustomRewardBody::builder()
-                .title("CURSE THE RUN")
-                .prompt(Some("why? :(".into()))
-                .cost(500)
-                .background_color(Some("#5C16C5".into()))
-                .is_global_cooldown_enabled(true)
-                .global_cooldown_seconds(180)
-                .build(),
-        )
-        .await?;
+        let created_curse = twitch
+            .create_reward(
+                CreateCustomRewardBody::builder()
+                    .title("CURSE THE RUN")
+                    .prompt(Some("why? :(".into()))
+                    .cost(500)
+                    .background_color(Some("#5C16C5".into()))
+                    .is_global_cooldown_enabled(true)
+                    .global_cooldown_seconds(180)
+                    .build(),
+            )
+            .await?;
 
         dbg!(created_hello);
         dbg!(created_curse);

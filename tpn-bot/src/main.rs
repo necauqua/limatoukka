@@ -68,15 +68,37 @@ async fn run(config: Config) -> Result<()> {
     let mut noita_events = ctx.noita().subscribe();
 
     eventsub_init.await;
+    // after eventsub init so we can receive redemptions
+    ctx.twitch().unpause_rewards().await?;
 
     ctx.storage().publish("bot-restart", "1").await?;
 
-    let mut stop_signal = ctx.storage().subscribe("bot-restart").await?;
+    let mut restart_signal = ctx.storage().subscribe("bot-restart").await?;
     let mut tasks = JoinSet::new();
 
     loop {
         tokio::select! {
-            _ = stop_signal.next() => break,
+            _ = tokio::signal::ctrl_c() => break,
+            _ = restart_signal.next() => {
+                tracing::info!("received a restart signal from new instance");
+
+                // I think this is technicaly racey?
+                // but the chance is so slim we dont care ig
+                let mut interrupt_signal = ctx.storage().subscribe("interrupt").await?;
+                let handle = ctx.clone();
+                tokio::spawn(async move {
+                    if let Some(chatter_id) = interrupt_signal.next().await {
+                        // eh just panic the task on errors, we're shutting down soon anyway
+                        let chatter_id = String::from_utf8(chatter_id.unwrap().payload).unwrap();
+                        tracing::info!("received an interrupt from new instance");
+                        handle.interrupt(
+                            Some(&*chatter_id).filter(|id| *id != "<all>"),
+                            InterruptKind::Interrupt, // ehh guess break never worked across bot restarts
+                        );
+                    }
+                });
+                break;
+            },
             Some(msg) = incoming.recv() => {
                 let new = ctx
                     .storage()
@@ -122,23 +144,9 @@ async fn run(config: Config) -> Result<()> {
         };
     }
 
-    tracing::info!("received a restart signal from new instance");
-
-    // I think this is technicaly racey?
-    // but the chance is so slim we dont care ig
-    let mut interrupt_signal = ctx.storage().subscribe("interrupt").await?;
-    let handle = ctx.clone();
-    tokio::spawn(async move {
-        if let Some(chatter_id) = interrupt_signal.next().await {
-            // eh just panic the task on errors, we're shutting down anyway
-            let chatter_id = String::from_utf8(chatter_id.unwrap().payload).unwrap();
-            tracing::info!("received an interrupt from new instance");
-            handle.interrupt(
-                Some(&*chatter_id).filter(|id| *id != "<all>"),
-                InterruptKind::Interrupt, // ehh guess break never worked across bot restarts
-            );
-        }
-    });
+    // just pray nothing errored beforehand
+    // where's my errdefer :(
+    ctx.twitch().pause_rewards().await?;
 
     tasks.join_all().await;
 
