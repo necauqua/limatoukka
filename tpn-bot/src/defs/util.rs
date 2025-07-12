@@ -208,38 +208,6 @@ async fn unfix_seed(ctx: CommandContext) -> Result<()> {
     ctx.reply("Seed unset".into()).await
 }
 
-/// Say something on stream through the TTS.
-///
-/// Only works for >= subscriber level, or from global macros.
-#[command(sender_gate = 1m)]
-async fn tts(ctx: CommandContext, msg: String) -> Result<()> {
-    if !ctx.in_global_macro && ctx.message().sender.level < PermissionLevel::Subscriber {
-        fail!("TTS is pay to win, or from global macros");
-    }
-    if msg.is_empty() {
-        fail!("message cannot be empty");
-    }
-
-    tracing::debug!(msg = msg, "sending TTS");
-    let mut child = AppContext::cringe_aws_tts_through_shell(&msg).await?;
-    let pid = child.id().unwrap();
-
-    tokio::select! {
-        _ = child.wait() => tracing::debug!(msg = msg, "finished TTS"),
-        _ = ctx.wait_for_interrupt() => {
-
-            // ugh meh
-            unsafe {
-                libc::killpg(pid as _, libc::SIGTERM);
-            }
-
-            child.wait().await?;
-        },
-    }
-
-    Ok(())
-}
-
 /// Get information about a macro or command.
 ///
 /// If you see someone running some weird command, run

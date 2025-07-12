@@ -169,11 +169,11 @@ start-intro-timer seconds="900":
 stop-intro-timer:
     pkill -f ./countdown.fish
 
-cringe-scp-large-reply msg:
+upload-large-reply msg:
     echo {{quote(msg)}} > /tmp/last-reply.html
     rsync -e 'ssh -o IdentitiesOnly=yes -i ~/.ssh/main-deployer' /tmp/last-reply.html main-deployer@necauq.ua:.
 
-cringe-aws-tts-through-shell text:
+aws-tts text:
     echo {{quote(text)}} > /tmp/last-tts.txt
     aws polly synthesize-speech \
         --output-format ogg_vorbis \
@@ -187,9 +187,7 @@ cringe-aws-tts-through-shell text:
     #     --jack-port="OBS Studio: audio" \
     #     --audio-channels=stereo \
     #     /tmp/last-tts.ogg
-    mpv \
-        --no-pause \
-        --no-terminal \
-        --audio-channels=stereo \
-        /tmp/last-tts.ogg
-    echo true
+    pw-play /tmp/last-tts.ogg
+
+play-sound sound volume="1":
+    pw-play --volume="{{volume}}" tpn-bot/sounds/{{sound}}

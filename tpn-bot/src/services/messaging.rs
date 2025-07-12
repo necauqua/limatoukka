@@ -203,7 +203,7 @@ impl MessagingClient {
                             }
                         }
                     };
-                    AppContext::cringe_scp_large_reply(&html.0).await?;
+                    AppContext::upload_large_reply(&html.0).await?;
                     client
                         .say_in_reply_to(
                             &(channel, &message.id),

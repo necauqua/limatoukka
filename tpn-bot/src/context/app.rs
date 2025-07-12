@@ -228,9 +228,9 @@ impl AppContext {
         Ok(res.stdout.trim_ascii() == b"true")
     }
 
-    pub async fn cringe_scp_large_reply(msg: &str) -> Result<()> {
+    pub async fn upload_large_reply(msg: &str) -> Result<()> {
         let res = Command::new("setsid")
-            .args(["just", "cringe-scp-large-reply", msg])
+            .args(["just", "upload-large-reply", msg])
             .env_remove("RUST_LOG")
             .stderr(Stdio::piped())
             .stdout(Stdio::null())
@@ -246,13 +246,26 @@ impl AppContext {
         Ok(())
     }
 
-    pub async fn cringe_aws_tts_through_shell(msg: &str) -> Result<Child> {
-        Ok(Command::new("setsid")
-            .args(["just", "cringe-aws-tts-through-shell", msg])
-            .env_remove("RUST_LOG")
-            .stderr(Stdio::piped())
-            .stdout(Stdio::null())
-            .spawn()?)
+    pub fn aws_tts(msg: &str) -> Result<Process> {
+        Ok(Process {
+            child: Command::new("setsid")
+                .args(["just", "aws-tts", msg])
+                .env_remove("RUST_LOG")
+                .stderr(Stdio::piped())
+                .stdout(Stdio::null())
+                .spawn()?,
+        })
+    }
+
+    pub fn play_sound(file: &str, volume: f32) -> Result<Process> {
+        Ok(Process {
+            child: Command::new("setsid")
+                .args(["just", "play-sound", file, volume.to_string().as_str()])
+                .env_remove("RUST_LOG")
+                .stderr(Stdio::piped())
+                .stdout(Stdio::null())
+                .spawn()?,
+        })
     }
 
     async fn get_gamemode(&self) -> Result<&'static str> {
@@ -314,5 +327,30 @@ impl Deref for AppContext {
 
     fn deref(&self) -> &Self::Target {
         &self.services
+    }
+}
+
+pub struct Process {
+    child: Child,
+}
+
+impl Process {
+    async fn do_wait(&mut self) {
+        if let Err(e) = self.child.wait().await {
+            tracing::error!(?e, "child process errored");
+        }
+    }
+
+    pub async fn wait(&mut self, interrupt_signal: impl Future) -> bool {
+        tokio::select! {
+            _ = self.do_wait() => true,
+            _ = interrupt_signal => {
+                // ugh meh
+                let pid = self.child.id().unwrap();
+                unsafe { libc::killpg(pid as _, libc::SIGTERM) };
+                self.do_wait().await;
+                false
+            },
+        }
     }
 }

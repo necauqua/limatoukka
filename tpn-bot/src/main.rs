@@ -17,6 +17,7 @@ use tpn_bot::{
         chat_log::ChatLog,
         messaging,
         noita::{ItemFound, NoitaEvent, NoitaHandle},
+        sounds::Sounds,
         status_wall::StatusWall,
         storage::{BalanceMessage, Storage},
         twitch::{EventSub, Twitch},
@@ -60,6 +61,7 @@ async fn run(config: Config) -> Result<()> {
             NoitaHandle::default(),
             StatusWall::default(),
             twitch,
+            Sounds,
         ),
     );
 
@@ -366,6 +368,15 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
                 viewers = data.viewers,
                 "raid"
             );
+
+            let handle = ctx.clone();
+            tokio::spawn(async move {
+                handle
+                    .sounds()
+                    .play_sound("RAID", std::future::pending::<()>())
+                    .await
+            });
+
             ctx.send(format!(
                 "VoHiYo Thanks for the raid @{}, and welcome raiders TwitchUnity",
                 data.from_broadcaster_user_name

@@ -7,6 +7,7 @@ mod keys;
 mod macros;
 mod moderation;
 mod mouse;
+mod sounds;
 mod stats;
 mod util;
 mod voting;
