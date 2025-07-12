@@ -10,19 +10,14 @@ use std::{
 
 use anyhow::{Result, bail};
 use maud::html;
-use rustis::commands::{
-    GenericCommands, PubSubCommands, SetCondition, SetExpiration, StringCommands,
-};
+use rustis::commands::{PubSubCommands, SetCondition, SetExpiration, StringCommands};
 use tokio::{
     process::{Child, Command},
     sync::Notify,
     time::sleep,
 };
 
-use crate::{
-    config::Config,
-    services::{Services, storage::BalanceMessage},
-};
+use crate::{config::Config, services::Services};
 
 #[derive(Default)]
 struct AppState {
@@ -290,9 +285,6 @@ impl AppContext {
     }
 
     pub async fn next_run(&self) -> Result<()> {
-        self.storage().modify_balance(BalanceMessage::Reset).await?;
-        self.storage().del("best-inventory").await?;
-
         sleep(Duration::from_millis(500)).await;
 
         self.xdo().key("Enter").await?;

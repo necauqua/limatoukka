@@ -3,7 +3,9 @@ use std::{borrow::Cow, time::Duration};
 use anyhow::Result;
 use futures::{FutureExt, StreamExt};
 use opentelemetry::trace::Status;
-use rustis::commands::{PubSubCommands, SetCondition, SetExpiration, StringCommands};
+use rustis::commands::{
+    GenericCommands as _, PubSubCommands, SetCondition, SetExpiration, StringCommands,
+};
 use tokio::{task::JoinSet, time::sleep};
 use tpn_bot::{
     commands::runner,
@@ -171,7 +173,13 @@ fn mainloop_task(tasks: &mut JoinSet<()>, task: impl Future<Output = Result<()>>
 
 async fn noita_event(ctx: AppContext, event: NoitaEvent) -> Result<()> {
     match event {
-        NoitaEvent::PlayerDeath => ctx.send("died lmao".into()).await?, //ctx.next_run().await?,
+        NoitaEvent::PlayerDeath => {
+            ctx.storage().modify_balance(BalanceMessage::Reset).await?;
+            ctx.storage().del("best-inventory").await?;
+
+            ctx.send("died lmao".into()).await?
+            // ctx.next_run().await?
+        },
         NoitaEvent::LowOxygen => ctx.send("Kinda getting low on O₂ btw HelloHowAreYouIAmUnderTheWater".into()).await?,
         NoitaEvent::Polymorphed => {
             if ctx.gate("polymorphed", Duration::from_secs(300)).await? {
