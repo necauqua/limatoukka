@@ -14,11 +14,11 @@ uwu:
   volume: 0.2
 uguu:
   - file: "uguu1.ogg"
-    volume: 0.2
+    volume: 0.15
   - file: "uguu2.ogg"
-    volume: 0.2
+    volume: 0.15
   - file: "uguu3.ogg"
-    volume: 0.2
+    volume: 0.15
 wrrr:
   file: "wrrr.ogg"
   volume: 0.6
