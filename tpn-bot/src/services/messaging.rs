@@ -56,6 +56,7 @@ pub async fn connect_to_mock() -> Result<(MessageSource, MessagingClient)> {
 
 /// Currently used for not having to deal with twitch when testing, but we
 /// could add something like Discord here in the future
+#[allow(clippy::large_enum_variant)]
 pub enum MessageSource {
     Twitch(UnboundedReceiver<ServerMessage>),
     Mock(Sender, BufReader<File>, u64),
@@ -137,7 +138,7 @@ impl MessageSource {
                 text.pop(); // remove newline
                 *count += 1;
                 Message {
-                    id: format!("mock-{}", count),
+                    id: format!("mock-{count}"),
                     sender: Sender {
                         // meh
                         id: format!("{}-{}", sender.id, count),
@@ -207,7 +208,7 @@ impl MessagingClient {
                     client
                         .say_in_reply_to(
                             &(channel, &message.id),
-                            "reply too large, sent to uq.rs/tpn-reply".into(),
+                            "reply too large, sent to uq.rs/last-reply".into(),
                         )
                         .await?;
                 } else {
