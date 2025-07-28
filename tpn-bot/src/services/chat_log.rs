@@ -10,7 +10,7 @@ pub struct ChatLog {
     client: Elasticsearch,
 }
 
-const INDEX: &str = "twitch-logs";
+const INDEX: &str = "twitch-chat-necauqua";
 
 #[derive(Debug, Clone)]
 pub enum Edge<'s> {
