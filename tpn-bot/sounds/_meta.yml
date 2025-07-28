@@ -19,6 +19,9 @@ uguu:
     volume: 0.2
   - file: "uguu3.ogg"
     volume: 0.2
+wrrr:
+  file: "wrrr.ogg"
+  volume: 0.6
 
 RAID:
   file: "pipes.ogg"
