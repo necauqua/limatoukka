@@ -11,7 +11,7 @@ use tokio::{
 };
 use twitch_irc::{
     ClientConfig, SecureTCPTransport, TwitchIRCClient,
-    message::{Badge, ServerMessage},
+    message::{Badge, IRCMessage, IRCTags, ServerMessage},
 };
 
 use crate::context::app::AppContext;
@@ -170,9 +170,20 @@ impl MessagingClient {
                 client, channel, ..
             } => {
                 send_chunked(text, |chunk| async move {
-                    Ok(client
-                        .say(channel.to_string(), chunk.replace("\n", " "))
-                        .await?)
+                    let message = chunk.replace('\n', " ");
+
+                    let mut tags = IRCTags::new();
+                    tags.0.insert("source-only".into(), Some("1".into()));
+
+                    client
+                        .send_message(IRCMessage::new(
+                            tags,
+                            None,
+                            "PRIVMSG".into(),
+                            vec![format!("#{channel}"), format!(". {message}")],
+                        ))
+                        .await?;
+                    Ok(())
                 })
                 .await?
             }
@@ -187,6 +198,8 @@ impl MessagingClient {
             MessagingClient::Twitch {
                 client, channel, ..
             } => {
+                // Actually dont set source-only for replies, since the original message will be visible in all chats
+                // the reply could be visible too. It was the ad messages and macro echoes that were the offenders
                 if text.len() > 420 {
                     let html = html! {
                         (DOCTYPE)
