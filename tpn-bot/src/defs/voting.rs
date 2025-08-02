@@ -172,8 +172,8 @@ where
         .set_get_with_options("vote", data, SetCondition::NX, SetExpiration::None, false)
         .await?;
 
-    let yes_key = format!("vote:{}:yes", key);
-    let no_key = format!("vote:{}:no", key);
+    let yes_key = format!("vote:{key}:yes");
+    let no_key = format!("vote:{key}:no");
 
     let mut tx = ctx.storage().create_transaction();
     // only delete the trigger set after we tried to start the vote
