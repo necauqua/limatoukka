@@ -192,7 +192,7 @@ async fn yoink(
 /// Macros can call other macros, but there is a recursion limit!
 ///
 /// Also you can run a macro recorded by someone else by appending their login
-/// as the third argument.
+/// as the second argument.
 #[command(shortcode=q, NoWall)]
 async fn r#macro(
     ctx: CommandContext,
