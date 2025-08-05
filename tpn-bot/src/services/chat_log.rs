@@ -91,6 +91,26 @@ impl ChatLog {
             json!([
                 { "term": { "irc.cmd": "PRIVMSG" } },
                 { "term": { "tags.user-id": user_id } },
+                // IF there's a source-room-id tag, check that it matches the room-id aka actually sent in our chat
+                {
+                    "bool": {
+                        "should": [
+                            { "bool": { "must_not": { "exists": { "field": "tags.source-room-id" } } } },
+                            {
+                                "script": {
+                                    "script": {
+                                        "source": r#"
+                                            if (doc['tags.room-id'].size() > 0 && doc['tags.source-room-id'].size() > 0) {
+                                                return doc['tags.room-id'].value == doc['tags.source-room-id'].value;
+                                            }
+                                            return false;
+                                        "#,
+                                    },
+                                },
+                            },
+                        ],
+                    },
+                }
             ]),
         );
 
