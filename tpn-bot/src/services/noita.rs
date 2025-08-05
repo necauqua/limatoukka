@@ -309,9 +309,7 @@ async fn find_noita() -> Result<Option<Noita>> {
 
         let Some(process) = system
             .processes_by_exact_name("noita.exe".as_ref())
-            .find(|p| {
-                p.thread_kind().is_none() // && p.environ().contains(&"TWITCH_PLAYS_NOITA=1".into())
-            })
+            .find(|p| p.thread_kind().is_none() && !p.environ().contains(&"NO_TPN_BOT=1".into()))
         else {
             return Ok(None);
         };
