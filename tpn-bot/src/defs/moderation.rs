@@ -135,20 +135,20 @@ async fn set_title(ctx: CommandContext, title: String) -> Result<()> {
 /// Tell OBS to stop the stream.
 #[command(permission=Moderator, global_gate = 2m, OBSControl)]
 async fn obs_stop_stream() -> Result<()> {
-    AppContext::just("obs-stop-stream", &[]).await
+    AppContext::just_detached("obs-stop-stream", &[]).await
 }
 
 /// Tell OBS to start the stream.
 #[command(permission=Moderator, global_gate = 2m, OBSControl)]
 async fn obs_start_stream() -> Result<()> {
-    AppContext::just("obs-start-stream", &[]).await
+    AppContext::just_detached("obs-start-stream", &[]).await
 }
 
 /// An untested script that starts OBS and then starts the stream if OBS died.
 /// Does nothing if the OBS process is running.
 #[command(permission=Moderator, global_gate = 5m, OBSControl)]
 async fn obs_revive(ctx: CommandContext) -> Result<()> {
-    if AppContext::just_bool("obs-revive").await? {
+    if AppContext::just("obs-revive", &[])?.get().await?.is_ok() {
         ctx.reply("OBS was not running, started it up".into()).await
     } else {
         ctx.storage().del("gate:obs-revive").await?;

@@ -72,7 +72,7 @@ async fn last_error(ctx: CommandContext, chatter: Chatter) -> Result<()> {
 /// Try running this first before doing a full restart etc etc.
 #[command(global_gate = 30s, OBSControl)]
 async fn fix_obs_capture() -> Result<()> {
-    AppContext::just("obs-reset-display", &[]).await
+    AppContext::just_detached("obs-reset-display", &[]).await
 }
 
 /// The sound setup is the most brittle jank thing actually, and dies most often.
@@ -80,14 +80,18 @@ async fn fix_obs_capture() -> Result<()> {
 /// Try running this first before doing a full restart etc etc.
 #[command(global_gate = 30s, OBSControl)]
 async fn fix_obs_sound() -> Result<()> {
-    AppContext::just("sound-setup", &[]).await
+    AppContext::just_detached("sound-setup", &[]).await
 }
 
 /// Check if noita.exe process is present, aka not dead.
 #[command(sender_gate = 1m, NoitaData)]
 async fn is_game_running(ctx: CommandContext) -> Result<()> {
     ctx.reply(
-        if AppContext::just_bool("is-game-running").await.is_ok() {
+        if AppContext::just("is-game-running", &[])?
+            .get()
+            .await?
+            .is_ok()
+        {
             "It is running currently, yes"
         } else {
             "The game is NOT running"

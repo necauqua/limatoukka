@@ -78,7 +78,10 @@ impl Sounds {
         let volume = sound_file.volume.unwrap_or(1.0);
 
         tracing::debug!(sound_id, "playing a sound");
-        let mut process = AppContext::play_sound(&sound_file.file, volume)?;
+        let mut process = AppContext::just(
+            "play-sound",
+            &[&sound_file.file, volume.to_string().as_str()],
+        )?;
 
         if process.wait(interrupt_signal).await {
             tracing::debug!(sound_id, "finished playing sound");

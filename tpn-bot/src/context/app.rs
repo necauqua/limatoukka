@@ -190,7 +190,7 @@ impl AppContext {
     }
 
     // eh I couldnt be bothered lol
-    pub async fn just(script: &str, extra_args: &[&str]) -> Result<()> {
+    pub async fn just_detached(script: &str, extra_args: &[&str]) -> Result<()> {
         // we just send it and *dont* wait for like noita.exe to finish
         let _res = Command::new("setsid")
             .args(["just", script])
@@ -210,60 +210,14 @@ impl AppContext {
         Ok(())
     }
 
-    pub async fn just_bool(script: &str) -> Result<bool> {
-        let res = Command::new("setsid")
-            .args(["just", script])
-            .env_remove("RUST_LOG")
-            .stderr(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()?
-            .wait_with_output()
-            .await?;
-        if !res.status.success() {
-            bail!(
-                "just command failed: {}",
-                String::from_utf8_lossy(&res.stderr)
-            )
-        }
-        Ok(res.stdout.trim_ascii() == b"true")
-    }
-
-    pub async fn upload_large_reply(msg: &str) -> Result<()> {
-        let res = Command::new("setsid")
-            .args(["just", "upload-large-reply", msg])
-            .env_remove("RUST_LOG")
-            .stderr(Stdio::piped())
-            .stdout(Stdio::null())
-            .spawn()?
-            .wait_with_output()
-            .await?;
-        if !res.status.success() {
-            bail!(
-                "just command failed: {}",
-                String::from_utf8_lossy(&res.stderr)
-            )
-        }
-        Ok(())
-    }
-
-    pub fn aws_tts(msg: &str) -> Result<Process> {
+    pub fn just(script: &str, extra_args: &[&str]) -> Result<Process> {
         Ok(Process {
             child: Command::new("setsid")
-                .args(["just", "aws-tts", msg])
+                .args(["just", script])
+                .args(extra_args)
                 .env_remove("RUST_LOG")
                 .stderr(Stdio::piped())
-                .stdout(Stdio::null())
-                .spawn()?,
-        })
-    }
-
-    pub fn play_sound(file: &str, volume: f32) -> Result<Process> {
-        Ok(Process {
-            child: Command::new("setsid")
-                .args(["just", "play-sound", file, volume.to_string().as_str()])
-                .env_remove("RUST_LOG")
-                .stderr(Stdio::piped())
-                .stdout(Stdio::null())
+                .stdout(Stdio::piped())
                 .spawn()?,
         })
     }
@@ -282,7 +236,7 @@ impl AppContext {
     }
 
     pub async fn restart(&self) -> Result<()> {
-        Self::just(
+        Self::just_detached(
             "restart",
             &[self.get_gamemode().await?, &self.get_set_seed().await?],
         )
@@ -290,7 +244,7 @@ impl AppContext {
     }
 
     pub async fn reset(&self) -> Result<()> {
-        Self::just(
+        Self::just_detached(
             "reset-restart",
             &[self.get_gamemode().await?, &self.get_set_seed().await?],
         )
@@ -335,6 +289,22 @@ pub struct Process {
 }
 
 impl Process {
+    pub async fn get(self) -> Result<Result<String, String>> {
+        let output = self.child.wait_with_output().await?;
+        if output.status.success() {
+            Ok(Ok(String::from_utf8(output.stdout)?))
+        } else {
+            Ok(Err(String::from_utf8(output.stderr)?))
+        }
+    }
+
+    pub async fn check(self) -> Result<String> {
+        match self.get().await? {
+            Ok(success) => Ok(success),
+            Err(err) => bail!("just command failed: {err}"),
+        }
+    }
+
     async fn do_wait(&mut self) {
         if let Err(e) = self.child.wait().await {
             tracing::error!(?e, "child process errored");

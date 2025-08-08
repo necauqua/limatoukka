@@ -217,7 +217,9 @@ impl MessagingClient {
                             }
                         }
                     };
-                    AppContext::upload_large_reply(&html.0).await?;
+                    AppContext::just("upload-large-reply", &[&html.0])?
+                        .check()
+                        .await?;
                     client
                         .say_in_reply_to(
                             &(channel, &message.id),
