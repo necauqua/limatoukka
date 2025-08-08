@@ -1,9 +1,9 @@
 scream:
-  - file: "scream-wilhelm.ogg"
-  - file: "scream-howie.ogg"
+  - file: "scream/wilhelm.ogg"
+  - file: "scream/howie.ogg"
     volume: 0.2
     rarity: 0.05
-  - file: "scream-awful.ogg"
+  - file: "scream/awful.ogg"
     volume: 0.2
     rarity: 0.005
 snek-moan-scare:
@@ -13,15 +13,27 @@ uwu:
   file: "pulu-prepare-your-asses-for-a-cute-uwu.ogg"
   volume: 0.2
 uguu:
-  - file: "uguu1.ogg"
+  - file: "uguu/uguu1.ogg"
     volume: 0.15
-  - file: "uguu2.ogg"
+  - file: "uguu/uguu2.ogg"
     volume: 0.15
-  - file: "uguu3.ogg"
+  - file: "uguu/uguu3.ogg"
     volume: 0.15
 wrrr:
   file: "wrrr.ogg"
   volume: 0.6
+quack:
+  - file: "quack/quack.ogg"
+    volume: 0.6
+  - file: "quack/male.ogg"
+    volume: 0.6
+    rarity: 0.15
+  - file: "quack/female.ogg"
+    volume: 0.6
+    rarity: 0.15
+  - file: "quack/flamingo.ogg"
+    volume: 0.6
+    rarity: 0.05
 
 RAID:
   file: "pipes.ogg"
