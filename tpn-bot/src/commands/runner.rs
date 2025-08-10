@@ -1,4 +1,4 @@
-use std::any::Any;
+use std::{any::Any, time::Duration};
 
 use anyhow::Result;
 use humantime_serde::re::humantime;
@@ -35,6 +35,11 @@ pub async fn receive_message(ctx: AppContext, message: Message) -> Result<()> {
 
     if s.id == ctx.twitch().bot_id() {
         return Ok(());
+    }
+
+    // tidolar hehe
+    if s.id == "506202997" && ctx.gate("tidolar-plink", Duration::from_secs(120)).await? {
+        ctx.send("plink".into()).await?;
     }
 
     if s.level < PermissionLevel::Moderator {
