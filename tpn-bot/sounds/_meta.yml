@@ -8,7 +8,7 @@ scream:
     rarity: 0.005
 snek-moan-scare:
   file: "snek-moan.ogg"
-  volume: 0.5
+  volume: 0.25
 uwu:
   file: "pulu-prepare-your-asses-for-a-cute-uwu.ogg"
   volume: 0.2
@@ -37,4 +37,4 @@ quack:
 
 RAID:
   file: "pipes.ogg"
-  volume: 0.4
+  volume: 0.25

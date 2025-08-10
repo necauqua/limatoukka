@@ -190,7 +190,7 @@ aws-tts text:
     #     --jack-port="OBS Studio: audio" \
     #     --audio-channels=stereo \
     #     /tmp/last-tts.ogg
-    pw-play --volume=0.6 /tmp/last-tts.ogg
+    pw-play --volume=0.8 /tmp/last-tts.ogg
 
 play-sound sound volume="1":
     pw-play --volume="{{volume}}" tpn-bot/sounds/{{sound}}
