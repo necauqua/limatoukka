@@ -193,9 +193,13 @@ async fn noita_event(ctx: AppContext, event: NoitaEvent) -> Result<()> {
             }
             // ctx.next_run().await?
         },
-        NoitaEvent::LowOxygen => ctx.send("Kinda getting low on O₂ btw HelloHowAreYouIAmUnderTheWater".into()).await?,
+        NoitaEvent::LowOxygen => {
+            if ctx.gate("low-oxygen", Duration::from_secs(60)).await? {
+                ctx.send("Kinda getting low on O₂ btw HelloHowAreYouIAmUnderTheWater".into()).await?
+            }
+        },
         NoitaEvent::Polymorphed => {
-            if ctx.gate("polymorphed", Duration::from_secs(300)).await? {
+            if ctx.gate("polymorphed", Duration::from_secs(60)).await? {
                 ctx.send("Polymorphed ICANT".into()).await?
             }
         },
