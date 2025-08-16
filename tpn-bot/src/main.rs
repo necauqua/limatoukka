@@ -179,7 +179,18 @@ async fn noita_event(ctx: AppContext, event: NoitaEvent) -> Result<()> {
             ctx.storage().modify_balance(BalanceMessage::Reset).await?;
             ctx.storage().del("best-inventory").await?;
 
-            ctx.send("died lmao".into()).await?
+            let won = ctx.noita().with(|n| {
+                Ok(n.get_world_state()?
+                    .map(|ws| anyhow::Ok(ws.flags.read_storage(n.proc())?.iter().any(|f| f == "ending_game_completed")))
+                    .transpose()?
+                    .unwrap_or_default())
+            }).await?;
+
+            if won {
+                ctx.send("won GIGACHAD".into()).await?
+            } else {
+                ctx.send("died lmao".into()).await?
+            }
             // ctx.next_run().await?
         },
         NoitaEvent::LowOxygen => ctx.send("Kinda getting low on O₂ btw HelloHowAreYouIAmUnderTheWater".into()).await?,
