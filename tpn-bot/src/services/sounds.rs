@@ -61,6 +61,18 @@ pub enum SoundError {
 }
 
 impl Sounds {
+    pub async fn tts(&self, text: &str, interrupt_signal: impl Future) -> Result<()> {
+        tracing::debug!(text, "sending TTS");
+
+        let mut process = AppContext::just("aws-tts", &[text])?;
+        if process.wait(interrupt_signal).await {
+            tracing::debug!(text, "finished TTS")
+        } else {
+            tracing::debug!(text, "interrupted TTS");
+        }
+        Ok(())
+    }
+
     pub async fn play_sound(
         &self,
         sound_id: &str,

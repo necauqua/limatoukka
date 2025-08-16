@@ -356,6 +356,9 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
                 text = data.message.text,
                 "resub"
             );
+            ctx.sounds()
+                .tts(&data.message.text, std::future::pending::<()>())
+                .await?;
         }
         Event::ChannelCheerV1(Payload {
             message: Message::Notification(data),
@@ -368,6 +371,11 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
                 text = data.message,
                 "cheer"
             );
+            if data.bits >= 100 {
+                ctx.sounds()
+                    .tts(&data.message, std::future::pending::<()>())
+                    .await?;
+            }
         }
         Event::ChannelRaidV1(Payload {
             message: Message::Notification(data),

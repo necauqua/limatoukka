@@ -21,16 +21,9 @@ async fn tts(ctx: CommandContext, msg: String) -> Result<()> {
         fail!("message cannot be empty");
     }
 
-    tracing::debug!(msg, "sending TTS");
+    let int = ctx.wait_for_interrupt();
 
-    let mut process = AppContext::just("aws-tts", &[&msg])?;
-    if process.wait(ctx.wait_for_interrupt()).await {
-        tracing::debug!(msg, "finished TTS")
-    } else {
-        tracing::debug!(msg, "interrupted TTS");
-    }
-
-    Ok(())
+    ctx.sounds().tts(&msg, int).await
 }
 
 /// Play a sound on stream.
