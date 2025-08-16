@@ -178,16 +178,43 @@ impl Storage {
 }
 
 impl Storage {
+    fn key(user_id: &str) -> String {
+        format!("charges:{user_id}")
+    }
+
     pub async fn add_charges(&self, user_id: &str, amount: i64) -> Result<i64> {
-        Ok(self.client.incrby(format!("gas:{user_id}"), amount).await?)
+        Ok(self.client.incrby(Self::key(user_id), amount).await?)
     }
 
     pub async fn get_charges(&self, user_id: &str) -> Result<i64> {
         Ok(self
             .client
-            .get::<_, Option<i64>>(format!("gas:{user_id}"))
+            .get::<_, Option<i64>>(Self::key(user_id))
             .await?
             .unwrap_or_default())
+    }
+
+    pub async fn consume(&self, user_id: &str, amount: i64) -> Result<bool> {
+        // this is so very atomic wohoo
+        const SCRIPT: &str = r#"
+            local user_id = KEYS[1]
+            local amount = tonumber(ARGV[1])
+            local current = tonumber(redis.call("GET", user_id))
+            if not current or not amount or current < amount then
+                return
+            end
+            redis.call("DECRBY", user_id, amount)
+            return true
+        "#;
+
+        Ok(self
+            .client
+            .eval::<bool>(
+                CallBuilder::script(SCRIPT)
+                    .keys(Self::key(user_id))
+                    .args(amount),
+            )
+            .await?)
     }
 
     pub async fn transfer(
@@ -196,7 +223,6 @@ impl Storage {
         to_user_id: &str,
         amount: i64,
     ) -> Result<bool> {
-        // this is so very atomic wohoo
         const SCRIPT: &str = r#"
             local from = KEYS[1]
             local to = KEYS[2]
@@ -214,7 +240,7 @@ impl Storage {
             .client
             .eval::<bool>(
                 CallBuilder::script(SCRIPT)
-                    .keys([from_user_id, to_user_id])
+                    .keys([Self::key(from_user_id), Self::key(to_user_id)])
                     .args(amount),
             )
             .await?)

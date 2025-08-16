@@ -14,11 +14,13 @@ use crate::{
 /// Only works for >= subscriber level, or from global macros.
 #[command(sender_gate = 1m)]
 async fn tts(ctx: CommandContext, msg: String) -> Result<()> {
-    if !ctx.in_global_macro && ctx.message().sender.level < PermissionLevel::Subscriber {
-        fail!("TTS is pay to win, or from global macros");
-    }
     if msg.is_empty() {
         fail!("message cannot be empty");
+    }
+
+    let is_free = ctx.in_global_macro || ctx.message().sender.level >= PermissionLevel::Subscriber;
+    if !is_free && !ctx.consume_charges(500).await? {
+        fail!("TTS is pay to win, or from global macros");
     }
 
     let int = ctx.wait_for_interrupt();
