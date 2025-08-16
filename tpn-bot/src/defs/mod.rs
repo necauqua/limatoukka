@@ -3,6 +3,7 @@ use anyhow::Result;
 use crate::{commands::args::HoldTime, context::cmd::CommandContext};
 
 mod data;
+mod economy;
 mod keys;
 mod macros;
 mod moderation;

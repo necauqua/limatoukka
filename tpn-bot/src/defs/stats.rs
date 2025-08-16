@@ -1,5 +1,3 @@
-use std::cmp::Ordering as Ord;
-
 use anyhow::Result;
 
 use crate::{
@@ -103,37 +101,4 @@ async fn rank(ctx: CommandContext, chatter: Chatter) -> Result<()> {
         },
     )
     .await
-}
-
-/// Get the bless/curse balance for the current run
-#[command(sender_gate = 3s)]
-async fn balance(ctx: CommandContext) -> Result<()> {
-    let (blesses, curses) = ctx.storage().get_balance().await?;
-    let balance = blesses - curses;
-
-    match balance.cmp(&0) {
-        Ord::Equal => {
-            if blesses == 0 {
-                ctx.reply("Nothing yet".into()).await?;
-            } else {
-                ctx.reply(format!(
-                    "Perfectly balanced, as all things should be (↑{blesses}/{curses}↓)"
-                ))
-                .await?;
-            }
-        }
-        Ord::Less => {
-            ctx.reply(format!(
-                "This run is cursed PepeHands (↑{blesses}/{curses}↓)"
-            ))
-            .await?;
-        }
-        Ord::Greater => {
-            ctx.reply(format!(
-                "This run is blessed AngelThump (↑{blesses}/{curses}↓)"
-            ))
-            .await?;
-        }
-    }
-    Ok(())
 }

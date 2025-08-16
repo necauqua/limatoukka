@@ -268,6 +268,10 @@ impl Twitch {
         let mut join_set = JoinSet::new();
 
         for reward in rewards {
+            // mega cringe todo make this not cringe lmao
+            if reward.title == "CURSE THE RUN" || reward.title == "BLESS THE RUN" {
+                continue;
+            }
             if !reward.is_paused {
                 tracing::info!(reward.title, "reward already unpaused, skipping");
                 continue;
@@ -747,35 +751,74 @@ mod tests {
             )
             .await?;
 
-        let created_bless = twitch
-            .create_reward(
-                CreateCustomRewardBody::builder()
-                    .title("BLESS THE RUN")
-                    .prompt(Some("thx! :)".into()))
-                    .cost(500)
-                    .background_color(Some("#E600D3".into()))
-                    .is_global_cooldown_enabled(true)
-                    .global_cooldown_seconds(180)
-                    .build(),
-            )
-            .await?;
-
-        let created_curse = twitch
-            .create_reward(
-                CreateCustomRewardBody::builder()
-                    .title("CURSE THE RUN")
-                    .prompt(Some("why? :(".into()))
-                    .cost(500)
-                    .background_color(Some("#5C16C5".into()))
-                    .is_global_cooldown_enabled(true)
-                    .global_cooldown_seconds(180)
-                    .build(),
-            )
-            .await?;
-
         dbg!(created_hello);
-        dbg!(created_curse);
-        dbg!(created_bless);
+
+        let buy1 = twitch
+            .create_reward(
+                CreateCustomRewardBody::builder()
+                    .title("Buy 1 charge")
+                    .prompt(Some(
+                        "Sell fish for charges which *will* be used by various interactions".into(),
+                    ))
+                    .cost(1000)
+                    .background_color(Some("#16C4AA".into()))
+                    .build(),
+            )
+            .await?;
+
+        let buy5 = twitch
+            .create_reward(
+                CreateCustomRewardBody::builder()
+                    .title("Buy 5 charges")
+                    .prompt(Some(
+                        "Sell fish for charges which *will* be used by various interactions".into(),
+                    ))
+                    .cost(5000)
+                    .background_color(Some("#16C4AA".into()))
+                    .build(),
+            )
+            .await?;
+
+        let buy10 = twitch
+            .create_reward(
+                CreateCustomRewardBody::builder()
+                    .title("Buy 10 charges")
+                    .prompt(Some(
+                        "Sell fish for charges which *will* be used by various interactions".into(),
+                    ))
+                    .cost(10000)
+                    .background_color(Some("#16C4AA".into()))
+                    .build(),
+            )
+            .await?;
+
+        let buy50 = twitch
+            .create_reward(
+                CreateCustomRewardBody::builder()
+                    .title("Buy 50 charges")
+                    .prompt(Some(
+                        "Sell fish for charges which *will* be used by various interactions".into(),
+                    ))
+                    .cost(50000)
+                    .background_color(Some("#16C4AA".into()))
+                    .build(),
+            )
+            .await?;
+
+        let buy100 = twitch
+            .create_reward(
+                CreateCustomRewardBody::builder()
+                    .title("Buy 100 charges")
+                    .prompt(Some(
+                        "Sell fish for charges which *will* be used by various interactions".into(),
+                    ))
+                    .cost(100000)
+                    .background_color(Some("#16C4AA".into()))
+                    .build(),
+            )
+            .await?;
+
+        dbg!(buy1, buy5, buy10, buy50, buy100);
 
         Ok(())
     }

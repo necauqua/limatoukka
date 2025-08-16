@@ -6,7 +6,7 @@ use std::{
 use anyhow::{Result, anyhow};
 use rustis::{
     client::{BatchPreparedCommand, Client, Transaction},
-    commands::{ExpireOption, GenericCommands, StringCommands},
+    commands::{CallBuilder, ExpireOption, GenericCommands, ScriptingCommands, StringCommands},
 };
 use serde::{Serialize, de::DeserializeOwned};
 
@@ -78,45 +78,11 @@ impl DerefMut for TransactionRef {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum BalanceMessage {
-    Bless,
-    Curse,
-    Reset,
-}
-
 impl Storage {
     pub async fn new(config: &Config) -> Result<Self> {
         Ok(Self {
             client: Client::connect(&*config.valkey).await?,
         })
-    }
-}
-
-impl Storage {
-    pub async fn modify_balance(&self, msg: BalanceMessage) -> Result<()> {
-        match msg {
-            BalanceMessage::Bless => {
-                self.client.incr("balance:blesses").await?;
-            }
-            BalanceMessage::Curse => {
-                self.client.incr("balance:curses").await?;
-            }
-            BalanceMessage::Reset => {
-                self.client
-                    .del(["balance:blesses", "balance:curses"])
-                    .await?;
-            }
-        }
-        Ok(())
-    }
-
-    pub async fn get_balance(&self) -> Result<(i64, i64)> {
-        let [blesses, curses]: [i64; 2] = self
-            .client
-            .mget(["balance:blesses", "balance:curses"])
-            .await?;
-        Ok((blesses, curses))
     }
 }
 
@@ -208,5 +174,49 @@ impl Storage {
             ttl,
             key,
         })
+    }
+}
+
+impl Storage {
+    pub async fn add_charges(&self, user_id: &str, amount: i64) -> Result<i64> {
+        Ok(self.client.incrby(format!("gas:{user_id}"), amount).await?)
+    }
+
+    pub async fn get_charges(&self, user_id: &str) -> Result<i64> {
+        Ok(self
+            .client
+            .get::<_, Option<i64>>(format!("gas:{user_id}"))
+            .await?
+            .unwrap_or_default())
+    }
+
+    pub async fn transfer(
+        &self,
+        from_user_id: &str,
+        to_user_id: &str,
+        amount: i64,
+    ) -> Result<bool> {
+        // this is so very atomic wohoo
+        const SCRIPT: &str = r#"
+            local from = KEYS[1]
+            local to = KEYS[2]
+            local amount = tonumber(ARGV[1])
+            local current = tonumber(redis.call("GET", from))
+            if not current or not amount or current < amount then
+                return
+            end
+            redis.call("DECRBY", from, amount)
+            redis.call("INCRBY", to, amount)
+            return true
+        "#;
+
+        Ok(self
+            .client
+            .eval::<bool>(
+                CallBuilder::script(SCRIPT)
+                    .keys([from_user_id, to_user_id])
+                    .args(amount),
+            )
+            .await?)
     }
 }

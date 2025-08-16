@@ -19,7 +19,7 @@ use tpn_bot::{
         noita::{ItemFound, NoitaEvent, NoitaHandle},
         sounds::Sounds,
         status_wall::StatusWall,
-        storage::{BalanceMessage, Storage},
+        storage::Storage,
         twitch::{EventSub, Twitch},
         xdo::XDoClient,
     },
@@ -176,7 +176,6 @@ fn mainloop_task(tasks: &mut JoinSet<()>, task: impl Future<Output = Result<()>>
 async fn noita_event(ctx: AppContext, event: NoitaEvent) -> Result<()> {
     match event {
         NoitaEvent::PlayerDeath => {
-            ctx.storage().modify_balance(BalanceMessage::Reset).await?;
             ctx.storage().del("best-inventory").await?;
 
             let won = ctx.noita().with(|n| {
@@ -238,12 +237,34 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
                     ctx.send("hiii".into()).await?;
                     true
                 }
-                "BLESS THE RUN" => {
-                    ctx.storage().modify_balance(BalanceMessage::Bless).await?;
+                "Buy 1 charge" => {
+                    ctx.storage()
+                        .add_charges(data.user_id.as_str(), 1000)
+                        .await?;
                     true
                 }
-                "CURSE THE RUN" => {
-                    ctx.storage().modify_balance(BalanceMessage::Curse).await?;
+                "Buy 5 charges" => {
+                    ctx.storage()
+                        .add_charges(data.user_id.as_str(), 5000)
+                        .await?;
+                    true
+                }
+                "Buy 10 charges" => {
+                    ctx.storage()
+                        .add_charges(data.user_id.as_str(), 10000)
+                        .await?;
+                    true
+                }
+                "Buy 50 charges" => {
+                    ctx.storage()
+                        .add_charges(data.user_id.as_str(), 50000)
+                        .await?;
+                    true
+                }
+                "Buy 100 charges" => {
+                    ctx.storage()
+                        .add_charges(data.user_id.as_str(), 100000)
+                        .await?;
                     true
                 }
                 _ => false,
