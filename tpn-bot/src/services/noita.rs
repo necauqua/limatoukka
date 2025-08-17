@@ -1,7 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
     io,
-    path::PathBuf,
     sync::{
         LazyLock,
         atomic::{AtomicBool, Ordering},
@@ -9,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use bitflags::bitflags;
 use noita_engine_reader::{
     Noita, PlayerState,
@@ -253,42 +252,19 @@ impl NoitaHandle {
     }
 
     pub async fn has_flag(&self, flag: &str) -> Result<bool> {
-        if flag.contains("/") || flag.contains("..") {
-            return Ok(false);
-        }
-        // could've read PersistentFlagManager from memory, which would prob be a bit faster?.
-        // but meh
-        let mut path = self.with(get_flag_dir).await?;
-        path.push(flag);
-        Ok(tokio::fs::try_exists(path).await.is_ok_and(|b| b))
+        Ok(self.read_flags().await?.contains(flag))
     }
 
     pub async fn read_flags(&self) -> Result<HashSet<String>> {
-        let mut set = HashSet::new();
-        // same, meeh
-        let path = self.with(get_flag_dir).await?;
-        let mut dir = tokio::fs::read_dir(path).await?;
-        while let Some(f) = dir.next_entry().await? {
-            let name = f
-                .file_name()
-                .into_string()
-                .map_err(|_| anyhow!("bad file name"))?;
-            // this one is temporarily set by engine on startup and we sometimes catch it
-            if name != "_init_rendering_in_progress" {
-                set.insert(name);
-            }
-        }
+        let set = self
+            .with(|n| Ok(n.read_persistent_flag_manager()?.read_flags(n.proc())?))
+            .await?
+            .into_iter()
+            .filter(|f| f != "_init_rendering_in_progress") // this one is temporarily set by engine on startup and we sometimes catch it
+            .collect();
+
         Ok(set)
     }
-}
-
-fn get_flag_dir(noita: &mut Noita) -> Result<PathBuf> {
-    let path = noita.proc().steam_compat_data_path();
-    let mut path = PathBuf::from(path);
-    path.push(
-        "pfx/drive_c/users/steamuser/AppData/LocalLow/Nolla_Games_Noita/save00/persistent/flags",
-    );
-    Ok(path)
 }
 
 #[derive(Debug, Error)]

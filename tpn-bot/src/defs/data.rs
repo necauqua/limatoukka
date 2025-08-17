@@ -153,9 +153,6 @@ async fn damage_multipliers(ctx: CommandContext) -> Result<()> {
 /// Checks if the persistent flag was set in the running save.
 #[command(global_gate = 5s, NoitaData)]
 async fn check_flag(ctx: CommandContext, flag: String) -> Result<()> {
-    if flag.contains("/") || flag.contains("..") {
-        fail!("nice try bucko");
-    }
     if ctx.noita().has_flag(&flag).await? {
         ctx.reply("flag set".into()).await?;
     } else {
