@@ -54,6 +54,7 @@ type TwitchClient = twitch_api::TwitchClient<'static, reqwest::Client>;
 struct Inner {
     client: TwitchClient,
     bot_id: String,
+    bot_login: String,
     caster_id: String,
     caster_login: String,
     bot_token: TwitchToken,
@@ -163,6 +164,10 @@ impl Twitch {
         &self.inner.bot_id
     }
 
+    pub fn bot_login(&self) -> &str {
+        &self.inner.bot_login
+    }
+
     pub fn caster_id(&self) -> &str {
         &self.inner.caster_id
     }
@@ -183,6 +188,7 @@ impl Twitch {
             inner: Arc::new(Inner {
                 client,
                 bot_id: bot_token.user_id.clone().take(),
+                bot_login: bot_token.login.clone().take(),
                 caster_id: caster_token.user_id.clone().take(),
                 caster_login: caster_token.login.clone().take(),
                 bot_token: TwitchToken::new("bot", bot_token),

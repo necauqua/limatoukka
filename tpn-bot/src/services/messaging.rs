@@ -29,14 +29,17 @@ pub struct Sender {
 #[derive(Debug, Clone)]
 pub struct Message {
     pub id: String,
+    pub source_channel: String,
     pub sender: Sender,
     pub text: String,
 }
 
 pub fn connect_to_twitch(twitch: Twitch) -> (MessageSource, MessagingClient) {
     let channel = twitch.caster_login().to_owned();
+    let bot = twitch.bot_login().to_owned();
     let (incoming, client) = TwitchIRCClient::new(ClientConfig::new_simple(twitch));
     client.join(channel.clone()).unwrap(); // panic on invalid channel
+    client.join(bot.clone()).unwrap(); // panic on invalid channel
     (
         MessageSource::Twitch(incoming),
         MessagingClient::Twitch { client, channel },
@@ -121,6 +124,7 @@ impl MessageSource {
 
                 break Message {
                     id: msg.message_id,
+                    source_channel: msg.channel_login,
                     sender: Sender {
                         id: msg.sender.id,
                         login: msg.sender.login,
@@ -139,6 +143,7 @@ impl MessageSource {
                 *count += 1;
                 Message {
                     id: format!("mock-{count}"),
+                    source_channel: "mock".into(),
                     sender: Sender {
                         // meh
                         id: format!("{}-{}", sender.id, count),
@@ -195,9 +200,7 @@ impl MessagingClient {
     pub async fn reply(&self, message: &Message, text: impl Into<String>) -> Result<()> {
         let text = text.into();
         match self {
-            MessagingClient::Twitch {
-                client, channel, ..
-            } => {
+            MessagingClient::Twitch { client, .. } => {
                 // Actually dont set source-only for replies, since the original message will be visible in all chats
                 // the reply could be visible too. It was the ad messages and macro echoes that were the offenders
                 if text.len() > 420 {
@@ -222,13 +225,16 @@ impl MessagingClient {
                         .await?;
                     client
                         .say_in_reply_to(
-                            &(channel, &message.id),
+                            &(&message.source_channel, &message.id),
                             "reply too large, sent to uq.rs/last-reply".into(),
                         )
                         .await?;
                 } else {
                     client
-                        .say_in_reply_to(&(channel, &message.id), text.replace("\n", " "))
+                        .say_in_reply_to(
+                            &(&message.source_channel, &message.id),
+                            text.replace("\n", " "),
+                        )
                         .await?;
                 }
             }
