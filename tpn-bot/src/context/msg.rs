@@ -111,7 +111,13 @@ impl MessageContext {
         self.reply(messages.join("; ")).await
     }
 
-    pub async fn consume_charges(&self, amount: i64) -> Result<bool> {
+    pub async fn give_charges(&self, amount: u64) -> Result<i64> {
+        self.storage()
+            .add_charges(&self.message().sender.id, amount as i64)
+            .await
+    }
+
+    pub async fn consume_charges(&self, amount: u64) -> Result<bool> {
         self.storage()
             .consume(&self.message().sender.id, amount)
             .await

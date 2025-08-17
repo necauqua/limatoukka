@@ -26,8 +26,12 @@ use tokio::time::sleep;
 ///
 /// I heard that scarcity creates value, so getting a pong is very _cool_ and
 /// _pog_, because only one person can get it in an hour.
+///
+/// Also this gives you a charge :)
 #[command(global_gate = 1h)]
 async fn ping(ctx: CommandContext) -> Result<()> {
+    ctx.give_charges(1000).await?;
+
     ctx.reply("pong!".into()).await
 }
 

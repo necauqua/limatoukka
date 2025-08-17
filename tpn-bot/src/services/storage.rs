@@ -194,7 +194,7 @@ impl Storage {
             .unwrap_or_default())
     }
 
-    pub async fn consume(&self, user_id: &str, amount: i64) -> Result<bool> {
+    pub async fn consume(&self, user_id: &str, amount: u64) -> Result<bool> {
         // this is so very atomic wohoo
         const SCRIPT: &str = r#"
             local user_id = KEYS[1]
