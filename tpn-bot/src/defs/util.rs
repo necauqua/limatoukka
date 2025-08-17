@@ -38,7 +38,7 @@ async fn ping(ctx: CommandContext) -> Result<()> {
 /// So you can call a global macro `discord~` which will resolve to `echo:"discord link etc"~` and print it.
 #[command(sender_gate = 5s)]
 async fn echo(ctx: CommandContext, text: String) -> Result<()> {
-    if !ctx.in_global_macro && ctx.message().sender.level < PermissionLevel::Moderator {
+    if !ctx.in_global_macro && ctx.message().sender.level < PermissionLevel::Caster {
         fail!("only works from inside of global macros")
     }
     ctx.send(text).await?;
