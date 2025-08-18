@@ -4,10 +4,14 @@ use anyhow::{Result, anyhow};
 use rand::seq::IndexedRandom;
 use serde::Deserialize;
 use thiserror::Error;
+use tokio::sync::Mutex;
 
 use crate::context::app::AppContext;
 
-pub struct Sounds;
+#[derive(Default)]
+pub struct Sounds {
+    exclusive_sound: Mutex<()>,
+}
 
 #[derive(Debug, Deserialize)]
 pub struct SoundMeta(pub HashMap<String, SoundEntry>);
@@ -46,6 +50,8 @@ pub struct SoundFile {
     pub volume: Option<f32>,
     #[serde(default)]
     pub rarity: Option<f32>,
+    #[serde(default)]
+    pub exclusive: bool,
 }
 
 #[derive(Debug, Error)]
@@ -86,6 +92,12 @@ impl Sounds {
 
         let sound = data.0.get(sound_id).ok_or(SoundError::NotFound)?;
         let sound_file = sound.choose().ok_or(SoundError::DidntChoose)?;
+
+        let _guard = if sound_file.exclusive {
+            Some(self.exclusive_sound.lock().await)
+        } else {
+            None
+        };
 
         let volume = sound_file.volume.unwrap_or(1.0);
 

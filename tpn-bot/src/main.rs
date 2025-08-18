@@ -61,7 +61,7 @@ async fn run(config: Config) -> Result<()> {
             NoitaHandle::default(),
             StatusWall::default(),
             twitch,
-            Sounds,
+            Sounds::default(),
         ),
     );
 

@@ -12,6 +12,7 @@ snek-moan-scare:
 uwu:
   file: "pulu-prepare-your-asses-for-a-cute-uwu.ogg"
   volume: 0.2
+  exclusive: true
 uguu:
   - file: "uguu/uguu1.ogg"
     volume: 0.15
