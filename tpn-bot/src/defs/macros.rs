@@ -40,8 +40,8 @@ fn print_inner_errors(errors: &[CommandError]) -> String {
 /// ```
 #[command(shortcode=mr)]
 async fn macro_record(ctx: CommandContext, name: String, script: RawScript) -> Result<()> {
-    if script.commands.original.len() > 8192 {
-        fail!("script too long (max 8192 chars)");
+    if name.len() > 8192 || script.commands.original.len() > 8192 {
+        fail!("name or script too long (max 8192 chars)");
     }
     let name = name.to_lowercase();
 
@@ -79,8 +79,8 @@ async fn macro_delete(ctx: CommandContext, name: String) -> Result<()> {
 /// Stores a string as a global macro, meaning it can be used by everyone.
 #[command(permission=Moderator, shortcode=gmr)]
 async fn global_macro_record(ctx: CommandContext, name: String, script: RawScript) -> Result<()> {
-    if script.commands.original.len() > 8192 {
-        fail!("script too long (max 8192 chars)");
+    if name.len() > 8192 || script.commands.original.len() > 8192 {
+        fail!("name or script too long (max 8192 chars)");
     }
     let name = name.to_lowercase();
     ctx.storage()
@@ -438,8 +438,8 @@ async fn math(ctx: CommandContext, value: i64) -> Result<()> {
 #[command]
 async fn set(ctx: CommandContext, name: String, value: Option<String>) -> Result<()> {
     let value = value.unwrap_or_default();
-    if value.len() > 8192 {
-        fail!("value too long (max 8192 chars)");
+    if name.len() > 8192 || value.len() > 8192 {
+        fail!("name or value too long (max 8192 chars)");
     }
     let name = name.to_lowercase();
 
@@ -462,8 +462,8 @@ async fn set(ctx: CommandContext, name: String, value: Option<String>) -> Result
 #[command]
 async fn r#let(ctx: CommandContext, name: String, value: Option<String>) -> Result<()> {
     let value = value.unwrap_or_default();
-    if value.len() > 1048576 {
-        fail!("value too long (max 1048576 chars)");
+    if name.len() > 8192 || value.len() > 8192 {
+        fail!("name or value too long (max 8192 chars)");
     }
     let name = name.to_lowercase();
     ctx.vars.write().await.insert(name, value);
