@@ -1,10 +1,13 @@
-use std::collections::{BTreeSet, HashMap};
+use std::{
+    cmp::Ordering,
+    collections::{BTreeSet, HashMap},
+};
 
 use anyhow::{Context, Result, bail};
 use noita_engine_reader::{
     memory::{MemoryStorage, Ptr},
     types::{
-        Bitset512,
+        Bitset512, Vec2,
         components::{DamageModelComponent, UIIconComponent},
     },
 };
@@ -266,11 +269,27 @@ async fn player_pos(ctx: CommandContext) -> Result<()> {
         .with(|n| n.get_player()?.context("no player"))
         .await
         .map_err(data_error("player pos"))?;
-    ctx.reply(format!(
-        "x: {:.2}, y: {:.2}",
-        e.transform.pos.x, e.transform.pos.y
-    ))
-    .await
+
+    let ng_count = ctx
+        .noita()
+        .with(|n| n.read_ng_plus().context("reading NG+ count"))
+        .await
+        .map_err(data_error("NG+ count"))?;
+
+    let Vec2 { x, y } = e.transform.pos;
+
+    let pw = if ng_count == 0 {
+        x / 512.0 / 70.0 // NG is 70 chunks
+    } else {
+        x / 512.0 / 64.0 // and NG+ is 64
+    }
+    .round() as i32;
+
+    match pw.cmp(&0) {
+        Ordering::Equal => ctx.reply(format!("x: {x:.2}, y: {y:.2}")).await,
+        Ordering::Less => ctx.reply(format!("x: {x:.2}, y: {y:.2} (←{pw})")).await,
+        Ordering::Greater => ctx.reply(format!("x: {x:.2}, y: {y:.2} (→{pw})")).await,
+    }
 }
 
 async fn entity_tags(ctx: &CommandContext) -> Result<Vec<Bitset512>> {
