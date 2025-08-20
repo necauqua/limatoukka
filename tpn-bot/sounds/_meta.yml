@@ -35,6 +35,15 @@ quack:
   - file: "quack/flamingo.ogg"
     volume: 0.6
     rarity: 0.05
+factorio-alert:
+  file: "factorio-alert.ogg"
+  volume: 0.2
+factorio-game-over:
+  file: "factorio-game-over.ogg"
+  volume: 0.2
+smoke-detector-beep:
+  file: "smoke-detector-beep.ogg"
+  volume: 0.2
 
 RAID:
   file: "pipes.ogg"
