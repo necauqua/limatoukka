@@ -314,7 +314,11 @@ async fn r#try(ctx: CommandContext, script: Script) -> CommandResult {
     match runner::eval(ctx.nest(), script.stmt).await {
         Ok(()) => {}
         Err(EvalError::Interrupt) => return Err(CommandError::Interrupt),
-        Err(e @ EvalError::CommandErrors(_)) => fail!("script had internal errors: {e}"),
+        Err(ref e @ EvalError::CommandErrors(ref errors)) => {
+            if errors.iter().any(|e| e.error.is_internal()) {
+                fail!("script had internal errors: {e}")
+            }
+        }
     }
 
     Ok(())
@@ -507,4 +511,72 @@ async fn clear(ctx: CommandContext) -> CommandResult {
     ctx.vars.write().await.clear();
 
     Ok(())
+}
+
+/// Runs the `then` script if given values are equal, otherwise runs the `else` script if given.
+#[command]
+async fn if_eq(
+    ctx: CommandContext,
+    a: String,
+    b: String,
+    then: Script,
+    r#else: Option<Script>,
+) -> CommandResult {
+    if a == b {
+        runner::eval(ctx.nest(), then.stmt).await?;
+    } else if let Some(r#else) = r#else {
+        runner::eval(ctx.nest(), r#else.stmt).await?;
+    }
+    Ok(())
+}
+
+/// Runs the `then` script if given values are not equal, otherwise runs the `else` script if given.
+#[command]
+async fn if_ne(
+    ctx: CommandContext,
+    a: String,
+    b: String,
+    then: Script,
+    r#else: Option<Script>,
+) -> CommandResult {
+    if a != b {
+        runner::eval(ctx.nest(), then.stmt).await?;
+    } else if let Some(r#else) = r#else {
+        runner::eval(ctx.nest(), r#else.stmt).await?;
+    }
+    Ok(())
+}
+
+macro_rules! numeric_if {
+    ($(#[doc = $doc:literal] $name:ident, $cond:tt)*) => {
+        $(
+            #[doc = $doc]
+            #[command]
+            async fn $name(
+                ctx: CommandContext,
+                a: i64,
+                b: i64,
+                then: Script,
+                r#else: Option<Script>,
+            ) -> CommandResult {
+                if a $cond b {
+                    runner::eval(ctx.nest(), then.stmt).await?;
+                } else if let Some(r#else) = r#else {
+                    runner::eval(ctx.nest(), r#else.stmt).await?;
+                }
+                Ok(())
+            }
+        )*
+    };
+}
+
+numeric_if! {
+    /// Runs the `then` script if the first number is less than the second, otherwise runs the `else` script if given.
+    if_lt, <
+    /// Runs the `then` script if the first number is less than or equal to the second, otherwise runs the `else` script if given.
+    if_le, <=
+    /// Runs the `then` script if the first number is greater than the second, otherwise runs the `else` script if given.
+    if_gt, >
+    /// Runs the `then` script if the first number is greater than or equal to the second, otherwise runs the `else` script if given.
+    if_ge, >=
 }

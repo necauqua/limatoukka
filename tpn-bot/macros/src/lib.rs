@@ -119,6 +119,7 @@ pub fn command(attrs: TokenStream, input: TokenStream) -> TokenStream {
                             .into();
                     }
                 };
+                let name = name.strip_prefix("r#").unwrap_or(&name);
 
                 let ident = Ident::new(&format!("arg_{i}"), Span::call_site());
 
