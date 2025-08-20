@@ -295,7 +295,10 @@ async fn player_pos(ctx: CommandContext) -> CommandResult {
 
     match pw.cmp(&0) {
         Ordering::Equal => ctx.reply(format!("x: {x:.2}, y: {y:.2}")).await?,
-        Ordering::Less => ctx.reply(format!("x: {x:.2}, y: {y:.2} (←{pw})")).await?,
+        Ordering::Less => {
+            ctx.reply(format!("x: {x:.2}, y: {y:.2} (←{})", -pw))
+                .await?
+        }
         Ordering::Greater => ctx.reply(format!("x: {x:.2}, y: {y:.2} (→{pw})")).await?,
     };
     Ok(())
