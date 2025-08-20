@@ -13,59 +13,59 @@ use noita_engine_reader::{
 };
 
 use crate::{
-    commands::{args::RestOfArgs, command, runner::CommandFailure},
+    commands::{CommandResult, args::RestOfArgs, command, runner::CommandError},
     context::cmd::CommandContext,
     fail,
     services::noita::{ACTION_FLAGS, ACTION_NAMES, PILLAR_FLAG_NAMES, PILLAR_FLAGS},
 };
 
-fn data_error(thing: &str) -> impl Fn(anyhow::Error) -> CommandFailure {
-    move |e| match e.downcast::<CommandFailure>() {
-        Ok(e) => e,
-        Err(e) => {
-            tracing::warn!(error=?e, "failed to read {thing}");
-            CommandFailure::new(format!("failed to read {thing} - is the game running?"))
-        }
+fn data_error(thing: &str) -> impl Fn(anyhow::Error) -> CommandError {
+    move |e| {
+        tracing::warn!(error=?e, "failed to read {thing}");
+        CommandError::PreconditionFail(format!("failed to read {thing} - is the game running?"))
     }
 }
 
 /// Read the current seed
 #[command(global_gate = 15s, permission = Vip, NoitaData)]
-async fn seed(ctx: CommandContext) -> Result<()> {
+async fn seed(ctx: CommandContext) -> CommandResult {
     let seed = ctx
         .noita()
         .with(|n| n.read_seed()?.context("no seed"))
         .await
         .map_err(data_error("seed"))?;
-    ctx.reply(format!("{seed}")).await
+    ctx.reply(format!("{seed}")).await?;
+    Ok(())
 }
 
 /// Read the current death count
 #[command(global_gate = 15s, shortcode=deaths, NoitaData)]
-async fn death_count(ctx: CommandContext) -> Result<()> {
+async fn death_count(ctx: CommandContext) -> CommandResult {
     let stats = ctx
         .noita()
         .with(|n| Ok(n.read_stats()?))
         .await
         .map_err(data_error("stats"))?;
-    ctx.reply(stats.global.death_count.to_string()).await
+    ctx.reply(stats.global.death_count.to_string()).await?;
+    Ok(())
 }
 
 /// The amount of kicks registered by the game in the current run
 #[command(global_gate = 15s, NoitaData)]
-async fn kicks(ctx: CommandContext) -> Result<()> {
+async fn kicks(ctx: CommandContext) -> CommandResult {
     let kicks = ctx
         .noita()
         // CONFIG_PLAYER_STATS.stats.kicks <- should really add this CONFIG_PLAYER_STATS thing to the engine reader
         .with(|n| Ok(Ptr::<u32>::of(0x01208824).read(n.proc())?))
         .await
         .map_err(data_error("kicks"))?;
-    ctx.reply(kicks.to_string()).await
+    ctx.reply(kicks.to_string()).await?;
+    Ok(())
 }
 
 /// Read the currently picked up perks. Look ma, streamer wands at home!
 #[command(global_gate = 5s, NoitaData)]
-async fn perks(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
+async fn perks(ctx: CommandContext, top_n: Option<u32>) -> CommandResult {
     let perks = ctx
         .noita()
         .with(|n| {
@@ -100,12 +100,13 @@ async fn perks(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
         .collect::<Vec<_>>()
         .join(",\n");
 
-    ctx.reply(msg).await
+    ctx.reply(msg).await?;
+    Ok(())
 }
 
 /// Read the current non-1 damage multipliers of the player entity.
 #[command(global_gate = 5s, permission = Vip, NoitaData)]
-async fn damage_multipliers(ctx: CommandContext) -> Result<()> {
+async fn damage_multipliers(ctx: CommandContext) -> CommandResult {
     let dmc = ctx
         .noita()
         .with(|n| {
@@ -150,12 +151,13 @@ async fn damage_multipliers(ctx: CommandContext) -> Result<()> {
         .map(|(name, value)| format!("{name}={value:?}",))
         .collect::<Vec<_>>()
         .join(",\n");
-    ctx.reply(msg).await
+    ctx.reply(msg).await?;
+    Ok(())
 }
 
 /// Checks if the persistent flag was set in the running save.
 #[command(global_gate = 5s, NoitaData)]
-async fn check_flag(ctx: CommandContext, flag: String) -> Result<()> {
+async fn check_flag(ctx: CommandContext, flag: String) -> CommandResult {
     if ctx.noita().has_flag(&flag).await? {
         ctx.reply("flag set".into()).await?;
     } else {
@@ -167,7 +169,7 @@ async fn check_flag(ctx: CommandContext, flag: String) -> Result<()> {
 
 /// Shows the amount of completed pillars vs total.
 #[command(global_gate = 5s, NoitaData)]
-async fn pillar_progress(ctx: CommandContext) -> Result<()> {
+async fn pillar_progress(ctx: CommandContext) -> CommandResult {
     let total = PILLAR_FLAGS.len();
     let done = PILLAR_FLAGS
         .intersection(&ctx.noita().read_flags().await?)
@@ -176,12 +178,13 @@ async fn pillar_progress(ctx: CommandContext) -> Result<()> {
         "{:.2}%! ({done}/{total})",
         (done as f32 / total as f32) * 100.0
     ))
-    .await
+    .await?;
+    Ok(())
 }
 
 /// Shows all the pillar achievements not yet completed in the running save.
 #[command(global_gate = 5s, NoitaData)]
-async fn pillar_todo(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
+async fn pillar_todo(ctx: CommandContext, top_n: Option<u32>) -> CommandResult {
     ctx.reply(
         PILLAR_FLAGS
             .difference(&ctx.noita().read_flags().await?)
@@ -193,12 +196,13 @@ async fn pillar_todo(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
             .collect::<Vec<_>>()
             .join(",\n"),
     )
-    .await
+    .await?;
+    Ok(())
 }
 
 /// Shows all the pillar achievements already completed in the running save.
 #[command(global_gate = 5s, NoitaData)]
-async fn pillars_done(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
+async fn pillars_done(ctx: CommandContext, top_n: Option<u32>) -> CommandResult {
     ctx.reply(
         PILLAR_FLAGS
             .intersection(&ctx.noita().read_flags().await?)
@@ -210,12 +214,13 @@ async fn pillars_done(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
             .collect::<Vec<_>>()
             .join(",\n"),
     )
-    .await
+    .await?;
+    Ok(())
 }
 
 /// Shows the amount of unique spells ever cast vs total.
 #[command(global_gate = 5s, NoitaData)]
-async fn spell_progress(ctx: CommandContext) -> Result<()> {
+async fn spell_progress(ctx: CommandContext) -> CommandResult {
     let total = ACTION_NAMES.len();
     let done = ACTION_FLAGS
         .intersection(&ctx.noita().read_flags().await?)
@@ -224,12 +229,13 @@ async fn spell_progress(ctx: CommandContext) -> Result<()> {
         "{:.2}%! ({done}/{total})",
         (done as f32 / total as f32) * 100.0
     ))
-    .await
+    .await?;
+    Ok(())
 }
 
 /// Shows all the spells that were never cast in the running save.
 #[command(global_gate = 5s, NoitaData)]
-async fn spell_todo(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
+async fn spell_todo(ctx: CommandContext, top_n: Option<u32>) -> CommandResult {
     ctx.reply(
         ACTION_FLAGS
             .difference(&ctx.noita().read_flags().await?)
@@ -241,12 +247,13 @@ async fn spell_todo(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
             .collect::<Vec<_>>()
             .join(",\n"),
     )
-    .await
+    .await?;
+    Ok(())
 }
 
 /// Shows all the spells that were already cast in the running save.
 #[command(global_gate = 5s, NoitaData)]
-async fn spells_done(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
+async fn spells_done(ctx: CommandContext, top_n: Option<u32>) -> CommandResult {
     ctx.reply(
         ACTION_FLAGS
             .intersection(&ctx.noita().read_flags().await?)
@@ -258,12 +265,13 @@ async fn spells_done(ctx: CommandContext, top_n: Option<u32>) -> Result<()> {
             .collect::<Vec<_>>()
             .join(",\n"),
     )
-    .await
+    .await?;
+    Ok(())
 }
 
 /// Prints the current player position in pixels
 #[command(permission = Moderator, NoitaData)]
-async fn player_pos(ctx: CommandContext) -> Result<()> {
+async fn player_pos(ctx: CommandContext) -> CommandResult {
     let (e, _) = ctx
         .noita()
         .with(|n| n.get_player()?.context("no player"))
@@ -286,10 +294,11 @@ async fn player_pos(ctx: CommandContext) -> Result<()> {
     .round() as i32;
 
     match pw.cmp(&0) {
-        Ordering::Equal => ctx.reply(format!("x: {x:.2}, y: {y:.2}")).await,
-        Ordering::Less => ctx.reply(format!("x: {x:.2}, y: {y:.2} (←{pw})")).await,
-        Ordering::Greater => ctx.reply(format!("x: {x:.2}, y: {y:.2} (→{pw})")).await,
-    }
+        Ordering::Equal => ctx.reply(format!("x: {x:.2}, y: {y:.2}")).await?,
+        Ordering::Less => ctx.reply(format!("x: {x:.2}, y: {y:.2} (←{pw})")).await?,
+        Ordering::Greater => ctx.reply(format!("x: {x:.2}, y: {y:.2} (→{pw})")).await?,
+    };
+    Ok(())
 }
 
 async fn entity_tags(ctx: &CommandContext) -> Result<Vec<Bitset512>> {
@@ -314,7 +323,7 @@ async fn entity_tags(ctx: &CommandContext) -> Result<Vec<Bitset512>> {
 ///
 /// Can be filtered down by tags, for example `entity-count:gold_nugget~`.
 #[command(permission = Subscriber, sender_gate = 5s, NoitaData)]
-async fn entity_count(ctx: CommandContext, tags: RestOfArgs) -> Result<()> {
+async fn entity_count(ctx: CommandContext, tags: RestOfArgs) -> CommandResult {
     let tags = tags.get(&ctx).await?;
 
     // cringe lmao
@@ -334,9 +343,10 @@ async fn entity_count(ctx: CommandContext, tags: RestOfArgs) -> Result<()> {
                 };
                 if let Some(index) = n.get_entity_tag_index(tag)? {
                     indices.push(index);
-                } else {
-                    fail!("tag {tag} not found (was never loaded by game)");
                 }
+                // } else {
+                //     fail!("tag {tag} not found (was never loaded by game)");
+                // }
             }
             Ok(indices)
         })
@@ -362,7 +372,7 @@ async fn entity_count(ctx: CommandContext, tags: RestOfArgs) -> Result<()> {
 
 /// Aggregate a top list of tags that mark loaded entities.
 #[command(permission = Vip, sender_gate = 5s, NoitaData)]
-async fn entity_tag_counts(ctx: CommandContext) -> Result<()> {
+async fn entity_tag_counts(ctx: CommandContext) -> CommandResult {
     let entity_tags = entity_tags(&ctx).await.map_err(data_error("entity tags"))?;
     let mut tag_counts = [0; 512];
 
@@ -394,5 +404,6 @@ async fn entity_tag_counts(ctx: CommandContext) -> Result<()> {
             .collect::<Vec<_>>()
             .join(";\n"),
     )
-    .await
+    .await?;
+    Ok(())
 }

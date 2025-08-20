@@ -3,9 +3,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{Result, bail};
 use maud::html;
-use neca_cmd::CommandMessage;
+use neca_cmd::Statement;
 use rustis::{
     client::BatchPreparedCommand,
     commands::{GenericCommands, HashCommands, SetCondition, SetExpiration, StringCommands},
@@ -13,24 +12,14 @@ use rustis::{
 
 use crate::{
     commands::{
+        CommandResult,
         args::{Chatter, InRange, RawScript, RestOfArgs, Script},
         command,
-        runner::{self, CommandError, CommandInterrupt},
+        runner::{self, CommandError, EvalError},
     },
     context::cmd::CommandContext,
     fail,
 };
-
-fn print_inner_errors(errors: &[CommandError]) -> String {
-    format!(
-        "{{ {} }}",
-        errors
-            .iter()
-            .map(|e| e.to_string())
-            .collect::<Vec<_>>()
-            .join(", ")
-    )
-}
 
 /// Stores a string as a personal macro.
 ///
@@ -39,33 +28,38 @@ fn print_inner_errors(errors: &[CommandError]) -> String {
 /// macro-record:hop:"wait~ up~ wait~ up~ wait~ up~ wait~ up~"~
 /// ```
 #[command(shortcode=mr)]
-async fn macro_record(ctx: CommandContext, name: String, script: RawScript) -> Result<()> {
-    if name.len() > 8192 || script.commands.original.len() > 8192 {
+async fn macro_record(ctx: CommandContext, name: String, script: RawScript) -> CommandResult {
+    if name.len() > 8192 || script.stmt.original.len() > 8192 {
         fail!("name or script too long (max 8192 chars)");
     }
     let name = name.to_lowercase();
 
-    if let Err(errors) = runner::prepare_commands(&ctx, &script.commands).await {
-        fail!("script contained errors: {}", print_inner_errors(&errors));
+    if let Err(errors) = runner::prepare_commands(&ctx, &script.stmt).await {
+        fail!(
+            "script contained errors: {}",
+            EvalError::CommandErrors(errors)
+        );
     }
 
     let mut tx = ctx.storage().create_transaction();
     let key = format!("macros:{}", ctx.shared.owner);
-    tx.hset(&key, (&name, script.commands.original)).forget();
+    tx.hset(&key, (&name, script.stmt.original)).forget();
     tx.hlen(&key).queue();
     let len: usize = tx.execute().await?;
     if len == 1000 {
         ctx.storage().hdel(key, name).await?;
         ctx.reply("too many macros brother, this incident will be investigated Stare".into())
-            .await
+            .await?;
     } else {
-        ctx.reply_buffered(format!("recorded macro `{name}`")).await
+        ctx.reply_buffered(format!("recorded macro `{name}`"))
+            .await?;
     }
+    Ok(())
 }
 
 /// Deletes a macro created with `macro-record~`.
 #[command(shortcode=md)]
-async fn macro_delete(ctx: CommandContext, name: String) -> Result<()> {
+async fn macro_delete(ctx: CommandContext, name: String) -> CommandResult {
     let key = format!("macros:{}", ctx.shared.owner);
     if ctx.storage().hdel(key, &name).await? == 0 {
         fail!("no macro named `{name}`");
@@ -78,13 +72,17 @@ async fn macro_delete(ctx: CommandContext, name: String) -> Result<()> {
 
 /// Stores a string as a global macro, meaning it can be used by everyone.
 #[command(permission=Moderator, shortcode=gmr)]
-async fn global_macro_record(ctx: CommandContext, name: String, script: RawScript) -> Result<()> {
-    if name.len() > 8192 || script.commands.original.len() > 8192 {
+async fn global_macro_record(
+    ctx: CommandContext,
+    name: String,
+    script: RawScript,
+) -> CommandResult {
+    if name.len() > 8192 || script.stmt.original.len() > 8192 {
         fail!("name or script too long (max 8192 chars)");
     }
     let name = name.to_lowercase();
     ctx.storage()
-        .hset("macros:global", (&name, &script.commands.original))
+        .hset("macros:global", (&name, &script.stmt.original))
         .await?;
     ctx.reply_buffered(format!("recorded global macro `{name}`"))
         .await?;
@@ -93,7 +91,7 @@ async fn global_macro_record(ctx: CommandContext, name: String, script: RawScrip
 
 /// Deletes a macro created with `global-macro-record~`.
 #[command(permission=Moderator, shortcode=gmd)]
-async fn global_macro_delete(ctx: CommandContext, name: String) -> Result<()> {
+async fn global_macro_delete(ctx: CommandContext, name: String) -> CommandResult {
     if ctx.storage().hdel("macros:global", &name).await? == 0 {
         fail!("no macro named `{name}`");
     }
@@ -102,7 +100,11 @@ async fn global_macro_delete(ctx: CommandContext, name: String) -> Result<()> {
     Ok(())
 }
 
-async fn macro_get(ctx: &CommandContext, name: &str, chatter: Chatter) -> Result<String> {
+async fn macro_get(
+    ctx: &CommandContext,
+    name: &str,
+    chatter: Chatter,
+) -> Result<String, CommandError> {
     let script: Option<String> = ctx
         .storage()
         .hget(format!("macros:{chatter}"), name)
@@ -118,30 +120,33 @@ async fn macro_get(ctx: &CommandContext, name: &str, chatter: Chatter) -> Result
 /// Can peek at other users macros if their login is specified, they're all
 /// public here.
 #[command(sender_gate=5s, shortcode=mp)]
-async fn macro_print(ctx: CommandContext, name: String, chatter: Chatter) -> Result<()> {
-    ctx.reply(macro_get(&ctx, &name, chatter).await?).await
+async fn macro_print(ctx: CommandContext, name: String, chatter: Chatter) -> CommandResult {
+    ctx.reply(macro_get(&ctx, &name, chatter).await?).await?;
+    Ok(())
 }
 
 /// Replies with the stored global macro.
 #[command(sender_gate=5s, shortcode=gmp)]
-async fn global_macro_print(ctx: CommandContext, name: String) -> Result<()> {
+async fn global_macro_print(ctx: CommandContext, name: String) -> CommandResult {
     let script: Option<String> = ctx.storage().hget("macros:global", &name).await?;
     let Some(script) = script else {
         fail!("no global macro named `{name}`");
     };
-    ctx.reply(script).await
+    ctx.reply(script).await?;
+    Ok(())
 }
 
 /// List macros you/given chatter has recorded.
 #[command(sender_gate=5s, shortcode=ml)]
-async fn macro_list(ctx: CommandContext, chatter: Chatter) -> Result<()> {
+async fn macro_list(ctx: CommandContext, chatter: Chatter) -> CommandResult {
     let keys: Vec<String> = ctx.storage().hkeys(format!("macros:{chatter}")).await?;
-    ctx.reply(keys.join(", ")).await
+    ctx.reply(keys.join(", ")).await?;
+    Ok(())
 }
 
 /// List global macros recorded.
 #[command(sender_gate=5s, shortcode=gml)]
-async fn global_macro_list(ctx: CommandContext) -> Result<()> {
+async fn global_macro_list(ctx: CommandContext) -> CommandResult {
     let mut keys: Vec<(String, String)> = ctx.storage().hgetall("macros:global").await?;
     keys.sort_unstable_by(|(a, _), (b, _)| a.cmp(b));
 
@@ -165,7 +170,8 @@ async fn global_macro_list(ctx: CommandContext) -> Result<()> {
             }
         }
     };
-    ctx.reply(reply.0).await
+    ctx.reply(reply.0).await?;
+    Ok(())
 }
 
 /// Copy someones macro to yourself.
@@ -175,13 +181,13 @@ async fn yoink(
     name: String,
     chatter: Chatter,
     rename: Option<String>,
-) -> Result<()> {
+) -> CommandResult {
     let script = macro_get(&ctx, &name, chatter).await?;
     macro_record(
         ctx,
         rename.unwrap_or(name),
         RawScript {
-            commands: CommandMessage::parse(&script),
+            stmt: Statement::parse(&script),
         },
     )
     .await
@@ -199,7 +205,7 @@ async fn r#macro(
     name: String,
     chatter: Chatter,
     rest: RestOfArgs,
-) -> Result<()> {
+) -> CommandResult {
     let script: Option<String> = ctx
         .storage()
         .hget(format!("macros:{chatter}"), &name)
@@ -218,21 +224,15 @@ async fn r#macro(
     };
 
     let args = rest.get(&ctx).await?;
-    let command_msg = CommandMessage::parse(&script);
+    let stmt = Statement::parse(&script);
 
     let status = html! {
         span style="color: #E38AF0" { (ctx.message().sender.name) } ": macro:" (name) " " (ctx.nesting_str())
     };
     let _guard = ctx.status_wall().push(status).await;
 
-    let errors = runner::eval(ctx.nest_macro(chatter, global, args).await?, command_msg).await;
+    runner::eval(ctx.nest_macro(chatter, global, args).await?, stmt).await?;
 
-    if !errors.is_empty() {
-        if errors.iter().any(|e| matches!(e, CommandError::Interrupt)) {
-            bail!(CommandInterrupt);
-        }
-        fail!("script errors: {}", print_inner_errors(&errors));
-    }
     Ok(())
 }
 
@@ -248,7 +248,7 @@ const REPEAT_LIMIT: u32 = 1000;
 /// repetitions, nested in each other or inside of macros etc etc. Once the
 /// limit is reached, the command will error out.
 #[command(NoWall)]
-async fn repeat(ctx: CommandContext, times: InRange<0, 1000>, script: RawScript) -> Result<()> {
+async fn repeat(ctx: CommandContext, times: InRange<0, 1000>, script: RawScript) -> CommandResult {
     let times = times.get();
 
     let entry = ctx.status_wall().allocate().await;
@@ -261,18 +261,11 @@ async fn repeat(ctx: CommandContext, times: InRange<0, 1000>, script: RawScript)
             span style="color: #E38AF0" { (ctx.message().sender.name) } ": repeat:" (i) " " (ctx.nesting_str())
         }).await;
 
-        let errors = runner::eval(
+        runner::eval(
             ctx.nest_repeat(NonZero::new(times - i + 1).unwrap()),
-            script.commands.clone(),
+            script.stmt.clone(),
         )
-        .await;
-
-        if !errors.is_empty() {
-            if errors.iter().any(|e| matches!(e, CommandError::Interrupt)) {
-                bail!(CommandInterrupt);
-            }
-            fail!("script errors: {}", print_inner_errors(&errors));
-        }
+        .await?;
     }
     Ok(())
 }
@@ -291,23 +284,17 @@ async fn group(
     ctx: CommandContext,
     script: Script,
     custom_status_name: Option<String>,
-) -> Result<()> {
+) -> CommandResult {
     let name = match custom_status_name {
         Some(text) => html! { "group:" span style="color: #CCCCFF" { (text) } },
-        None => html! { (ctx.command) },
+        None => html! { (ctx.token) },
     };
     let status = html! {
         span style="color: #E38AF0" { (ctx.message().sender.name) } ": " (name) " " (ctx.nesting_str())
     };
     let _guard = ctx.status_wall().push(status).await;
 
-    let errors = runner::eval(ctx.nest(), script.commands).await;
-    if !errors.is_empty() {
-        if errors.iter().any(|e| matches!(e, CommandError::Interrupt)) {
-            bail!(CommandInterrupt);
-        }
-        fail!("script errors: {}", print_inner_errors(&errors));
-    }
+    runner::eval(ctx.nest(), script.stmt).await?;
     Ok(())
 }
 
@@ -318,22 +305,16 @@ async fn group(
 /// always succeeds, without preventing the repeats from continuing or setting
 /// last-error.
 #[command(NoWall)]
-async fn r#try(ctx: CommandContext, script: Script) -> Result<()> {
+async fn r#try(ctx: CommandContext, script: Script) -> CommandResult {
     let status = html! {
-        span style="color: #E38AF0" { (ctx.message().sender.name) } ": " (ctx.command) " " (ctx.nesting_str())
+        span style="color: #E38AF0" { (ctx.message().sender.name) } ": " (ctx.token) " " (ctx.nesting_str())
     };
     let _guard = ctx.status_wall().push(status).await;
 
-    let errors = runner::eval(ctx.nest(), script.commands).await;
-    if errors.iter().any(|e| matches!(e, CommandError::Interrupt)) {
-        bail!(CommandInterrupt);
-    }
-    let internal = errors.iter().filter(|e| e.internal()).collect::<Vec<_>>();
-    if !internal.is_empty() {
-        fail!(
-            "script had internal errors: {}",
-            print_inner_errors(&errors)
-        );
+    match runner::eval(ctx.nest(), script.stmt).await {
+        Ok(()) => {}
+        Err(EvalError::Interrupt) => return Err(CommandError::Interrupt),
+        Err(e @ EvalError::CommandErrors(_)) => fail!("script had internal errors: {e}"),
     }
 
     Ok(())
@@ -345,7 +326,7 @@ async fn r#try(ctx: CommandContext, script: Script) -> Result<()> {
 /// The difference is that only one `lock` script can run at a time, if
 /// one is already running this command does nothing.
 #[command(shortcode=b, NoWall)]
-async fn lock(ctx: CommandContext, script: Script) -> Result<()> {
+async fn lock(ctx: CommandContext, script: Script) -> CommandResult {
     let exclusive = ctx
         .storage()
         .set_with_options(
@@ -365,16 +346,11 @@ async fn lock(ctx: CommandContext, script: Script) -> Result<()> {
     };
     let _guard = ctx.status_wall().push_top(status).await;
 
-    let errors = runner::eval(ctx.nest(), script.commands).await;
+    let err = runner::eval(ctx.nest(), script.stmt).await;
 
     ctx.storage().del("holds:exclusive").await?;
 
-    if !errors.is_empty() {
-        if errors.iter().any(|e| matches!(e, CommandError::Interrupt)) {
-            bail!(CommandInterrupt);
-        }
-        fail!("script errors: {}", print_inner_errors(&errors));
-    }
+    err?;
 
     Ok(())
 }
@@ -395,7 +371,7 @@ async fn lock(ctx: CommandContext, script: Script) -> Result<()> {
 /// stalling: repeat:5:" wait~ up~ "~
 /// ```
 #[command(permission=Subscriber, NoWall)]
-async fn r#loop(ctx: CommandContext, script: RawScript) -> Result<()> {
+async fn r#loop(ctx: CommandContext, script: RawScript) -> CommandResult {
     let entry = ctx.status_wall().allocate().await;
 
     let mut i = 0;
@@ -406,17 +382,14 @@ async fn r#loop(ctx: CommandContext, script: RawScript) -> Result<()> {
             span style="color: #E38AF0" { (ctx.message().sender.name) } ": loop:" (i) " " (ctx.nesting_str())
         }).await;
         let start = Instant::now();
-        let errors = runner::eval(
+
+        runner::eval(
             ctx.nest_repeat(NonZero::new(i).unwrap()),
-            script.commands.clone(),
+            script.stmt.clone(),
         )
-        .await;
-        if !errors.is_empty() {
-            if errors.iter().any(|e| matches!(e, CommandError::Interrupt)) {
-                bail!(CommandInterrupt);
-            }
-            fail!("script errors: {}", print_inner_errors(&errors));
-        } else if start.elapsed() < Duration::from_millis(100) {
+        .await?;
+
+        if start.elapsed() < Duration::from_millis(100) {
             fail!("loop iteration took less than 100ms");
         }
     }
@@ -425,8 +398,9 @@ async fn r#loop(ctx: CommandContext, script: RawScript) -> Result<()> {
 /// Evaluates and prints a given math expression. Mostly useful for debugging
 /// my calculator bugs :(
 #[command(sender_gate=3s)]
-async fn math(ctx: CommandContext, value: i64) -> Result<()> {
-    ctx.reply(format!("= {value}")).await
+async fn math(ctx: CommandContext, value: i64) -> CommandResult {
+    ctx.reply(format!("= {value}")).await?;
+    Ok(())
 }
 
 /// Stores text that will be replaced in any commands you
@@ -436,7 +410,7 @@ async fn math(ctx: CommandContext, value: i64) -> Result<()> {
 /// parenthesis - without quotes or braces - will be passed through the
 /// calculator first as if the command expected a number.
 #[command]
-async fn set(ctx: CommandContext, name: String, value: Option<String>) -> Result<()> {
+async fn set(ctx: CommandContext, name: String, value: Option<String>) -> CommandResult {
     let value = value.unwrap_or_default();
     if name.len() > 8192 || value.len() > 8192 {
         fail!("name or value too long (max 8192 chars)");
@@ -451,16 +425,16 @@ async fn set(ctx: CommandContext, name: String, value: Option<String>) -> Result
     if len == 1000 {
         ctx.storage().hdel(key, name).await?;
         ctx.reply("too many variables brother, this incident will be investigated Stare".into())
-            .await
+            .await?;
     } else {
         ctx.vars.write().await.insert(name, value);
-        Ok(())
     }
+    Ok(())
 }
 
 /// Similar to `set~`, but the text is only stored for the chat message being executed.
 #[command]
-async fn r#let(ctx: CommandContext, name: String, value: Option<String>) -> Result<()> {
+async fn r#let(ctx: CommandContext, name: String, value: Option<String>) -> CommandResult {
     let value = value.unwrap_or_default();
     if name.len() > 8192 || value.len() > 8192 {
         fail!("name or value too long (max 8192 chars)");
@@ -472,7 +446,7 @@ async fn r#let(ctx: CommandContext, name: String, value: Option<String>) -> Resu
 
 /// Deletes a variable. Can delete more than one at once.
 #[command]
-async fn del(ctx: CommandContext, names: RestOfArgs) -> Result<()> {
+async fn del(ctx: CommandContext, names: RestOfArgs) -> CommandResult {
     if names.is_empty() {
         fail!("no names given");
     }
@@ -503,27 +477,29 @@ async fn del(ctx: CommandContext, names: RestOfArgs) -> Result<()> {
 
 /// Lists all of your variables.
 #[command(sender_gate=5s)]
-async fn list_vars(ctx: CommandContext) -> Result<()> {
+async fn list_vars(ctx: CommandContext) -> CommandResult {
     let keys: Vec<String> = ctx
         .storage()
         .hkeys(format!("vars:{}", ctx.shared.owner))
         .await?;
-    ctx.reply(keys.join(", ")).await
+    ctx.reply(keys.join(", ")).await?;
+    Ok(())
 }
 
 /// A debug command that replies with the value of the given variable.
 #[command(sender_gate=5s)]
-async fn get(ctx: CommandContext, name: String) -> Result<()> {
+async fn get(ctx: CommandContext, name: String) -> CommandResult {
     ctx.reply(match ctx.vars.read().await.get(&name) {
         Some(value) => format!("{name} = {value}"),
         None => format!("no variable named `{name}`"),
     })
-    .await
+    .await?;
+    Ok(())
 }
 
 /// Clears all of your variables.
 #[command]
-async fn clear(ctx: CommandContext) -> Result<()> {
+async fn clear(ctx: CommandContext) -> CommandResult {
     ctx.storage()
         .del(format!("vars:{}", ctx.shared.owner))
         .await?;

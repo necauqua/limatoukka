@@ -217,7 +217,7 @@ pub fn command(attrs: TokenStream, input: TokenStream) -> TokenStream {
     quote! {
         #input
 
-        ::inventory::submit!(crate::commands::CommandRegistration {
+        ::inventory::submit!(crate::commands::CommandMetadata {
             name: #name,
             doc: #doc,
             args: &[#doc_args],

@@ -1,12 +1,12 @@
 use std::time::{Duration, SystemTime};
 
-use anyhow::Result;
 use humantime_serde::re::humantime;
 use rustis::commands::{GenericCommands, StringCommands};
 use twitch_api::helix::channels::modify_channel_information::*;
 
 use crate::{
     commands::{
+        CommandResult,
         args::{Chatter, Required},
         command,
     },
@@ -18,7 +18,7 @@ pub async fn do_banish(
     ctx: &AppContext,
     chatter: &Required<Chatter>,
     duration: Option<Duration>,
-) -> Result<()> {
+) -> CommandResult {
     if let Some(duration) = duration {
         ctx.storage()
             .psetex(
@@ -49,9 +49,10 @@ async fn banish(
     ctx: CommandContext,
     chatter: Required<Chatter>,
     duration: Option<Duration>,
-) -> Result<()> {
+) -> CommandResult {
     if chatter.id == ctx.twitch().caster_id() {
-        return ctx.reply("🤨".into()).await;
+        ctx.reply("🤨".into()).await?;
+        return Ok(());
     }
     if chatter.id == ctx.twitch().bot_id() {
         fail!("lol. lmao.")
@@ -73,16 +74,18 @@ async fn banish(
 /// Restore users ability to use the bot, bringing them back from the shadow
 /// realm regardless of their crimes.
 #[command(permission = Moderator)]
-async fn unbanish(ctx: CommandContext, chatter: Required<Chatter>) -> Result<()> {
+async fn unbanish(ctx: CommandContext, chatter: Required<Chatter>) -> CommandResult {
     if ctx.storage().del(format!("kick:begone:{chatter}")).await? == 0 {
-        return ctx.reply("was not there lmao".into()).await;
+        ctx.reply("was not there lmao".into()).await?;
+        return Ok(());
     }
     tracing::info!(
         id = chatter.id,
         login = chatter.login,
         "pulled out of shadow realm"
     );
-    ctx.reply("the deed is done".into()).await
+    ctx.reply("the deed is done".into()).await?;
+    Ok(())
 }
 
 /// Check if a user was yeeted into the shadow realm.
@@ -90,7 +93,7 @@ async fn unbanish(ctx: CommandContext, chatter: Required<Chatter>) -> Result<()>
 /// If _you_ are yeeted, the bot ignores you utterly, so this won't work
 /// ¯\\\_(ツ)_/¯.
 #[command(sender_gate = 15s)]
-async fn banished(ctx: CommandContext, chatter: Required<Chatter>) -> Result<()> {
+async fn banished(ctx: CommandContext, chatter: Required<Chatter>) -> CommandResult {
     ctx.reply(
         match ctx
             .storage()
@@ -110,12 +113,13 @@ async fn banished(ctx: CommandContext, chatter: Required<Chatter>) -> Result<()>
             }
         },
     )
-    .await
+    .await?;
+    Ok(())
 }
 
 /// Set the stream title, common moderation command, nothing special here.
 #[command(permission = Moderator, global_gate = 5s, Hidden)]
-async fn set_title(ctx: CommandContext, title: String) -> Result<()> {
+async fn set_title(ctx: CommandContext, title: String) -> CommandResult {
     ctx.twitch()
         .caster_call(async |t| {
             let request = ModifyChannelInformationRequest::broadcaster_id(t.caster_id);
@@ -134,25 +138,29 @@ async fn set_title(ctx: CommandContext, title: String) -> Result<()> {
 
 /// Tell OBS to stop the stream.
 #[command(permission=Moderator, global_gate = 2m, OBSControl)]
-async fn obs_stop_stream() -> Result<()> {
-    AppContext::just_detached("obs-stop-stream", &[]).await
+async fn obs_stop_stream() -> CommandResult {
+    AppContext::just_detached("obs-stop-stream", &[]).await?;
+    Ok(())
 }
 
 /// Tell OBS to start the stream.
 #[command(permission=Moderator, global_gate = 2m, OBSControl)]
-async fn obs_start_stream() -> Result<()> {
-    AppContext::just_detached("obs-start-stream", &[]).await
+async fn obs_start_stream() -> CommandResult {
+    AppContext::just_detached("obs-start-stream", &[]).await?;
+    Ok(())
 }
 
 /// An untested script that starts OBS and then starts the stream if OBS died.
 /// Does nothing if the OBS process is running.
 #[command(permission=Moderator, global_gate = 5m, OBSControl)]
-async fn obs_revive(ctx: CommandContext) -> Result<()> {
+async fn obs_revive(ctx: CommandContext) -> CommandResult {
     if AppContext::just("obs-revive", &[])?.get().await?.is_ok() {
-        ctx.reply("OBS was not running, started it up".into()).await
+        ctx.reply("OBS was not running, started it up".into())
+            .await?;
     } else {
         ctx.storage().del("gate:obs-revive").await?;
         ctx.reply("OBS is running, you can try again if it's dying rn".into())
-            .await
+            .await?;
     }
+    Ok(())
 }

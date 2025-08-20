@@ -6,7 +6,7 @@ use serde::Deserialize;
 use thiserror::Error;
 use tokio::sync::Mutex;
 
-use crate::context::app::AppContext;
+use crate::{commands::runner::CommandError, context::app::AppContext};
 
 #[derive(Default)]
 pub struct Sounds {
@@ -64,6 +64,17 @@ pub enum SoundError {
     DidntChoose,
     #[error("Internal error: {0}")]
     InternalError(#[from] anyhow::Error),
+}
+
+impl From<SoundError> for CommandError {
+    fn from(e: SoundError) -> Self {
+        match e {
+            e @ (SoundError::NotFound | SoundError::DidntChoose) => {
+                CommandError::PreconditionFail(format!("{e}"))
+            }
+            SoundError::InternalError(e) => CommandError::Internal(e),
+        }
+    }
 }
 
 impl Sounds {

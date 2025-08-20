@@ -1,6 +1,7 @@
-use anyhow::Result;
-
-use crate::{commands::args::HoldTime, context::cmd::CommandContext};
+use crate::{
+    commands::{CommandResult, args::HoldTime},
+    context::cmd::CommandContext,
+};
 
 mod data;
 mod economy;
@@ -13,19 +14,13 @@ mod stats;
 mod util;
 mod voting;
 
-async fn hold<D, U, RD, RU>(
+async fn hold(
     ctx: CommandContext,
     duration: HoldTime,
     key: &str,
-    down: D,
-    up: U,
-) -> Result<()>
-where
-    RD: Future<Output = Result<()>>,
-    RU: Future<Output = Result<()>>,
-    D: FnOnce(&CommandContext) -> RD,
-    U: FnOnce(&CommandContext) -> RU,
-{
+    down: impl AsyncFnOnce(&CommandContext) -> CommandResult,
+    up: impl AsyncFnOnce(&CommandContext) -> CommandResult,
+) -> CommandResult {
     let hold = ctx.storage().hold(key)?;
 
     if hold.down().await? {

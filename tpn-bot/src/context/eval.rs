@@ -7,10 +7,11 @@ use std::{
 
 use anyhow::Result;
 use rustis::commands::HashCommands;
+use thiserror::Error;
 use tokio::sync::RwLock;
 
 use crate::{
-    commands::{args::Chatter, runner::CommandInterrupt},
+    commands::{args::Chatter, runner::CommandError},
     context::app::InterruptKind,
 };
 
@@ -104,7 +105,7 @@ impl EvalContext {
             }),
             vars,
             in_global_macro: self.in_global_macro || is_global,
-            macro_depth: self.macro_depth + 1,
+            macro_depth: self.macro_depth + (!is_global) as u32,
             repeat_i: self.repeat_i,
             depth: self.depth + 1,
             parent: self.parent.clone(),
@@ -139,7 +140,7 @@ impl EvalContext {
     pub fn interruptible<F, R>(
         &self,
         f: F,
-    ) -> impl Future<Output = Result<Option<R>, CommandInterrupt>> + use<F, R>
+    ) -> impl Future<Output = Result<Option<R>, Interrupted>> + use<F, R>
     where
         F: Future<Output = R>,
     {
@@ -148,10 +149,20 @@ impl EvalContext {
             tokio::select! {
                 kind = interrupted => match kind {
                     InterruptKind::Break => Ok(None),
-                    InterruptKind::Interrupt => Err(CommandInterrupt),
+                    InterruptKind::Interrupt => Err(Interrupted),
                 },
                 r = f => Ok(Some(r))
             }
         }
+    }
+}
+
+#[derive(Debug, Error)]
+#[error("interrupted")]
+pub struct Interrupted;
+
+impl From<Interrupted> for CommandError {
+    fn from(_: Interrupted) -> Self {
+        CommandError::Interrupt
     }
 }

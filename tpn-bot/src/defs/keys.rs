@@ -1,66 +1,68 @@
 use std::time::Duration;
 
-use anyhow::Result;
 use tokio::time::timeout;
 
 use super::HoldTime;
 use crate::{
-    commands::{args::InRange, command},
+    commands::{CommandResult, args::InRange, command},
     context::cmd::CommandContext,
     services::noita::NoitaEvent,
 };
 
-async fn mv(ctx: CommandContext, duration: HoldTime, key: &'static str) -> Result<()> {
+async fn mv(ctx: CommandContext, duration: HoldTime, key: &'static str) -> CommandResult {
     super::hold(
         ctx,
         duration,
         key,
-        |ctx| ctx.xdo().keydown(key),
-        |ctx| ctx.xdo().keyup(key),
+        async |ctx| Ok(ctx.xdo().keydown(key).await?),
+        async |ctx| Ok(ctx.xdo().keyup(key).await?),
     )
     .await
 }
 
 /// Hold <kbd>W</kbd> for the specified duration.
 #[command(shortcode=u, NoitaControl)]
-async fn up(ctx: CommandContext, duration: HoldTime) -> Result<()> {
+async fn up(ctx: CommandContext, duration: HoldTime) -> CommandResult {
     mv(ctx, duration, "w").await
 }
 
 /// Hold <kbd>A</kbd> for the specified duration.
 #[command(shortcode=l, NoitaControl)]
-async fn left(ctx: CommandContext, duration: HoldTime) -> Result<()> {
+async fn left(ctx: CommandContext, duration: HoldTime) -> CommandResult {
     mv(ctx, duration, "a").await
 }
 
 /// Hold <kbd>S</kbd> for the specified duration.
 #[command(shortcode=d, NoitaControl)]
-async fn down(ctx: CommandContext, duration: HoldTime) -> Result<()> {
+async fn down(ctx: CommandContext, duration: HoldTime) -> CommandResult {
     mv(ctx, duration, "s").await
 }
 
 /// Hold <kbd>D</kbd> for the specified duration.
 #[command(shortcode=r, NoitaControl)]
-async fn right(ctx: CommandContext, duration: HoldTime) -> Result<()> {
+async fn right(ctx: CommandContext, duration: HoldTime) -> CommandResult {
     mv(ctx, duration, "d").await
 }
 
 /// Press <kbd>E</kbd>.
 #[command(shortcode=i, NoitaControl)]
-async fn interact(ctx: CommandContext) -> Result<()> {
-    ctx.xdo().key("e").await
+async fn interact(ctx: CommandContext) -> CommandResult {
+    ctx.xdo().key("e").await?;
+    Ok(())
 }
 
 /// Press <kbd>F</kbd>.
 #[command(shortcode=k, NoitaControl)]
-async fn kick(ctx: CommandContext) -> Result<()> {
-    ctx.xdo().key("f").await
+async fn kick(ctx: CommandContext) -> CommandResult {
+    ctx.xdo().key("f").await?;
+    Ok(())
 }
 
 /// Press <kbd>1</kbd> through <kbd>8</kbd>.
 #[command(shortcode=s, NoitaControl)]
-async fn slot(ctx: CommandContext, slot: InRange<1, 8>) -> Result<()> {
-    ctx.xdo().key(&slot.get().to_string()).await
+async fn slot(ctx: CommandContext, slot: InRange<1, 8>) -> CommandResult {
+    ctx.xdo().key(&slot.get().to_string()).await?;
+    Ok(())
 }
 
 /// Press <kbd>Tab</kbd> _only if_ the inventory is closed.
@@ -70,7 +72,7 @@ async fn slot(ctx: CommandContext, slot: InRange<1, 8>) -> Result<()> {
 /// force mouse movement after opening the inventory, since if you don't move
 /// it the game does not register hovering over slots lol.
 #[command(shortcode=o, NoitaControl)]
-async fn open_inventory(ctx: CommandContext) -> Result<()> {
+async fn open_inventory(ctx: CommandContext) -> CommandResult {
     if ctx.noita().is_inventory_open() {
         return Ok(());
     }
@@ -93,7 +95,7 @@ async fn open_inventory(ctx: CommandContext) -> Result<()> {
 ///
 /// This command also waits for the game inventory state to actually change.
 #[command(shortcode=x, NoitaControl)]
-async fn close_inventory(ctx: CommandContext) -> Result<()> {
+async fn close_inventory(ctx: CommandContext) -> CommandResult {
     if !ctx.noita().is_inventory_open() {
         return Ok(());
     }
@@ -120,6 +122,7 @@ async fn close_inventory(ctx: CommandContext) -> Result<()> {
 /// this command is kinda annoying without `full-stop~` as they could mess up
 /// the settings or start a different gamemode.
 #[command(permission = Moderator, NoitaControl)]
-async fn pause(ctx: CommandContext) -> Result<()> {
-    ctx.xdo().key("Escape").await
+async fn pause(ctx: CommandContext) -> CommandResult {
+    ctx.xdo().key("Escape").await?;
+    Ok(())
 }

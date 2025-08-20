@@ -2,7 +2,7 @@ use std::{fmt::Write as _, time::Duration};
 
 use crate::{
     commands::{
-        self, CommandTag,
+        self, CommandResult, CommandTag,
         args::{Chatter, HoldTime, Required},
         command,
     },
@@ -13,7 +13,6 @@ use crate::{
     fail,
     services::messaging::PermissionLevel,
 };
-use anyhow::Result;
 use humantime_serde::re::humantime;
 use maud::html;
 use rustis::{
@@ -29,10 +28,10 @@ use tokio::time::sleep;
 ///
 /// Also this gives you a charge :)
 #[command(global_gate = 1h)]
-async fn ping(ctx: CommandContext) -> Result<()> {
+async fn ping(ctx: CommandContext) -> CommandResult {
     ctx.give_charges(1000).await?;
-
-    ctx.reply("pong!".into()).await
+    ctx.reply("pong!".into()).await?;
+    Ok(())
 }
 
 /// A building block for basic static text commands.
@@ -41,7 +40,7 @@ async fn ping(ctx: CommandContext) -> Result<()> {
 ///
 /// So you can call a global macro `discord~` which will resolve to `echo:"discord link etc"~` and print it.
 #[command(sender_gate = 5s)]
-async fn echo(ctx: CommandContext, text: String) -> Result<()> {
+async fn echo(ctx: CommandContext, text: String) -> CommandResult {
     if !ctx.in_global_macro && ctx.message().sender.level < PermissionLevel::Caster {
         fail!("only works from inside of global macros")
     }
@@ -55,7 +54,7 @@ async fn echo(ctx: CommandContext, text: String) -> Result<()> {
 /// execution managed to crash somehow. In the latter case, you'll be given the
 /// message id - please send it to me to look at logs and fix the issue.
 #[command(sender_gate = 3s)]
-async fn last_error(ctx: CommandContext, chatter: Chatter) -> Result<()> {
+async fn last_error(ctx: CommandContext, chatter: Chatter) -> CommandResult {
     ctx.reply(
         ctx.storage()
             .get::<_, Option<_>>(format!("last-error:{chatter}"))
@@ -68,28 +67,31 @@ async fn last_error(ctx: CommandContext, chatter: Chatter) -> Result<()> {
                 format!("No errors in {whom} last message")
             }),
     )
-    .await
+    .await?;
+    Ok(())
 }
 
 /// Sometimes the capture dies (but the game is fine) because of my brittle scripts.
 ///
 /// Try running this first before doing a full restart etc etc.
 #[command(global_gate = 30s, OBSControl)]
-async fn fix_obs_capture() -> Result<()> {
-    AppContext::just_detached("obs-reset-display", &[]).await
+async fn fix_obs_capture() -> CommandResult {
+    AppContext::just_detached("obs-reset-display", &[]).await?;
+    Ok(())
 }
 
 /// The sound setup is the most brittle jank thing actually, and dies most often.
 ///
 /// Try running this first before doing a full restart etc etc.
 #[command(global_gate = 30s, OBSControl)]
-async fn fix_obs_sound() -> Result<()> {
-    AppContext::just_detached("sound-setup", &[]).await
+async fn fix_obs_sound() -> CommandResult {
+    AppContext::just_detached("sound-setup", &[]).await?;
+    Ok(())
 }
 
 /// Check if noita.exe process is present, aka not dead.
 #[command(sender_gate = 1m, NoitaData)]
-async fn is_game_running(ctx: CommandContext) -> Result<()> {
+async fn is_game_running(ctx: CommandContext) -> CommandResult {
     ctx.reply(
         if AppContext::just("is-game-running", &[])?
             .get()
@@ -102,14 +104,15 @@ async fn is_game_running(ctx: CommandContext) -> Result<()> {
         }
         .into(),
     )
-    .await
+    .await?;
+    Ok(())
 }
 
 /// Wait for a specified duration milliseconds.
 ///
 /// Very useful for multi-command messages.
 #[command(shortcode=w, NoWall)]
-async fn wait(ctx: CommandContext, duration: HoldTime<500, 300_000>) -> Result<()> {
+async fn wait(ctx: CommandContext, duration: HoldTime<500, 300_000>) -> CommandResult {
     let duration = duration.get();
     tracing::debug!(
         duration.ms = duration.as_millis(),
@@ -146,7 +149,7 @@ async fn wait(ctx: CommandContext, duration: HoldTime<500, 300_000>) -> Result<(
 ///
 /// This is kind of a niche thing, most likely you need `interrupt~`.
 #[command]
-async fn r#break(ctx: CommandContext, chatter: Option<Required<Chatter>>) -> Result<()> {
+async fn r#break(ctx: CommandContext, chatter: Option<Required<Chatter>>) -> CommandResult {
     ctx.interrupt(chatter.as_ref().map(|c| &*c.id), InterruptKind::Break);
     Ok(())
 }
@@ -156,7 +159,7 @@ async fn r#break(ctx: CommandContext, chatter: Option<Required<Chatter>>) -> Res
 /// This is similar to `break~`, except the commands following the holds that
 /// get completed do not run.
 #[command]
-async fn interrupt(ctx: CommandContext, chatter: Option<Required<Chatter>>) -> Result<()> {
+async fn interrupt(ctx: CommandContext, chatter: Option<Required<Chatter>>) -> CommandResult {
     ctx.interrupt(chatter.as_ref().map(|c| &*c.id), InterruptKind::Interrupt);
     Ok(())
 }
@@ -166,7 +169,7 @@ async fn interrupt(ctx: CommandContext, chatter: Option<Required<Chatter>>) -> R
 /// On it's own this does nothing, but it can be used to limit the duration of
 /// the current message or similar.
 #[command]
-async fn discard(ctx: CommandContext) -> Result<()> {
+async fn discard(ctx: CommandContext) -> CommandResult {
     ctx.local_interrupt();
     Ok(())
 }
@@ -181,7 +184,7 @@ async fn discard(ctx: CommandContext) -> Result<()> {
 /// If the flag argument is prefixed with `-` it is removed if it was set
 /// previously.
 #[command(permission = Moderator)]
-async fn flag(ctx: CommandContext, flag: String) -> Result<()> {
+async fn flag(ctx: CommandContext, flag: String) -> CommandResult {
     if let Some(flag) = flag.strip_prefix("-") {
         ctx.storage().del(format!("flags:{flag}")).await?;
     } else {
@@ -192,28 +195,31 @@ async fn flag(ctx: CommandContext, flag: String) -> Result<()> {
 
 /// Makes the bot start the game in nightmare/ng.
 #[command(permission = Vip)]
-async fn set_nightmare(ctx: CommandContext, value: bool) -> Result<()> {
+async fn set_nightmare(ctx: CommandContext, value: bool) -> CommandResult {
     if value {
         ctx.storage().set("flags:nightmare", "1").await?;
-        ctx.reply("Nightmare mode enabled".into()).await
+        ctx.reply("Nightmare mode enabled".into()).await?;
     } else {
         ctx.storage().del("flags:nightmare").await?;
-        ctx.reply("Nightmare mode disabled".into()).await
+        ctx.reply("Nightmare mode disabled".into()).await?;
     }
+    Ok(())
 }
 
 /// Makes the bot start the game with a specific seed.
 #[command(permission = Vip)]
-async fn fix_seed(ctx: CommandContext, seed: u32) -> Result<()> {
+async fn fix_seed(ctx: CommandContext, seed: u32) -> CommandResult {
     ctx.storage().set("set-seed", seed).await?;
-    ctx.reply("Seed set".into()).await
+    ctx.reply("Seed set".into()).await?;
+    Ok(())
 }
 
 /// Undoes the effect of `fix_seed~`, so the game will start with a random seed again.
 #[command(permission = Vip)]
-async fn unfix_seed(ctx: CommandContext) -> Result<()> {
+async fn unfix_seed(ctx: CommandContext) -> CommandResult {
     ctx.storage().del("set-seed").await?;
-    ctx.reply("Seed unset".into()).await
+    ctx.reply("Seed unset".into()).await?;
+    Ok(())
 }
 
 /// Get information about a macro or command.
@@ -221,7 +227,7 @@ async fn unfix_seed(ctx: CommandContext) -> Result<()> {
 /// If you see someone running some weird command, run
 /// `what-is:command:their-name~` to figure out what it was.
 #[command(sender_gate = 3s)]
-async fn what_is(ctx: CommandContext, name: String, to: Chatter) -> Result<()> {
+async fn what_is(ctx: CommandContext, name: String, to: Chatter) -> CommandResult {
     let (personal, global): (Option<String>, Option<String>) = {
         let storage = ctx.storage();
         let mut p = storage.create_pipeline();

@@ -8,15 +8,16 @@ use std::{
 
 use anyhow::anyhow;
 use async_trait::async_trait;
+use compact_str::{CompactString, ToCompactString as _};
 use humantime_serde::re::humantime;
 use thiserror::Error;
 
 use crate::context::cmd::CommandContext;
 
 use neca_cmd::{
-    CommandMessage,
+    Statement,
     calc::{Calculator, CalculatorError},
-    sub::{Arg as NArg, ArgType},
+    param::{Param, ParamType},
 };
 
 #[derive(Debug, Error)]
@@ -24,13 +25,13 @@ pub enum ExtractorError {
     #[error("argument #{idx}: {1}", idx = .0 + 1)]
     BadArgument(usize, ArgError),
     #[error("unexpected argument #{idx}: {1}", idx = .0 + 1)]
-    UnexpectedArgument(usize, NArg),
+    UnexpectedArgument(usize, Param),
 }
 
 #[derive(Debug, Clone)]
 pub enum Arg<T> {
     Static(T),
-    Expandable(NArg),
+    Expandable(Param),
 }
 
 impl<T> Arg<T> {
@@ -59,12 +60,12 @@ impl<T: CommandArg> Arg<T> {
     pub async fn get(self, ctx: &CommandContext) -> ArgResult<T> {
         match self {
             Arg::Static(t) => Ok(t),
-            Arg::Expandable(arg) => {
-                let expanded = arg.expand(&mut ctx.arg_expander());
+            Arg::Expandable(param) => {
+                let expanded = param.expand(&mut ctx.arg_expander());
                 let arg = Some(expanded)
                     .filter(|s| !s.is_empty())
-                    .map(|s| match arg.tpe() {
-                        ArgType::Math => Calculator::eval(&s).map(|n| n.to_string()),
+                    .map(|s| match param.tpe() {
+                        ParamType::Math => Calculator::eval(&s).map(|n| n.to_compact_string()),
                         _ => Ok(s),
                     })
                     .transpose()?;
@@ -88,12 +89,12 @@ pub trait ArgExtractor: Sized {
 }
 
 pub struct Args {
-    args: VecDeque<NArg>,
+    args: VecDeque<Param>,
     len: usize,
 }
 
 impl Args {
-    pub fn new(args: VecDeque<NArg>) -> Self {
+    pub fn new(args: VecDeque<Param>) -> Self {
         Self {
             len: args.len(),
             args,
@@ -104,7 +105,7 @@ impl Args {
         self.len - self.args.len()
     }
 
-    pub fn pop(&mut self) -> Option<NArg> {
+    pub fn pop(&mut self) -> Option<Param> {
         self.args.pop_front()
     }
 }
@@ -118,8 +119,8 @@ impl<T: CommandArg> ArgExtractor for T {
             None => None,
             Some(arg) => match arg.expand_static() {
                 Some(text) => Some(match arg.tpe() {
-                    ArgType::Math => match Calculator::eval(&text) {
-                        Ok(n) => n.to_string(),
+                    ParamType::Math => match Calculator::eval(&text) {
+                        Ok(n) => n.to_compact_string(),
                         Err(e) => return Err(ExtractorError::BadArgument(idx, e.into())),
                     },
                     _ => text,
@@ -183,7 +184,7 @@ impl ArgExtractor for RestOfArgs {
 
 #[derive(Debug, Clone)]
 pub struct RawScript {
-    pub commands: CommandMessage,
+    pub stmt: Statement,
 }
 
 #[async_trait]
@@ -194,15 +195,15 @@ impl ArgExtractor for RawScript {
             .pop()
             .ok_or_else(|| ExtractorError::BadArgument(idx, ArgError::Missing))?;
 
-        let commands = CommandMessage::parse(arg.text());
-        if commands.is_empty() {
+        let stmt = Statement::parse(arg.text());
+        if stmt.is_noop() {
             return Err(ExtractorError::BadArgument(
                 idx,
                 ArgError::Precondition("no commands in script".into()),
             ));
         }
 
-        Ok(Arg::Static(Self { commands }))
+        Ok(Arg::Static(Self { stmt }))
     }
 
     fn type_desc() -> Cow<'static, str> {
@@ -212,17 +213,17 @@ impl ArgExtractor for RawScript {
 
 #[derive(Debug, Clone)]
 pub struct Script {
-    pub commands: CommandMessage,
+    pub stmt: Statement,
 }
 
 #[async_trait]
 impl CommandArg for Script {
-    async fn parse(_ctx: &CommandContext, input: String) -> ArgResult<Self> {
-        let commands = CommandMessage::parse(&input);
-        if commands.is_empty() {
+    async fn parse(_ctx: &CommandContext, input: CompactString) -> ArgResult<Self> {
+        let stmt = Statement::parse(&input);
+        if stmt.is_noop() {
             return Err(ArgError::Precondition("no commands in script".into()));
         }
-        Ok(Self { commands })
+        Ok(Self { stmt })
     }
 
     fn type_desc() -> Cow<'static, str> {
@@ -248,11 +249,11 @@ pub type ArgResult<T> = Result<T, ArgError>;
 
 #[async_trait]
 pub trait CommandArg: Send + Sized {
-    async fn parse(ctx: &CommandContext, input: String) -> ArgResult<Self> {
+    async fn parse(ctx: &CommandContext, input: CompactString) -> ArgResult<Self> {
         Self::parse_opt(ctx, Some(input)).await
     }
 
-    async fn parse_opt(ctx: &CommandContext, input: Option<String>) -> ArgResult<Self> {
+    async fn parse_opt(ctx: &CommandContext, input: Option<CompactString>) -> ArgResult<Self> {
         Self::parse(ctx, input.ok_or(ArgError::Missing)?).await
     }
 
@@ -265,7 +266,7 @@ pub trait CommandArg: Send + Sized {
 
 #[async_trait]
 impl<T: CommandArg> CommandArg for Option<T> {
-    async fn parse_opt(ctx: &CommandContext, input: Option<String>) -> ArgResult<Self> {
+    async fn parse_opt(ctx: &CommandContext, input: Option<CompactString>) -> ArgResult<Self> {
         Ok(match input {
             Some(input) => Some(T::parse(ctx, input).await?),
             None => None,
@@ -283,8 +284,8 @@ impl<T: CommandArg> CommandArg for Option<T> {
 
 #[async_trait]
 impl CommandArg for String {
-    async fn parse(_ctx: &CommandContext, input: String) -> ArgResult<Self> {
-        Ok(input)
+    async fn parse(_ctx: &CommandContext, input: CompactString) -> ArgResult<Self> {
+        Ok(input.into()) // todo maybe change String to CompactString in defs
     }
 
     fn type_desc() -> Cow<'static, str> {
@@ -294,8 +295,8 @@ impl CommandArg for String {
 
 #[async_trait]
 impl CommandArg for bool {
-    async fn parse(_ctx: &CommandContext, input: String) -> ArgResult<Self> {
-        match input.trim().to_lowercase().as_str() {
+    async fn parse(_ctx: &CommandContext, input: CompactString) -> ArgResult<Self> {
+        match input.to_lowercase().trim() {
             "true" | "t" | "yes" | "y" | "1" => Ok(true),
             "false" | "f" | "no" | "n" | "0" => Ok(false),
             _ => Err(ArgError::WrongType(
@@ -311,7 +312,7 @@ impl CommandArg for bool {
 
 #[async_trait]
 impl CommandArg for i32 {
-    async fn parse(_ctx: &CommandContext, input: String) -> ArgResult<Self> {
+    async fn parse(_ctx: &CommandContext, input: CompactString) -> ArgResult<Self> {
         Calculator::eval(&input)?
             .try_into()
             .map_err(|_| ArgError::WrongType("a number"))
@@ -324,7 +325,7 @@ impl CommandArg for i32 {
 
 #[async_trait]
 impl CommandArg for i64 {
-    async fn parse(_ctx: &CommandContext, input: String) -> ArgResult<Self> {
+    async fn parse(_ctx: &CommandContext, input: CompactString) -> ArgResult<Self> {
         Ok(Calculator::eval(&input)?)
     }
 
@@ -335,7 +336,7 @@ impl CommandArg for i64 {
 
 #[async_trait]
 impl CommandArg for u32 {
-    async fn parse(_ctx: &CommandContext, input: String) -> ArgResult<Self> {
+    async fn parse(_ctx: &CommandContext, input: CompactString) -> ArgResult<Self> {
         Calculator::eval(&input)?
             .try_into()
             .map_err(|_| ArgError::WrongType("a non-negative number"))
@@ -357,7 +358,7 @@ impl<const DEFAULT: u32, const MAX: u32> HoldTime<DEFAULT, MAX> {
 
 #[async_trait]
 impl<const DEFAULT: u32, const MAX: u32> CommandArg for HoldTime<DEFAULT, MAX> {
-    async fn parse_opt(ctx: &CommandContext, arg: Option<String>) -> ArgResult<Self> {
+    async fn parse_opt(ctx: &CommandContext, arg: Option<CompactString>) -> ArgResult<Self> {
         let Some(input) = arg else {
             return Ok(Self(Duration::from_millis(DEFAULT as _)));
         };
@@ -376,7 +377,7 @@ impl<const DEFAULT: u32, const MAX: u32> CommandArg for HoldTime<DEFAULT, MAX> {
 
 #[async_trait]
 impl CommandArg for Duration {
-    async fn parse(_ctx: &CommandContext, input: String) -> ArgResult<Self> {
+    async fn parse(_ctx: &CommandContext, input: CompactString) -> ArgResult<Self> {
         humantime::parse_duration(&input).map_err(|e| ArgError::Precondition(e.to_string()))
     }
 
@@ -396,7 +397,7 @@ impl<const A: u32, const B: u32> InRange<A, B> {
 
 #[async_trait]
 impl<const A: u32, const B: u32> CommandArg for InRange<A, B> {
-    async fn parse(ctx: &CommandContext, input: String) -> ArgResult<Self> {
+    async fn parse(ctx: &CommandContext, input: CompactString) -> ArgResult<Self> {
         let n = u32::parse(ctx, input).await?;
         if n >= A && n <= B {
             Ok(Self(n))
@@ -427,7 +428,7 @@ impl Display for Chatter {
 
 #[async_trait]
 impl CommandArg for Chatter {
-    async fn parse_opt(ctx: &CommandContext, arg: Option<String>) -> ArgResult<Self> {
+    async fn parse_opt(ctx: &CommandContext, arg: Option<CompactString>) -> ArgResult<Self> {
         let Some(login) = arg else {
             return Ok(ctx.shared.owner.clone());
         };
@@ -480,7 +481,7 @@ impl<T: Display> Display for Required<T> {
 
 #[async_trait]
 impl<T: CommandArg> CommandArg for Required<T> {
-    async fn parse(ctx: &CommandContext, arg: String) -> ArgResult<Self> {
+    async fn parse(ctx: &CommandContext, arg: CompactString) -> ArgResult<Self> {
         Ok(Self(T::parse(ctx, arg).await?))
     }
 

@@ -1,52 +1,17 @@
-use std::{
-    fmt::{self, Display},
-    ops::Deref,
-};
+use std::ops::Deref;
 
-use crate::commands::CommandRegistration;
+use neca_cmd::Token;
+
+use crate::commands::{CommandMetadata, runner::Location};
 
 use super::eval::EvalContext;
-
-#[derive(Debug, Clone)]
-pub struct CommandToken {
-    pub name: neca_cmd::CommandToken,
-    pub group: usize,
-    pub idx: usize,
-}
-
-#[derive(Debug, Clone)]
-pub struct CommandDescriptor {
-    pub registration: &'static CommandRegistration,
-    pub token: CommandToken,
-}
-
-impl Display for CommandDescriptor {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.token
-            .name
-            .tpe
-            .write_command(f, self.registration.name)?;
-        if f.alternate() {
-            write!(f, "({},{})", self.token.group, self.token.idx)?;
-        }
-        Ok(())
-    }
-}
-
-impl Display for CommandToken {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.name)?;
-        if f.alternate() {
-            write!(f, "({},{})", self.group, self.idx)?;
-        }
-        Ok(())
-    }
-}
 
 #[derive(Clone)]
 pub struct CommandContext {
     parent: EvalContext,
-    pub command: CommandDescriptor,
+    pub meta: &'static CommandMetadata,
+    pub token: Token,
+    pub pos: Location,
 }
 
 impl Deref for CommandContext {
@@ -58,10 +23,17 @@ impl Deref for CommandContext {
 }
 
 impl CommandContext {
-    pub fn new(eval_ctx: EvalContext, command: CommandDescriptor) -> Self {
+    pub fn new(
+        eval_ctx: EvalContext,
+        meta: &'static CommandMetadata,
+        token: Token,
+        pos: Location,
+    ) -> Self {
         Self {
             parent: eval_ctx,
-            command,
+            meta,
+            token,
+            pos,
         }
     }
 }

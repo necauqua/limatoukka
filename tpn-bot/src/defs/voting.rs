@@ -1,6 +1,5 @@
 use std::{borrow::Cow, fmt::Display, time::Duration};
 
-use anyhow::Result;
 use maud::{Markup, html};
 use rustis::{
     client::BatchPreparedCommand,
@@ -13,6 +12,7 @@ use tokio::time::sleep;
 
 use crate::{
     commands::{
+        CommandResult,
         args::{Chatter, Required},
         command,
     },
@@ -61,7 +61,7 @@ struct VoteData<'s> {
     wall: EntryKey,
 }
 
-async fn vote(ctx: CommandContext, vote: Vote) -> Result<()> {
+async fn vote(ctx: CommandContext, vote: Vote) -> CommandResult {
     let Some(vote_data) = ctx.storage().get::<_, Option<String>>("vote").await? else {
         fail!("no ongoing vote");
     };
@@ -96,19 +96,19 @@ async fn vote(ctx: CommandContext, vote: Vote) -> Result<()> {
 
 /// Vote yes in an ongoing vote.
 #[command]
-async fn yes(ctx: CommandContext) -> Result<()> {
+async fn yes(ctx: CommandContext) -> CommandResult {
     vote(ctx, Vote::Yes).await
 }
 
 /// Vote no in an ongoing vote.
 #[command]
-async fn no(ctx: CommandContext) -> Result<()> {
+async fn no(ctx: CommandContext) -> CommandResult {
     vote(ctx, Vote::No).await
 }
 
 /// Check if there is an ongoing vote and what it is about.
 #[command(global_gate = 10s)]
-async fn is_vote(ctx: CommandContext) -> Result<()> {
+async fn is_vote(ctx: CommandContext) -> CommandResult {
     let vote = ctx.storage().get::<_, Option<String>>("vote").await?;
     if let Some(vote) = vote {
         let data: VoteData = serde_json::from_str(&vote)?;
@@ -127,9 +127,9 @@ async fn vote_trigger<R>(
     chat_title: String,
     vote_config: Voting,
     action: R,
-) -> Result<()>
+) -> CommandResult
 where
-    R: Future<Output = Result<()>> + Send,
+    R: Future<Output = CommandResult> + Send,
 {
     if ctx.storage().exists("vote").await? != 0 {
         fail!("a vote is ongoing already")
@@ -237,7 +237,7 @@ where
 /// Be aware that there can be only one vote at a time and this command has a
 /// large per-user cooldown, so dont waste it.
 #[command(sender_gate = 5m)]
-async fn votekick(ctx: CommandContext, chatter: Required<Chatter>) -> Result<()> {
+async fn votekick(ctx: CommandContext, chatter: Required<Chatter>) -> CommandResult {
     if ctx
         .storage()
         .exists(format!("kick:begone:{chatter}"))
@@ -273,7 +273,7 @@ async fn votekick(ctx: CommandContext, chatter: Required<Chatter>) -> Result<()>
 /// Be aware that there can be only one vote at a time and this command has a
 /// large per-user cooldown, so dont waste it.
 #[command(sender_gate = 5m, NoitaControl)]
-async fn vote_restart(ctx: CommandContext) -> Result<()> {
+async fn vote_restart(ctx: CommandContext) -> CommandResult {
     let config = ctx.config().restart_votes.clone();
     vote_trigger(
         &ctx,
@@ -281,7 +281,7 @@ async fn vote_restart(ctx: CommandContext) -> Result<()> {
         html! { span style="color: orange" { "Restart the game" } },
         "Restart the game".into(),
         config,
-        ctx.restart(),
+        async { Ok(ctx.restart().await?) },
     )
     .await
 }
@@ -289,8 +289,9 @@ async fn vote_restart(ctx: CommandContext) -> Result<()> {
 /// (Re)start the game immediately. This is the same as a successful
 /// `vote-restart~`, but instant.
 #[command(permission = Verified, global_gate = 2m, NoitaControl)]
-async fn restart(ctx: CommandContext) -> Result<()> {
-    ctx.restart().await
+async fn restart(ctx: CommandContext) -> CommandResult {
+    ctx.restart().await?;
+    Ok(())
 }
 
 /// This allows to start a vote to restart the game and ***delete the world***,
@@ -302,7 +303,7 @@ async fn restart(ctx: CommandContext) -> Result<()> {
 /// Be aware that there can be only one vote at a time and this command has a
 /// large per-user cooldown, so dont waste it.
 #[command(sender_gate = 5m, NoitaControl)]
-async fn vote_reset(ctx: CommandContext) -> Result<()> {
+async fn vote_reset(ctx: CommandContext) -> CommandResult {
     let config = ctx.config().reset_votes.clone();
     vote_trigger(
         &ctx,
@@ -310,14 +311,16 @@ async fn vote_reset(ctx: CommandContext) -> Result<()> {
         html! { span style="color: red" { "Reset the game" } },
         "Reset the game".into(),
         config,
-        ctx.reset(),
+        async { Ok(ctx.reset().await?) },
     )
-    .await
+    .await?;
+    Ok(())
 }
 
 /// Reset the game (deleting the current world) immediately. This is the same
 /// as a successful `vote-reset~`, but instant.
 #[command(permission = Moderator, global_gate = 2m, NoitaControl)]
-async fn reset(ctx: CommandContext) -> Result<()> {
-    ctx.reset().await
+async fn reset(ctx: CommandContext) -> CommandResult {
+    ctx.reset().await?;
+    Ok(())
 }

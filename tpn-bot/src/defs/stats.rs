@@ -1,7 +1,6 @@
-use anyhow::Result;
-
 use crate::{
     commands::{
+        CommandResult,
         args::{Chatter, InRange},
         command,
     },
@@ -17,13 +16,14 @@ use crate::{
 ///
 /// Login defaults to the sender (you can do `stat::word~` too).
 #[command(sender_gate = 3s)]
-async fn stat(ctx: CommandContext, chatter: Chatter, word: Option<String>) -> Result<()> {
+async fn stat(ctx: CommandContext, chatter: Chatter, word: Option<String>) -> CommandResult {
     let count = ctx
         .chat_log()
         .stat(word.as_deref(), Some(&chatter.id))
         .await?;
 
-    ctx.reply_buffered(format!("count: {count}")).await
+    ctx.reply_buffered(format!("count: {count}")).await?;
+    Ok(())
 }
 
 /// Similar to `stat` except works across all of chat.
@@ -33,26 +33,28 @@ async fn stat(ctx: CommandContext, chatter: Chatter, word: Option<String>) -> Re
 ///
 /// With an argument filters messages by the given word(s), just like `stat`.
 #[command(sender_gate = 3s)]
-async fn stat_global(ctx: CommandContext, word: Option<String>) -> Result<()> {
+async fn stat_global(ctx: CommandContext, word: Option<String>) -> CommandResult {
     let count = ctx.chat_log().stat(word.as_deref(), None).await?;
 
-    ctx.reply_buffered(format!("count: {count}")).await
+    ctx.reply_buffered(format!("count: {count}")).await?;
+    Ok(())
 }
 
 /// Get the first message sent by a user (or you) in chat.
 #[command(sender_gate = 3s)]
-async fn first_message(ctx: CommandContext, chatter: Chatter) -> Result<()> {
+async fn first_message(ctx: CommandContext, chatter: Chatter) -> CommandResult {
     let response = match ctx.chat_log().edge(&chatter.id, Edge::First).await? {
         Some(msg) if msg.true_first => format!("Their first message was: {}", msg.message),
         Some(msg) => format!("Their first recorded message was: {}", msg.message),
         None => fail!("they never typed in chat"),
     };
-    ctx.reply(response).await
+    ctx.reply(response).await?;
+    Ok(())
 }
 
 /// Get the last message sent by a user (or you) in chat.
 #[command(sender_gate = 3s)]
-async fn last_message(ctx: CommandContext, chatter: Chatter) -> Result<()> {
+async fn last_message(ctx: CommandContext, chatter: Chatter) -> CommandResult {
     let edge = Edge::Last {
         exclude_message_id: Some(&ctx.message().id),
     };
@@ -60,12 +62,13 @@ async fn last_message(ctx: CommandContext, chatter: Chatter) -> Result<()> {
         Some(msg) => format!("Their last message was: {}", msg.message),
         None => fail!("they never typed in chat"),
     };
-    ctx.reply(response).await
+    ctx.reply(response).await?;
+    Ok(())
 }
 
 /// Get a list of top-N chatters of all time, by number of sent messages.
 #[command(sender_gate = 10m)]
-async fn top(ctx: CommandContext, n: Option<InRange<1, 15>>) -> Result<()> {
+async fn top(ctx: CommandContext, n: Option<InRange<1, 15>>) -> CommandResult {
     ctx.reply(
         ctx.chat_log()
             .top_n(n.map_or(5, |n| n.get() as _), &[ctx.twitch().bot_id()])
@@ -75,12 +78,13 @@ async fn top(ctx: CommandContext, n: Option<InRange<1, 15>>) -> Result<()> {
             .collect::<Vec<_>>()
             .join("; "),
     )
-    .await
+    .await?;
+    Ok(())
 }
 
 /// Get the place of the chatter (or you) in the "leaderboard" of how many messages they ~~spammed~~ sent
 #[command(sender_gate = 1m)]
-async fn rank(ctx: CommandContext, chatter: Chatter) -> Result<()> {
+async fn rank(ctx: CommandContext, chatter: Chatter) -> CommandResult {
     let (whom, whom2) = match chatter.id == ctx.shared.owner.id {
         true => ("You", "you"),
         false => ("They", "them"),
@@ -100,5 +104,6 @@ async fn rank(ctx: CommandContext, chatter: Chatter) -> Result<()> {
             Rank::Bottom => "Placed >999, not enough spam KEKW".into(),
         },
     )
-    .await
+    .await?;
+    Ok(())
 }

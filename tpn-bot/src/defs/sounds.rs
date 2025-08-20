@@ -1,9 +1,9 @@
-use anyhow::{Result, bail};
+use anyhow::Result;
 use reqwest::Url;
 use serde::Deserialize;
 
 use crate::{
-    commands::{args::InRange, command, runner::CommandFailure},
+    commands::{CommandResult, args::InRange, command, runner::CommandError},
     context::{app::AppContext, cmd::CommandContext},
     fail,
     services::{messaging::PermissionLevel, sounds::SoundError},
@@ -13,7 +13,7 @@ use crate::{
 ///
 /// Only works for >= subscriber level, or from global macros.
 #[command(sender_gate = 1m)]
-async fn tts(ctx: CommandContext, msg: String) -> Result<()> {
+async fn tts(ctx: CommandContext, msg: String) -> CommandResult {
     if msg.is_empty() {
         fail!("message cannot be empty");
     }
@@ -25,14 +25,15 @@ async fn tts(ctx: CommandContext, msg: String) -> Result<()> {
 
     let int = ctx.wait_for_interrupt();
 
-    ctx.sounds().tts(&msg, int).await
+    ctx.sounds().tts(&msg, int).await?;
+    Ok(())
 }
 
 /// Play a sound on stream.
 /// Sounds ids are secret.
 /// And also the command can only be run from global macros anyway ¯\_(ツ)_/¯.
 #[command(sender_gate = 1m)]
-async fn play_sound(ctx: CommandContext, sound_id: String) -> Result<()> {
+async fn play_sound(ctx: CommandContext, sound_id: String) -> CommandResult {
     if !ctx.in_global_macro && ctx.message().sender.level < PermissionLevel::Caster {
         fail!("Sounds can only be played through global macros");
     }
@@ -42,29 +43,31 @@ async fn play_sound(ctx: CommandContext, sound_id: String) -> Result<()> {
     match ctx.sounds().play_sound(&sound_id, int).await {
         Ok(_) => Ok(()),
         Err(e @ (SoundError::NotFound | SoundError::DidntChoose)) => fail!("{e}"),
-        Err(e) => bail!(e),
+        Err(SoundError::InternalError(e)) => Err(e.into()),
     }
 }
 
 /// Get the title of the song that's currently playing on stream, if any.
 #[command(global_gate = 5s, shortcode = np)]
-async fn now_playing(ctx: CommandContext) -> Result<()> {
+async fn now_playing(ctx: CommandContext) -> CommandResult {
     match AppContext::just("music-np", &[])?.get().await? {
-        Ok(title) => ctx.send(format!("Now playing: {title}")).await,
+        Ok(title) => ctx.send(format!("Now playing: {title}")).await?,
         Err(_) => fail!("Nothing is playing right now"),
     }
+    Ok(())
 }
 
 /// Skips the song that's currently playing on stream, if any.
 #[command(global_gate = 15s, permission = Vip)]
-async fn skip(ctx: CommandContext) -> Result<()> {
+async fn skip(ctx: CommandContext) -> CommandResult {
     match AppContext::just("music-skip", &[])?.get().await? {
-        Ok(_) => ctx.reply("song skipped Madge".into()).await,
+        Ok(_) => ctx.reply("song skipped Madge".into()).await?,
         Err(_) => fail!("Nothing is playing right now"),
     }
+    Ok(())
 }
 
-fn get_youtube_id(raw: &str) -> Result<String, CommandFailure> {
+fn get_youtube_id(raw: &str) -> Result<String, CommandError> {
     let no_proto = !raw.starts_with("http://") && !raw.starts_with("https://");
     let url = if no_proto {
         format!("https://{raw}")
@@ -87,7 +90,7 @@ fn get_youtube_id(raw: &str) -> Result<String, CommandFailure> {
         if no_proto {
             return Ok(raw.into());
         }
-        return Err(CommandFailure::new("Not a YouTube URL".into()));
+        fail!("Not a YouTube URL");
     }
 
     url.query_pairs()
@@ -98,7 +101,7 @@ fn get_youtube_id(raw: &str) -> Result<String, CommandFailure> {
                 .and_then(|mut s| s.rfind(|s| !s.is_empty()))
                 .map(|s| s.into())
         })
-        .ok_or_else(|| CommandFailure::new("Malformed YouTube URL".into()))
+        .ok_or_else(|| CommandError::PreconditionFail("Malformed YouTube URL".into()))
 }
 
 /// Adds the given song to the YouTube Music queue.
@@ -109,7 +112,7 @@ fn get_youtube_id(raw: &str) -> Result<String, CommandFailure> {
 /// because usually the queue is full of songs from my stream playlist and the
 /// point of the command is to show me a song you think I wont insta-skip :)
 #[command(sender_gate = 1m, shortcode=sr)]
-async fn song_request(ctx: CommandContext, url_or_id: String) -> Result<()> {
+async fn song_request(ctx: CommandContext, url_or_id: String) -> CommandResult {
     let id = get_youtube_id(&url_or_id)?;
     if id == "dQw4w9WgXcQ" {
         fail!("At least don't use a dQw link ICANT");
@@ -133,19 +136,20 @@ async fn song_request(ctx: CommandContext, url_or_id: String) -> Result<()> {
             ctx.send(format!(
                 "Added a song to be played next: {author} - {title}"
             ))
-            .await
+            .await?;
         }
         AddResponse::Borked { reason } => {
             ctx.reply(format!("Failed to add song, stated reason: {reason}"))
-                .await
+                .await?;
         }
-        AddResponse::AlreadyInQueue { .. } => ctx.reply("already in queue 🤦".into()).await,
+        AddResponse::AlreadyInQueue { .. } => ctx.reply("already in queue 🤦".into()).await?,
     }
+    Ok(())
 }
 
 /// Set YouTube Music volume.
 #[command(sender_gate = 3s, permission = Vip)]
-async fn volume(_ctx: CommandContext, volume: InRange<0, 100>) -> Result<()> {
+async fn volume(_ctx: CommandContext, volume: InRange<0, 100>) -> CommandResult {
     AppContext::just("music-volume", &[&volume.get().to_string()])?
         .check()
         .await?;

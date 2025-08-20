@@ -6,17 +6,18 @@ use std::{
     time::Duration,
 };
 
-use anyhow::Result;
 use args::{Args, ExtractorResult};
 
 pub mod args;
 pub mod runner;
 
+use runner::CommandError;
 pub use tpn_bot_macros::command;
 
 use crate::{context::cmd::CommandContext, services::messaging::PermissionLevel};
 
-pub type CommandFuture = Pin<Box<dyn Future<Output = Result<()>> + Send>>;
+pub type CommandResult = std::result::Result<(), CommandError>;
+pub type CommandFuture = Pin<Box<dyn Future<Output = CommandResult> + Send>>;
 pub type PrepareFuture = Pin<Box<dyn Future<Output = ExtractorResult<CommandFuture>> + Send>>;
 
 pub type CommandPtr = fn(CommandContext, Args) -> PrepareFuture;
@@ -29,7 +30,7 @@ pub struct CommandArgDesc {
 }
 
 #[derive(Debug)]
-pub struct CommandRegistration {
+pub struct CommandMetadata {
     pub name: &'static str,
     pub doc: &'static str,
     pub args: &'static [CommandArgDesc],
@@ -47,7 +48,7 @@ pub struct CommandRegistration {
     pub shortcode: Option<&'static str>,
 }
 
-impl CommandRegistration {
+impl CommandMetadata {
     pub fn is(&self, tag: CommandTag) -> bool {
         self.tags.contains(&tag)
     }
@@ -67,12 +68,12 @@ pub enum CommandTag {
     OBSControl,
 }
 
-inventory::collect!(CommandRegistration);
+inventory::collect!(CommandMetadata);
 
-pub fn find(name: &str) -> Option<&'static CommandRegistration> {
-    static MAP: LazyLock<HashMap<&str, &'static CommandRegistration>> = LazyLock::new(|| {
+pub fn find(name: &str) -> Option<&'static CommandMetadata> {
+    static MAP: LazyLock<HashMap<&str, &'static CommandMetadata>> = LazyLock::new(|| {
         let mut shortcodes = HashSet::new();
-        inventory::iter::<CommandRegistration>
+        inventory::iter::<CommandMetadata>
             .into_iter()
             .flat_map(|reg| match reg.shortcode {
                 Some(shortcode) => {
@@ -89,4 +90,4 @@ pub fn find(name: &str) -> Option<&'static CommandRegistration> {
     MAP.get(name).copied()
 }
 
-pub static MACRO: LazyLock<&'static CommandRegistration> = LazyLock::new(|| find("macro").unwrap());
+pub static MACRO: LazyLock<&'static CommandMetadata> = LazyLock::new(|| find("macro").unwrap());
