@@ -293,20 +293,16 @@ impl Runner {
                         }
                         Err(e) => e,
                     };
-                    match &error {
-                        CommandError::Interrupt => {
-                            cmd_span_inner.set_status(Status::Ok);
-                            tracing::debug!("interrupted");
-                        }
-                        CommandError::PreconditionFail(failure) => {
-                            cmd_span_inner.set_status(Status::error("failure"));
-                            tracing::debug!(failure, "command failure: {failure}");
-                        }
-                        error => {
-                            cmd_span_inner.set_status(Status::error("error"));
-                            tracing::error!(?error);
-                        }
-                    };
+                    if matches!(error, CommandError::Interrupt) {
+                        cmd_span_inner.set_status(Status::Ok);
+                        tracing::debug!("interrupted");
+                    } else if error.is_internal() {
+                        cmd_span_inner.set_status(Status::error("error"));
+                        tracing::error!(?error);
+                    } else {
+                        cmd_span_inner.set_status(Status::error("failure"));
+                        tracing::debug!(?error, "command failure");
+                    }
                     Err(error)
                 }
                 .instrument(cmd_span.clone().or_current()),
