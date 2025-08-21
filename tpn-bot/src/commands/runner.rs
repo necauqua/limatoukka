@@ -66,7 +66,7 @@ impl Runner {
         }
 
         // tidolar hehe
-        if s.id == "506202997" && ctx.gate("tidolar-plink", Duration::from_secs(120)).await? {
+        if s.id == "506202997" && ctx.gate("tidolar-plink", Duration::from_secs(600)).await? {
             ctx.send("plink".into()).await?;
         }
 
