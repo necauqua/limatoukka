@@ -2,7 +2,7 @@ use std::{fmt::Write as _, time::Duration};
 
 use crate::{
     commands::{
-        self, CommandResult, CommandTag,
+        CommandResult, CommandTag,
         args::{Chatter, HoldTime, Required},
         command,
     },
@@ -248,7 +248,11 @@ async fn what_is(ctx: CommandContext, name: String, to: Chatter) -> CommandResul
     } else if let Some(script) = global {
         ctx.reply(format!("`{name}` is a global macro: {script}"))
             .await?;
-    } else if let Some(command) = commands::find(&name).filter(|c| !c.is(CommandTag::Hidden)) {
+    } else if let Some(command) = ctx
+        .runner()
+        .get_command_meta(&name)
+        .filter(|c| !c.is(CommandTag::Hidden))
+    {
         let mut s = String::new();
 
         match command.shortcode {

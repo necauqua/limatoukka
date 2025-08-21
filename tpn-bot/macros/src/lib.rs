@@ -218,13 +218,13 @@ pub fn command(attrs: TokenStream, input: TokenStream) -> TokenStream {
     quote! {
         #input
 
-        ::inventory::submit!(crate::commands::CommandMetadata {
+        ::inventory::submit!(crate::commands::NativeCommand {
             name: #name,
             doc: #doc,
             args: &[#doc_args],
             module_path: module_path!(),
             line_number: line!(),
-            handler: |ctx, mut args| Box::pin(async move {
+            action: |ctx, mut args| Box::pin(async move {
                 #arg_defs
                 let idx = args.current_idx();
                 if let Some(arg) = args.pop() {

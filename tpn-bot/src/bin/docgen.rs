@@ -5,7 +5,7 @@ use humantime_serde::re::humantime;
 use serde::Serialize;
 use strum::{EnumMessage, IntoEnumIterator};
 use tpn_bot::{
-    commands::{CommandMetadata, CommandTag},
+    commands::{CommandTag, NativeCommand},
     services::messaging::PermissionLevel,
 };
 
@@ -62,7 +62,7 @@ struct DocOut {
 fn main() -> Result<()> {
     let mut categories = HashMap::new();
 
-    for cmd in inventory::iter::<CommandMetadata> {
+    for cmd in inventory::iter::<NativeCommand> {
         if cmd.is(CommandTag::Hidden)
             || cmd.is(CommandTag::NoitaControl)
             || cmd.is(CommandTag::OBSControl)

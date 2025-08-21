@@ -8,7 +8,7 @@ use rustis::commands::{
 };
 use tokio::{task::JoinSet, time::sleep};
 use tpn_bot::{
-    commands::runner,
+    commands::{discover_declared_commands, runner::Runner},
     config::Config,
     context::app::{AppContext, InterruptKind},
     logging,
@@ -64,6 +64,7 @@ async fn run(config: Config) -> Result<()> {
             Sounds::default(),
         ),
     );
+    let runner = Runner::new(discover_declared_commands());
 
     tokio::spawn(eventsub.run(ctx.clone()));
     tokio::spawn(ctx.status_wall().start(&ctx.config().browser_source_bind));
@@ -120,6 +121,7 @@ async fn run(config: Config) -> Result<()> {
                 }
 
                 let ctx = ctx.clone();
+                let runner = runner.clone();
                 let span = tracing::info_span!(
                     "message",
                     msg.id,
@@ -128,7 +130,7 @@ async fn run(config: Config) -> Result<()> {
                 );
                 cleanup(&mut tasks).spawn(
                     async move {
-                        if let Err(error) = runner::receive_message(ctx, msg).await {
+                        if let Err(error) = runner.process_message(ctx, msg).await {
                             tracing::error!(?error, "failed to handle message");
                             Span::current().set_status(Status::error("error"));
                         }

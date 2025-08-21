@@ -15,7 +15,7 @@ use crate::{
         CommandResult,
         args::{Chatter, InRange, RawScript, RestOfArgs, Script},
         command,
-        runner::{self, CommandError, EvalError},
+        runner::{CommandError, EvalError},
     },
     context::cmd::CommandContext,
     fail,
@@ -34,7 +34,7 @@ async fn macro_record(ctx: CommandContext, name: String, script: RawScript) -> C
     }
     let name = name.to_lowercase();
 
-    if let Err(errors) = runner::prepare_commands(&ctx, &script.stmt).await {
+    if let Err(errors) = ctx.runner().prepare_commands(&ctx, &script.stmt).await {
         fail!(
             "script contained errors: {}",
             EvalError::CommandErrors(errors)
@@ -231,7 +231,9 @@ async fn r#macro(
     };
     let _guard = ctx.status_wall().push(status).await;
 
-    runner::eval(ctx.nest_macro(chatter, global, args).await?, stmt).await?;
+    ctx.runner()
+        .eval(ctx.nest_macro(chatter, global, args).await?, stmt)
+        .await?;
 
     Ok(())
 }
@@ -261,11 +263,12 @@ async fn repeat(ctx: CommandContext, times: InRange<0, 1000>, script: RawScript)
             span style="color: #E38AF0" { (ctx.message().sender.name) } ": repeat:" (i) " " (ctx.nesting_str())
         }).await;
 
-        runner::eval(
-            ctx.nest_repeat(NonZero::new(times - i + 1).unwrap()),
-            script.stmt.clone(),
-        )
-        .await?;
+        ctx.runner()
+            .eval(
+                ctx.nest_repeat(NonZero::new(times - i + 1).unwrap()),
+                script.stmt.clone(),
+            )
+            .await?;
     }
     Ok(())
 }
@@ -294,7 +297,8 @@ async fn group(
     };
     let _guard = ctx.status_wall().push(status).await;
 
-    runner::eval(ctx.nest(), script.stmt).await?;
+    ctx.runner().eval(ctx.nest(), script.stmt).await?;
+
     Ok(())
 }
 
@@ -311,7 +315,7 @@ async fn r#try(ctx: CommandContext, script: Script) -> CommandResult {
     };
     let _guard = ctx.status_wall().push(status).await;
 
-    match runner::eval(ctx.nest(), script.stmt).await {
+    match ctx.runner().eval(ctx.nest(), script.stmt).await {
         Ok(()) => {}
         Err(EvalError::Interrupt) => return Err(CommandError::Interrupt),
         Err(ref e @ EvalError::CommandErrors(ref errors)) => {
@@ -350,7 +354,7 @@ async fn lock(ctx: CommandContext, script: Script) -> CommandResult {
     };
     let _guard = ctx.status_wall().push_top(status).await;
 
-    let err = runner::eval(ctx.nest(), script.stmt).await;
+    let err = ctx.runner().eval(ctx.nest(), script.stmt).await;
 
     ctx.storage().del("holds:exclusive").await?;
 
@@ -387,11 +391,12 @@ async fn r#loop(ctx: CommandContext, script: RawScript) -> CommandResult {
         }).await;
         let start = Instant::now();
 
-        runner::eval(
-            ctx.nest_repeat(NonZero::new(i).unwrap()),
-            script.stmt.clone(),
-        )
-        .await?;
+        ctx.runner()
+            .eval(
+                ctx.nest_repeat(NonZero::new(i).unwrap()),
+                script.stmt.clone(),
+            )
+            .await?;
 
         if start.elapsed() < Duration::from_millis(100) {
             fail!("loop iteration took less than 100ms");
@@ -523,9 +528,9 @@ async fn if_eq(
     r#else: Option<Script>,
 ) -> CommandResult {
     if a == b {
-        runner::eval(ctx.nest(), then.stmt).await?;
+        ctx.runner().eval(ctx.nest(), then.stmt).await?;
     } else if let Some(r#else) = r#else {
-        runner::eval(ctx.nest(), r#else.stmt).await?;
+        ctx.runner().eval(ctx.nest(), r#else.stmt).await?;
     }
     Ok(())
 }
@@ -540,9 +545,9 @@ async fn if_ne(
     r#else: Option<Script>,
 ) -> CommandResult {
     if a != b {
-        runner::eval(ctx.nest(), then.stmt).await?;
+        ctx.runner().eval(ctx.nest(), then.stmt).await?;
     } else if let Some(r#else) = r#else {
-        runner::eval(ctx.nest(), r#else.stmt).await?;
+        ctx.runner().eval(ctx.nest(), r#else.stmt).await?;
     }
     Ok(())
 }
@@ -560,9 +565,9 @@ macro_rules! numeric_if {
                 r#else: Option<Script>,
             ) -> CommandResult {
                 if a $cond b {
-                    runner::eval(ctx.nest(), then.stmt).await?;
+                    ctx.runner().eval(ctx.nest(), then.stmt).await?;
                 } else if let Some(r#else) = r#else {
-                    runner::eval(ctx.nest(), r#else.stmt).await?;
+                    ctx.runner().eval(ctx.nest(), r#else.stmt).await?;
                 }
                 Ok(())
             }

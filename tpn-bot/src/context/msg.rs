@@ -14,7 +14,7 @@ use rustis::{
 };
 use tokio::time::sleep;
 
-use crate::services::messaging::Message;
+use crate::{commands::runner::Runner, services::messaging::Message};
 
 use super::app::{AppContext, InterruptKind, InterruptTicket};
 
@@ -27,6 +27,7 @@ struct MessageState {
 #[derive(Clone)]
 pub struct MessageContext {
     parent: AppContext,
+    runner: Runner,
     state: Arc<MessageState>,
 }
 
@@ -40,19 +41,24 @@ impl Deref for MessageContext {
 }
 
 impl MessageContext {
-    pub fn new(parent: AppContext, message: Message) -> Self {
+    pub fn new(parent: AppContext, runner: Runner, message: Message) -> Self {
         Self {
             state: Arc::new(MessageState {
                 interrupt_ticket: parent.interrupt_ticket(&message.sender.id),
                 repeats: AtomicU32::new(0),
                 message,
             }),
+            runner,
             parent,
         }
     }
 
     pub fn message(&self) -> &Message {
         &self.state.message
+    }
+
+    pub fn runner(&self) -> &Runner {
+        &self.runner
     }
 
     pub fn interrupted(&self) -> bool {

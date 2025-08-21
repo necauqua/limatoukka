@@ -2,7 +2,7 @@ use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
     pin::Pin,
-    sync::LazyLock,
+    sync::Arc,
     time::Duration,
 };
 
@@ -20,8 +20,6 @@ pub type CommandResult = std::result::Result<(), CommandError>;
 pub type CommandFuture = Pin<Box<dyn Future<Output = CommandResult> + Send>>;
 pub type PrepareFuture = Pin<Box<dyn Future<Output = ExtractorResult<CommandFuture>> + Send>>;
 
-pub type CommandPtr = fn(CommandContext, Args) -> PrepareFuture;
-
 #[derive(Debug)]
 pub struct CommandArgDesc {
     pub name: &'static str,
@@ -29,14 +27,14 @@ pub struct CommandArgDesc {
     pub desc: fn() -> Cow<'static, str>,
 }
 
-#[derive(Debug)]
-pub struct CommandMetadata {
+#[derive(Debug, Clone)]
+pub struct NativeCommand {
     pub name: &'static str,
     pub doc: &'static str,
     pub args: &'static [CommandArgDesc],
     pub module_path: &'static str,
     pub line_number: u32,
-    pub handler: CommandPtr,
+    pub action: fn(CommandContext, Args) -> PrepareFuture,
     pub tags: &'static [CommandTag],
     /// Which minimum permission level is needed to use this command
     pub permission: PermissionLevel,
@@ -48,7 +46,7 @@ pub struct CommandMetadata {
     pub shortcode: Option<&'static str>,
 }
 
-impl CommandMetadata {
+impl NativeCommand {
     pub fn is(&self, tag: CommandTag) -> bool {
         self.tags.contains(&tag)
     }
@@ -68,26 +66,26 @@ pub enum CommandTag {
     OBSControl,
 }
 
-inventory::collect!(CommandMetadata);
+inventory::collect!(NativeCommand);
 
-pub fn find(name: &str) -> Option<&'static CommandMetadata> {
-    static MAP: LazyLock<HashMap<&str, &'static CommandMetadata>> = LazyLock::new(|| {
-        let mut shortcodes = HashSet::new();
-        inventory::iter::<CommandMetadata>
-            .into_iter()
-            .flat_map(|reg| match reg.shortcode {
-                Some(shortcode) => {
-                    if !shortcodes.insert(shortcode) {
-                        panic!("Duplicate shortcode: {shortcode}");
-                    }
-                    vec![(reg.name, reg), (shortcode, reg)]
-                }
-                None => vec![(reg.name, reg)],
-            })
-            .collect()
-    });
+pub fn discover_declared_commands() -> HashMap<String, Arc<NativeCommand>> {
+    let mut shortcodes = HashSet::new();
 
-    MAP.get(name).copied()
+    inventory::iter::<NativeCommand>
+        .into_iter()
+        .flat_map(|cmd| match cmd.shortcode {
+            Some(shortcode) => {
+                assert!(
+                    shortcodes.insert(shortcode),
+                    "Duplicate shortcode: {shortcode}"
+                );
+                let cmd = Arc::new(cmd.clone());
+                vec![
+                    (cmd.name.to_owned(), cmd.clone()),
+                    (shortcode.to_owned(), cmd),
+                ]
+            }
+            None => vec![(cmd.name.to_owned(), Arc::new(cmd.clone()))],
+        })
+        .collect()
 }
-
-pub static MACRO: LazyLock<&'static CommandMetadata> = LazyLock::new(|| find("macro").unwrap());

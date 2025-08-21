@@ -1,6 +1,8 @@
 use std::{
     any::Any,
+    collections::HashMap,
     fmt::{self, Display},
+    sync::Arc,
     time::Duration,
 };
 
@@ -25,200 +27,359 @@ use crate::{
 };
 
 use super::{
-    CommandContext, CommandFuture, CommandMetadata,
+    CommandContext, CommandFuture, NativeCommand,
     args::{Args, ExtractorError},
 };
 
-pub async fn receive_message(ctx: AppContext, message: Message) -> Result<()> {
-    let s = &message.sender;
-
-    if s.id == ctx.twitch().bot_id() {
-        return Ok(());
-    }
-
-    // tidolar hehe
-    if s.id == "506202997" && ctx.gate("tidolar-plink", Duration::from_secs(120)).await? {
-        ctx.send("plink".into()).await?;
-    }
-
-    if s.level < PermissionLevel::Moderator {
-        let stop_count = ctx
-            .storage()
-            .exists(["flags:full-stop", &format!("kick:begone:{}", s.id)])
-            .await?;
-        if stop_count != 0 {
-            return Ok(());
-        }
-    }
-
-    let stmt = Statement::parse(&message.text);
-    if stmt.is_noop() {
-        tracing::trace!("no commands in message: {}", message.text);
-        return Ok(());
-    } else {
-        tracing::debug!("processing message: {}", message.text);
-    }
-
-    let error_key = format!("last-error:{}", message.sender.id);
-    let eval_ctx = EvalContext::new(MessageContext::new(ctx.clone(), message)).await?;
-
-    match eval(eval_ctx, stmt).await {
-        Ok(_) | Err(EvalError::Interrupt) => {
-            Span::current().set_status(Status::Ok);
-            ctx.storage().del(error_key).await?;
-        }
-        Err(EvalError::CommandErrors(errors)) => {
-            Span::current().set_status(Status::error("error"));
-
-            let mut err = errors
-                .iter()
-                .map(|e| e.to_string())
-                .collect::<Vec<_>>()
-                .join("\n");
-            if errors.iter().any(|e| e.error.is_internal()) {
-                err.push_str(" (msg-id: ");
-                err.push_str(&error_key[11..]); // meh
-                err.push(')');
-            }
-            ctx.storage().set(error_key, &err).await?;
-        }
-    }
-    Ok(())
-}
-
 type PreparedCommands = Vec<Vec<(CommandContext, CommandFuture)>>;
 
-pub async fn prepare_commands(
-    ctx: &EvalContext,
-    stmt: &Statement,
-) -> Result<PreparedCommands, Vec<ContextualCommandError>> {
-    let mut errors = vec![];
-    let mut groups = vec![];
+#[macro_export]
+macro_rules! fail {
+    ($($args:tt)*) => {
+        return Err($crate::commands::runner::CommandError::PreconditionFail(format!($($args)*)))
+    };
+}
 
-    for (seq, group) in stmt.parallel.iter().enumerate() {
-        let mut prepared = vec![];
-        for (idx, cmd_expr) in group.iter().enumerate() {
-            match prepare_command(ctx, cmd_expr.clone(), Location::new(seq, idx)).await {
-                Ok(p) => prepared.push(p),
-                Err(e) => errors.push(e),
+struct Inner {
+    commands: HashMap<String, Arc<NativeCommand>>,
+}
+
+#[derive(Clone)]
+pub struct Runner {
+    inner: Arc<Inner>,
+}
+
+impl Runner {
+    pub fn new(commands: HashMap<String, Arc<NativeCommand>>) -> Self {
+        Self {
+            inner: Arc::new(Inner { commands }),
+        }
+    }
+}
+
+impl Runner {
+    pub async fn process_message(&self, ctx: AppContext, message: Message) -> Result<()> {
+        let s = &message.sender;
+
+        if s.id == ctx.twitch().bot_id() {
+            return Ok(());
+        }
+
+        // tidolar hehe
+        if s.id == "506202997" && ctx.gate("tidolar-plink", Duration::from_secs(120)).await? {
+            ctx.send("plink".into()).await?;
+        }
+
+        if s.level < PermissionLevel::Moderator {
+            let stop_count = ctx
+                .storage()
+                .exists(["flags:full-stop", &format!("kick:begone:{}", s.id)])
+                .await?;
+            if stop_count != 0 {
+                return Ok(());
             }
         }
-        groups.push(prepared);
-    }
 
-    if !errors.is_empty() {
-        tracing::trace!("prepare fail: {errors:?}");
-        return Err(errors);
-    }
-
-    Ok(groups)
-}
-
-async fn find_command(
-    ctx: &EvalContext,
-    name: &str,
-    expr: &mut Command,
-) -> Option<&'static CommandMetadata> {
-    if let Some(reg) = super::find(name) {
-        return Some(reg);
-    }
-
-    let res = {
-        let storage = ctx.storage();
-        let mut p = storage.create_pipeline();
-        p.hexists(format!("macros:{}", ctx.shared.owner), name)
-            .queue();
-        p.hexists("macros:global", name).queue();
-        p.execute().await
-    };
-
-    match res {
-        Ok((personal, global)) if personal || global => {
-            // empty string for current username, to allow macro params to immediately follow
-            expr.params.push_front(Param::default());
-            expr.params.push_front(Param::simple(name.to_owned()));
-            Some(*super::MACRO)
+        let stmt = Statement::parse(&message.text);
+        if stmt.is_noop() {
+            tracing::trace!("no commands in message: {}", message.text);
+            return Ok(());
         }
-        _ => None,
-    }
-}
+        tracing::debug!("processing message: {}", message.text);
 
-const STACK_LIMIT: u32 = 3;
+        let error_key = format!("last-error:{}", message.sender.id);
+        let eval_ctx =
+            EvalContext::new(MessageContext::new(ctx.clone(), self.clone(), message)).await?;
 
-async fn prepare_command(
-    ctx: &EvalContext,
-    mut command: Command,
-    pos: Location,
-) -> Result<(CommandContext, CommandFuture), ContextualCommandError> {
-    let mut token = command.token.clone();
-    token.name.make_ascii_lowercase();
-
-    let found = match find_command(ctx, &token.name, &mut command).await {
-        Some(r) => Some(r),
-        None => match token.split_inline_number() {
-            Some((name, n)) => {
-                command.params.push_front(Param::simple(n.to_owned()));
-                find_command(ctx, name, &mut command).await
+        match self.eval(eval_ctx, stmt).await {
+            Ok(_) | Err(EvalError::Interrupt) => {
+                Span::current().set_status(Status::Ok);
+                ctx.storage().del(error_key).await?;
             }
-            None => None,
-        },
-    };
-    let Some(meta) = found else {
-        return Err(ContextualCommandError::new(
-            CommandError::NotFound,
-            command.token,
-            pos,
-        ));
-    };
-    // meh just hardcode this for now
-    if meta.is(CommandTag::NoitaControl) || meta.is(CommandTag::OBSControl) {
-        return Err(ContextualCommandError::new(
-            CommandError::Disabled,
-            command.token,
-            pos,
-        ));
+            Err(EvalError::CommandErrors(errors)) => {
+                Span::current().set_status(Status::error("error"));
+
+                let mut err = errors
+                    .iter()
+                    .map(|e| e.to_string())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if errors.iter().any(|e| e.error.is_internal()) {
+                    err.push_str(" (msg-id: ");
+                    err.push_str(&error_key[11..]); // meh
+                    err.push(')');
+                }
+                ctx.storage().set(error_key, &err).await?;
+            }
+        }
+        Ok(())
     }
 
-    if ctx.macro_depth > STACK_LIMIT {
-        return Err(ContextualCommandError::new(
-            CommandError::RecursionLimit,
-            command.token,
-            pos,
-        ));
-    }
-    if meta.permission > ctx.message().sender.level {
-        return Err(ContextualCommandError::new(
-            CommandError::Permission,
-            command.token,
-            pos,
-        ));
+    pub async fn prepare_commands(
+        &self,
+        ctx: &EvalContext,
+        stmt: &Statement,
+    ) -> Result<PreparedCommands, Vec<ContextualCommandError>> {
+        let mut errors = vec![];
+        let mut groups = vec![];
+
+        for (seq, group) in stmt.parallel.iter().enumerate() {
+            let mut prepared = vec![];
+            for (idx, cmd_expr) in group.iter().enumerate() {
+                match self
+                    .prepare_command(ctx, cmd_expr.clone(), Location::new(seq, idx))
+                    .await
+                {
+                    Ok(p) => prepared.push(p),
+                    Err(e) => errors.push(e),
+                }
+            }
+            groups.push(prepared);
+        }
+
+        if !errors.is_empty() {
+            tracing::trace!("prepare fail: {errors:?}");
+            return Err(errors);
+        }
+
+        Ok(groups)
     }
 
-    let cmd_ctx = CommandContext::new(ctx.clone(), meta, token, pos.clone());
+    pub fn get_command_meta(&self, name: &str) -> Option<&NativeCommand> {
+        self.inner.commands.get(name).map(|meta| meta.as_ref())
+    }
 
-    match (meta.handler)(cmd_ctx.clone(), Args::new(command.params)).await {
-        Ok(fut) => Ok((cmd_ctx, fut)),
-        Err(error) => Err(ContextualCommandError::new(
-            CommandError::BadArgs(error),
-            command.token,
-            pos,
-        )),
+    async fn lookup(
+        &self,
+        ctx: &EvalContext,
+        name: &str,
+        expr: &mut Command,
+    ) -> Option<Arc<NativeCommand>> {
+        if let Some(reg) = self.inner.commands.get(name).cloned() {
+            return Some(reg);
+        }
+
+        let res = {
+            let storage = ctx.storage();
+            let mut p = storage.create_pipeline();
+            p.hexists(format!("macros:{}", ctx.shared.owner), name)
+                .queue();
+            p.hexists("macros:global", name).queue();
+            p.execute().await
+        };
+
+        if let Ok((personal, global)) = res
+            && (personal || global)
+        {
+            if let Some(meta) = self.inner.commands.get("macro").cloned() {
+                // empty string for current username, to allow macro params to immediately follow
+                expr.params.push_front(Param::default());
+                expr.params.push_front(Param::simple(name.to_owned()));
+                return Some(meta);
+            }
+        }
+        None
+    }
+
+    const STACK_LIMIT: u32 = 3;
+
+    async fn prepare_command(
+        &self,
+        ctx: &EvalContext,
+        mut command: Command,
+        pos: Location,
+    ) -> Result<(CommandContext, CommandFuture), ContextualCommandError> {
+        let mut token = command.token.clone();
+        token.name.make_ascii_lowercase();
+
+        let found = match self.lookup(ctx, &token.name, &mut command).await {
+            Some(r) => Some(r),
+            None => match token.split_inline_number() {
+                Some((name, n)) => {
+                    command.params.push_front(Param::simple(n.to_owned()));
+                    self.lookup(ctx, name, &mut command).await
+                }
+                None => None,
+            },
+        };
+        let Some(meta) = found else {
+            return Err(ContextualCommandError::new(
+                CommandError::NotFound,
+                command.token,
+                pos,
+            ));
+        };
+        // meh just hardcode this for now
+        if meta.is(CommandTag::NoitaControl) || meta.is(CommandTag::OBSControl) {
+            return Err(ContextualCommandError::new(
+                CommandError::Disabled,
+                command.token,
+                pos,
+            ));
+        }
+
+        if ctx.macro_depth > Self::STACK_LIMIT {
+            return Err(ContextualCommandError::new(
+                CommandError::RecursionLimit,
+                command.token,
+                pos,
+            ));
+        }
+        if meta.permission > ctx.message().sender.level {
+            return Err(ContextualCommandError::new(
+                CommandError::Permission,
+                command.token,
+                pos,
+            ));
+        }
+
+        let cmd_ctx = CommandContext::new(ctx.clone(), meta.clone(), token, pos.clone());
+
+        match (meta.action)(cmd_ctx.clone(), Args::new(command.params)).await {
+            Ok(fut) => Ok((cmd_ctx, fut)),
+            Err(error) => Err(ContextualCommandError::new(
+                CommandError::BadArgs(error),
+                command.token,
+                pos,
+            )),
+        }
+    }
+
+    pub async fn eval(&self, ctx: EvalContext, command_msg: Statement) -> Result<(), EvalError> {
+        let commands = match self.prepare_commands(&ctx, &command_msg).await {
+            Ok(prepared) => prepared,
+            Err(errors) => return Err(EvalError::CommandErrors(errors)),
+        };
+
+        let mut parallel = JoinSet::new();
+        for group in commands {
+            parallel.spawn(Self::run_command_sequence(group).in_current_span());
+        }
+
+        // join_all panics if any task panics, which would only happen in run_command_sequence panics,
+        // which it shouldnt (and if it does it's ok for us to panic entirely),
+        // as it only dispatches more tasks for commands itself
+        let errors = parallel
+            .join_all()
+            .await
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+
+        if ctx.interrupted() {
+            Err(EvalError::Interrupt)
+        } else if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(EvalError::CommandErrors(errors))
+        }
+    }
+
+    async fn run_command_sequence(
+        sequence: Vec<(CommandContext, CommandFuture)>,
+    ) -> Vec<ContextualCommandError> {
+        let mut result = Vec::new();
+        for (ctx, fut) in sequence {
+            // spawn a task for each command to catch panics
+            let cmd_span = debug_span!("command", cmd.name=%ctx.token.name, cmd.tpe=?ctx.token.symbol, ?ctx.pos, otel.name=format!("{}", ctx.token));
+            let cmd_span_inner = cmd_span.clone();
+            let ctx_inner = ctx.clone();
+            let handle = tokio::spawn(
+                async move {
+                    let error = match Self::run_command(ctx_inner, fut).await {
+                        Ok(()) => {
+                            cmd_span_inner.set_status(Status::Ok);
+                            return Ok(());
+                        }
+                        Err(e) => e,
+                    };
+                    match &error {
+                        CommandError::Interrupt => {
+                            cmd_span_inner.set_status(Status::Ok);
+                            tracing::debug!("interrupted");
+                        }
+                        CommandError::PreconditionFail(failure) => {
+                            cmd_span_inner.set_status(Status::error("failure"));
+                            tracing::debug!(failure, "command failure: {failure}");
+                        }
+                        error => {
+                            cmd_span_inner.set_status(Status::error("error"));
+                            tracing::error!(?error);
+                        }
+                    };
+                    Err(error)
+                }
+                .instrument(cmd_span.clone().or_current()),
+            );
+            match handle.await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => {
+                    let interrupt = matches!(e, CommandError::Interrupt);
+                    result.push(ContextualCommandError::new(e, ctx.token, ctx.pos.clone()));
+                    if interrupt {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    cmd_span.set_status(Status::error("panic"));
+                    let panic = e.into_panic();
+                    cmd_span.in_scope(|| tracing::error!("task panic: {}", panic_string(&panic)));
+                    result.push(ContextualCommandError::new(
+                        CommandError::Panic(panic),
+                        ctx.token,
+                        ctx.pos.clone(),
+                    ));
+                }
+            }
+        }
+        result
+    }
+
+    async fn run_command(ctx: CommandContext, fut: CommandFuture) -> Result<(), CommandError> {
+        if let Some(global_gate) = &ctx.meta.global_gate {
+            if !ctx.gate(ctx.meta.name, *global_gate).await? {
+                fail!(
+                    "global timeout {}",
+                    humantime::format_duration(*global_gate)
+                );
+            }
+        }
+        if let Some(sender_gate) = &ctx.meta.sender_gate {
+            if !ctx.sender_gate(ctx.meta.name, *sender_gate).await? {
+                fail!(
+                    "sender timeout {}",
+                    humantime::format_duration(*sender_gate)
+                );
+            }
+        }
+
+        let status = html! {
+            span style="color: #E38AF0" { (ctx.message().sender.name) } ": " (ctx.token) " " (ctx.nesting_str())
+        };
+        let _guard = if ctx.meta.is(CommandTag::NoWall) {
+            None
+        } else {
+            Some(ctx.status_wall().push(status).await)
+        };
+
+        tracing::trace!("running: {}", ctx.token);
+        fut.await
     }
 }
 
-fn print_inner_errors(errors: &[ContextualCommandError]) -> String {
-    errors
-        .iter()
-        .map(|e| e.to_string())
-        .collect::<Vec<_>>()
-        .join(", ")
+fn panic_string(payload: &Box<dyn Any + Send>) -> &str {
+    payload
+        .downcast_ref::<String>()
+        .map(|s| &**s)
+        .or_else(|| payload.downcast_ref::<&'static str>().copied())
+        .unwrap_or("<no panic message>")
 }
 
 #[derive(Debug, Error)]
 pub enum EvalError {
     #[error("interrupted")]
     Interrupt,
-    #[error("{{ {} }}", print_inner_errors(.0))]
+    #[error("{{ {} }}", .0.iter().map(|e| e.to_string()).collect::<Vec<_>>().join(", "))]
     CommandErrors(Vec<ContextualCommandError>),
 }
 
@@ -231,143 +392,6 @@ impl From<EvalError> for CommandError {
             }
         }
     }
-}
-
-pub async fn eval(ctx: EvalContext, command_msg: Statement) -> Result<(), EvalError> {
-    let commands = match prepare_commands(&ctx, &command_msg).await {
-        Ok(prepared) => prepared,
-        Err(errors) => return Err(EvalError::CommandErrors(errors)),
-    };
-
-    let mut parallel = JoinSet::new();
-    for group in commands {
-        parallel.spawn(run_command_sequence(group).in_current_span());
-    }
-
-    // join_all panics if any task panics, which would only happen in run_command_sequence panics,
-    // which it shouldnt (and if it does it's ok for us to panic entirely),
-    // as it only dispatches more tasks for commands itself
-    let errors = parallel
-        .join_all()
-        .await
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>();
-
-    if ctx.interrupted() {
-        Err(EvalError::Interrupt)
-    } else if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(EvalError::CommandErrors(errors))
-    }
-}
-
-async fn run_command_sequence(
-    sequence: Vec<(CommandContext, CommandFuture)>,
-) -> Vec<ContextualCommandError> {
-    let mut result = Vec::new();
-    for (ctx, fut) in sequence {
-        // spawn a task for each command to catch panics
-        let cmd_span = debug_span!("command", cmd.name=%ctx.token.name, cmd.tpe=?ctx.token.symbol, ?ctx.pos, otel.name=format!("{}", ctx.token));
-        let cmd_span_inner = cmd_span.clone();
-        let ctx_inner = ctx.clone();
-        let handle = tokio::spawn(
-            async move {
-                let error = match run_command(ctx_inner, fut).await {
-                    Ok(()) => {
-                        cmd_span_inner.set_status(Status::Ok);
-                        return Ok(());
-                    }
-                    Err(e) => e,
-                };
-                match &error {
-                    CommandError::Interrupt => {
-                        cmd_span_inner.set_status(Status::Ok);
-                        tracing::debug!("interrupted");
-                    }
-                    CommandError::PreconditionFail(failure) => {
-                        cmd_span_inner.set_status(Status::error("failure"));
-                        tracing::debug!(failure, "command failure: {failure}");
-                    }
-                    error => {
-                        cmd_span_inner.set_status(Status::error("error"));
-                        tracing::error!(?error);
-                    }
-                };
-                Err(error)
-            }
-            .instrument(cmd_span.clone().or_current()),
-        );
-        match handle.await {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => {
-                let interrupt = matches!(e, CommandError::Interrupt);
-                result.push(ContextualCommandError::new(e, ctx.token, ctx.pos.clone()));
-                if interrupt {
-                    break;
-                }
-            }
-            Err(e) => {
-                cmd_span.set_status(Status::error("panic"));
-                let panic = e.into_panic();
-                cmd_span.in_scope(|| tracing::error!("task panic: {}", panic_string(&panic)));
-                result.push(ContextualCommandError::new(
-                    CommandError::Panic(panic),
-                    ctx.token,
-                    ctx.pos.clone(),
-                ));
-            }
-        }
-    }
-    result
-}
-
-fn panic_string(payload: &Box<dyn Any + Send>) -> &str {
-    payload
-        .downcast_ref::<String>()
-        .map(|s| &**s)
-        .or_else(|| payload.downcast_ref::<&'static str>().copied())
-        .unwrap_or("<no panic message>")
-}
-
-#[macro_export]
-macro_rules! fail {
-    ($($args:tt)*) => {
-        return Err($crate::commands::runner::CommandError::PreconditionFail(format!($($args)*)))
-    };
-}
-
-async fn run_command(ctx: CommandContext, fut: CommandFuture) -> Result<(), CommandError> {
-    let r = ctx.meta;
-    if let Some(global_gate) = &r.global_gate {
-        if !ctx.gate(r.name, *global_gate).await? {
-            fail!(
-                "global timeout {}",
-                humantime::format_duration(*global_gate)
-            );
-        }
-    }
-    if let Some(sender_gate) = &r.sender_gate {
-        if !ctx.sender_gate(r.name, *sender_gate).await? {
-            fail!(
-                "sender timeout {}",
-                humantime::format_duration(*sender_gate)
-            );
-        }
-    }
-
-    let status = html! {
-        span style="color: #E38AF0" { (ctx.message().sender.name) } ": " (ctx.token) " " (ctx.nesting_str())
-    };
-    let _guard = if r.is(CommandTag::NoWall) {
-        None
-    } else {
-        Some(ctx.status_wall().push(status).await)
-    };
-
-    tracing::trace!("running: {}", ctx.token);
-    fut.await
 }
 
 #[derive(Debug, Error)]
