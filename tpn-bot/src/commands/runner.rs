@@ -210,14 +210,6 @@ impl Runner {
                 pos,
             ));
         };
-        // meh just hardcode this for now
-        if meta.is(CommandTag::NoitaControl) || meta.is(CommandTag::OBSControl) {
-            return Err(ContextualCommandError::new(
-                CommandError::Disabled,
-                command.token,
-                pos,
-            ));
-        }
 
         if meta.permission > ctx.message().sender.level {
             return Err(ContextualCommandError::new(
@@ -395,8 +387,6 @@ impl From<EvalError> for CommandError {
 pub enum CommandError {
     #[error("command does not exist")]
     NotFound,
-    #[error("command is disabled")]
-    Disabled,
     #[error("no permission")]
     Permission,
     #[error("bad arguments: {0}")]

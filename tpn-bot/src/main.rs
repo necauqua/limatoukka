@@ -8,7 +8,7 @@ use rustis::commands::{
 };
 use tokio::{task::JoinSet, time::sleep};
 use tpn_bot::{
-    commands::{discover_declared_commands, runner::Runner},
+    commands::{CommandTag, discover_declared_commands, runner::Runner},
     config::Config,
     context::app::{AppContext, InterruptKind},
     logging,
@@ -64,7 +64,13 @@ async fn run(config: Config) -> Result<()> {
             Sounds::default(),
         ),
     );
-    let runner = Runner::new(discover_declared_commands());
+
+    let mut commands = discover_declared_commands();
+
+    // todo make this less cringe
+    commands.retain(|_, v| !v.is(CommandTag::NoitaControl) && !v.is(CommandTag::OBSControl));
+
+    let runner = Runner::new(commands);
 
     tokio::spawn(eventsub.run(ctx.clone()));
     tokio::spawn(ctx.status_wall().start(&ctx.config().browser_source_bind));
