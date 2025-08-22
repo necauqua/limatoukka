@@ -720,10 +720,14 @@ mod tests {
 
         let config = Config::load()?;
         let eventsub = EventSub::new(Twitch::new(&config).await?);
-        let services = Services::mock().with_storage(Storage::new(&config).await?);
-        services.storage().select(1).await?;
+        let valkey = rustis::client::Client::connect(&*config.valkey).await?;
+        valkey.select(1).await?;
 
-        let ctx = AppContext::new(config, services, Injector::default());
+        let ctx = AppContext::new(
+            config,
+            Services::mock().with_storage(Storage::new(valkey)),
+            Injector::default(),
+        );
 
         let mut rx = eventsub.subscribe();
         tokio::spawn(async move {

@@ -11,7 +11,7 @@ use std::{
 use anyhow::{Result, bail};
 use futures::future::pending;
 use maud::html;
-use rustis::commands::{PubSubCommands, SetCondition, SetExpiration, StringCommands};
+use rustis::commands::{PubSubCommands, StringCommands};
 use tokio::{
     process::{Child, Command},
     sync::{Notify, oneshot::Receiver},
@@ -20,7 +20,10 @@ use tokio::{
 
 use crate::{
     config::Config,
-    services::{Injector, Services},
+    services::{
+        Injector, Services,
+        gates::{GateService, GateServiceNoop},
+    },
 };
 
 #[derive(Default)]
@@ -152,6 +155,7 @@ struct Inner {
 pub struct AppContext {
     inner: Arc<Inner>,
     services: Services,
+    gate_service: Arc<dyn GateService>,
     injector: Injector,
 }
 
@@ -165,6 +169,9 @@ impl AppContext {
                 bot_id: None,
             }),
             services,
+            gate_service: injector
+                .get_opt::<dyn GateService>()
+                .unwrap_or_else(|| Arc::new(GateServiceNoop)),
             injector,
         }
     }
@@ -201,22 +208,7 @@ impl AppContext {
 
     /// Returns true once (atomically) in the given period - per key.
     pub async fn gate(&self, key: &str, period: Duration) -> Result<bool> {
-        let gate: Option<String> = self
-            .storage()
-            .set_get_with_options(
-                format!("gate:{key}"),
-                "1",
-                SetCondition::NX,
-                SetExpiration::Px(period.as_millis() as u64),
-                false,
-            )
-            .await?;
-        if gate.is_some() {
-            tracing::trace!(?period, key, "gated");
-            Ok(false)
-        } else {
-            Ok(true)
-        }
+        self.gate_service.gate(key, period).await
     }
 
     pub async fn send(&self, message: String) -> Result<()> {

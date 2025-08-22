@@ -10,10 +10,14 @@ use rustis::{
 };
 use serde::{Serialize, de::DeserializeOwned};
 
-use crate::config::Config;
-
 pub struct Storage {
     client: Client,
+}
+
+impl Storage {
+    pub fn new(client: Client) -> Self {
+        Self { client }
+    }
 }
 
 impl Deref for Storage {
@@ -75,14 +79,6 @@ impl Deref for TransactionRef {
 impl DerefMut for TransactionRef {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.transaction
-    }
-}
-
-impl Storage {
-    pub async fn new(config: &Config) -> Result<Self> {
-        Ok(Self {
-            client: Client::connect(&*config.valkey).await?,
-        })
     }
 }
 

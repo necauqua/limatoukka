@@ -3,8 +3,9 @@ use std::{borrow::Cow, sync::Arc, time::Duration};
 use anyhow::Result;
 use futures::{FutureExt, StreamExt};
 use opentelemetry::trace::Status;
-use rustis::commands::{
-    GenericCommands as _, PubSubCommands, SetCondition, SetExpiration, StringCommands,
+use rustis::{
+    client::Client as ValkeyClient,
+    commands::{GenericCommands as _, PubSubCommands, SetCondition, SetExpiration, StringCommands},
 };
 use tokio::{task::JoinSet, time::sleep};
 use tpn_bot::{
@@ -15,6 +16,7 @@ use tpn_bot::{
     services::{
         Injector, Services,
         chat_log::{ChatLogService, ChatLogServiceElastic},
+        gates::{GateService, GateServiceRedis},
         messaging,
         noita::{ItemFound, NoitaEvent, NoitaHandle},
         sounds::{SoundService, SoundServiceImpl},
@@ -41,7 +43,8 @@ use twitch_api::{
 };
 
 async fn run(config: Config) -> Result<()> {
-    let storage = Storage::new(&config).await?;
+    let valkey = ValkeyClient::connect(&*config.valkey).await?;
+
     let xdo = XDoClient::new(config.display.clone());
 
     let twitch = Twitch::new(&config).await?;
@@ -54,6 +57,7 @@ async fn run(config: Config) -> Result<()> {
 
     let mut injector = Injector::default();
 
+    injector.add::<dyn GateService>(Arc::new(GateServiceRedis::new(valkey.clone())));
     injector.add::<dyn TwitchService>(Arc::new(TwitchServiceImpl::new(twitch.clone())));
     injector.add::<dyn ChatLogService>(Arc::new(
         ChatLogServiceElastic::new(
@@ -70,7 +74,7 @@ async fn run(config: Config) -> Result<()> {
         config,
         Services::new(
             messaging,
-            storage,
+            Storage::new(valkey),
             xdo,
             NoitaHandle::default(),
             StatusWall::default(),

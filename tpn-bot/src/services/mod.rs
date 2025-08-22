@@ -11,6 +11,7 @@ use storage::Storage;
 use xdo::XDoClient;
 
 pub mod chat_log;
+pub mod gates;
 pub mod messaging;
 pub mod noita;
 pub mod sounds;
