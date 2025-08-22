@@ -96,6 +96,7 @@ impl Runner {
                 Span::current().set_status(Status::Ok);
                 ctx.storage().del(error_key).await?;
             }
+            Err(EvalError::RecursionLimit) => unreachable!(),
             Err(EvalError::CommandErrors(errors)) => {
                 Span::current().set_status(Status::error("error"));
 
@@ -218,13 +219,6 @@ impl Runner {
             ));
         }
 
-        if ctx.macro_depth > Self::STACK_LIMIT {
-            return Err(ContextualCommandError::new(
-                CommandError::RecursionLimit,
-                command.token,
-                pos,
-            ));
-        }
         if meta.permission > ctx.message().sender.level {
             return Err(ContextualCommandError::new(
                 CommandError::Permission,
@@ -246,6 +240,10 @@ impl Runner {
     }
 
     pub async fn eval(&self, ctx: EvalContext, command_msg: Statement) -> Result<(), EvalError> {
+        if ctx.macro_depth > Self::STACK_LIMIT {
+            return Err(EvalError::RecursionLimit);
+        }
+
         let commands = match self.prepare_commands(&ctx, &command_msg).await {
             Ok(prepared) => prepared,
             Err(errors) => return Err(EvalError::CommandErrors(errors)),
@@ -375,6 +373,8 @@ fn panic_string(payload: &Box<dyn Any + Send>) -> &str {
 pub enum EvalError {
     #[error("interrupted")]
     Interrupt,
+    #[error("recursion limit")]
+    RecursionLimit,
     #[error("{{ {} }}", .0.iter().map(|e| e.to_string()).collect::<Vec<_>>().join(", "))]
     CommandErrors(Vec<ContextualCommandError>),
 }
@@ -383,6 +383,7 @@ impl From<EvalError> for CommandError {
     fn from(e: EvalError) -> Self {
         match e {
             EvalError::Interrupt => CommandError::Interrupt,
+            EvalError::RecursionLimit => CommandError::RecursionLimit,
             EvalError::CommandErrors(_) => {
                 CommandError::PreconditionFail(format!("eval errors: {e}"))
             }

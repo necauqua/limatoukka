@@ -317,7 +317,7 @@ async fn r#try(ctx: CommandContext, script: Script) -> CommandResult {
 
     match ctx.runner().eval(ctx.nest(), script.stmt).await {
         Ok(()) => {}
-        Err(EvalError::Interrupt) => return Err(CommandError::Interrupt),
+        Err(e @ (EvalError::Interrupt | EvalError::RecursionLimit)) => return Err(e.into()),
         Err(ref e @ EvalError::CommandErrors(ref errors)) => {
             if errors.iter().any(|e| e.error.is_internal()) {
                 fail!("script had internal errors: {e}")
