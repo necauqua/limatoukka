@@ -31,8 +31,6 @@ use super::{
     args::{Args, ExtractorError},
 };
 
-type PreparedCommands = Vec<Vec<(CommandContext, CommandFuture)>>;
-
 #[macro_export]
 macro_rules! fail {
     ($($args:tt)*) => {
@@ -116,11 +114,13 @@ impl Runner {
         Ok(())
     }
 
-    pub async fn prepare_commands(
-        &self,
-        ctx: &EvalContext,
-        stmt: &Statement,
-    ) -> Result<PreparedCommands, Vec<ContextualCommandError>> {
+    const STACK_LIMIT: u32 = 3;
+
+    pub async fn eval(&self, ctx: EvalContext, stmt: Statement) -> Result<(), EvalError> {
+        if ctx.macro_depth > Self::STACK_LIMIT {
+            return Err(EvalError::RecursionLimit);
+        }
+
         let mut errors = vec![];
         let mut groups = vec![];
 
@@ -128,7 +128,7 @@ impl Runner {
             let mut prepared = vec![];
             for (idx, cmd_expr) in group.iter().enumerate() {
                 match self
-                    .prepare_command(ctx, cmd_expr.clone(), Location::new(seq, idx))
+                    .prepare_command(&ctx, cmd_expr.clone(), Location::new(seq, idx))
                     .await
                 {
                     Ok(p) => prepared.push(p),
@@ -140,48 +140,32 @@ impl Runner {
 
         if !errors.is_empty() {
             tracing::trace!("prepare fail: {errors:?}");
-            return Err(errors);
+            return Err(EvalError::CommandErrors(errors));
         }
 
-        Ok(groups)
-    }
-
-    pub fn get_command_meta(&self, name: &str) -> Option<&NativeCommand> {
-        self.inner.commands.get(name).map(|meta| meta.as_ref())
-    }
-
-    async fn lookup(
-        &self,
-        ctx: &EvalContext,
-        name: &str,
-        expr: &mut Command,
-    ) -> Option<Arc<NativeCommand>> {
-        if let Some(reg) = self.inner.commands.get(name).cloned() {
-            return Some(reg);
+        let mut parallel = JoinSet::new();
+        for group in groups {
+            parallel.spawn(Self::run_command_sequence(group).in_current_span());
         }
 
-        let res = {
-            let storage = ctx.storage();
-            let mut p = storage.create_pipeline();
-            p.hexists(format!("macros:{}", ctx.shared.owner), name)
-                .queue();
-            p.hexists("macros:global", name).queue();
-            p.execute().await
-        };
+        // join_all panics if any task panics, which would only happen in run_command_sequence panics,
+        // which it shouldnt (and if it does it's ok for us to panic entirely),
+        // as it only dispatches more tasks for commands itself
+        let errors = parallel
+            .join_all()
+            .await
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
 
-        if let Ok((personal, global)) = res
-            && (personal || global)
-            && let Some(meta) = self.inner.commands.get("macro").cloned()
-        {
-            // empty string for current username, to allow macro params to immediately follow
-            expr.params.push_front(Param::default());
-            expr.params.push_front(Param::simple(name.to_owned()));
-            return Some(meta);
+        if ctx.interrupted() {
+            Err(EvalError::Interrupt)
+        } else if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(EvalError::CommandErrors(errors))
         }
-        None
     }
-
-    const STACK_LIMIT: u32 = 3;
 
     async fn prepare_command(
         &self,
@@ -220,48 +204,43 @@ impl Runner {
 
         let cmd_ctx = CommandContext::new(ctx.clone(), meta.clone(), token, pos.clone());
 
-        match (meta.action)(cmd_ctx.clone(), Args::new(command.params)).await {
-            Ok(fut) => Ok((cmd_ctx, fut)),
-            Err(error) => Err(ContextualCommandError::new(
-                CommandError::BadArgs(error),
-                command.token,
-                pos,
-            )),
-        }
+        let fut = (meta.action)(cmd_ctx.clone(), Args::new(command.params));
+        Ok((cmd_ctx, fut))
     }
 
-    pub async fn eval(&self, ctx: EvalContext, command_msg: Statement) -> Result<(), EvalError> {
-        if ctx.macro_depth > Self::STACK_LIMIT {
-            return Err(EvalError::RecursionLimit);
+    pub fn get_command_meta(&self, name: &str) -> Option<&NativeCommand> {
+        self.inner.commands.get(name).map(|meta| meta.as_ref())
+    }
+
+    async fn lookup(
+        &self,
+        ctx: &EvalContext,
+        name: &str,
+        expr: &mut Command,
+    ) -> Option<Arc<NativeCommand>> {
+        if let Some(reg) = self.inner.commands.get(name).cloned() {
+            return Some(reg);
         }
 
-        let commands = match self.prepare_commands(&ctx, &command_msg).await {
-            Ok(prepared) => prepared,
-            Err(errors) => return Err(EvalError::CommandErrors(errors)),
+        let res = {
+            let storage = ctx.storage();
+            let mut p = storage.create_pipeline();
+            p.hexists(format!("macros:{}", ctx.shared.owner), name)
+                .queue();
+            p.hexists("macros:global", name).queue();
+            p.execute().await
         };
 
-        let mut parallel = JoinSet::new();
-        for group in commands {
-            parallel.spawn(Self::run_command_sequence(group).in_current_span());
+        if let Ok((personal, global)) = res
+            && (personal || global)
+            && let Some(meta) = self.inner.commands.get("macro").cloned()
+        {
+            // empty string for current username, to allow macro params to immediately follow
+            expr.params.push_front(Param::default());
+            expr.params.push_front(Param::simple(name.to_owned()));
+            return Some(meta);
         }
-
-        // join_all panics if any task panics, which would only happen in run_command_sequence panics,
-        // which it shouldnt (and if it does it's ok for us to panic entirely),
-        // as it only dispatches more tasks for commands itself
-        let errors = parallel
-            .join_all()
-            .await
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>();
-
-        if ctx.interrupted() {
-            Err(EvalError::Interrupt)
-        } else if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(EvalError::CommandErrors(errors))
-        }
+        None
     }
 
     async fn run_command_sequence(

@@ -228,12 +228,10 @@ pub fn command(attrs: TokenStream, input: TokenStream) -> TokenStream {
                 #arg_defs
                 let idx = args.current_idx();
                 if let Some(arg) = args.pop() {
-                    return Err(crate::commands::args::ExtractorError::UnexpectedArgument(idx, arg));
+                    return Err(crate::commands::args::ExtractorError::UnexpectedArgument(idx, arg).into());
                 }
-                Ok(Box::pin(async {
-                    #arg_gets
-                    #ident(#args).await
-                }) as crate::commands::CommandFuture)
+                #arg_gets
+                #ident(#args).await
             }),
             tags: &[#(#tags),*],
             #permission,

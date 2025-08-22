@@ -34,13 +34,6 @@ async fn macro_record(ctx: CommandContext, name: String, script: RawScript) -> C
     }
     let name = name.to_lowercase();
 
-    if let Err(errors) = ctx.runner().prepare_commands(&ctx, &script.stmt).await {
-        fail!(
-            "script contained errors: {}",
-            EvalError::CommandErrors(errors)
-        );
-    }
-
     let mut tx = ctx.storage().create_transaction();
     let key = format!("macros:{}", ctx.shared.owner);
     tx.hset(&key, (&name, script.stmt.original)).forget();

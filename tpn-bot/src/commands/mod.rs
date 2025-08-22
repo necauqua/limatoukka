@@ -2,11 +2,12 @@ use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
     pin::Pin,
+    result::Result,
     sync::Arc,
     time::Duration,
 };
 
-use args::{Args, ExtractorResult};
+use args::Args;
 
 pub mod args;
 pub mod runner;
@@ -16,9 +17,8 @@ pub use tpn_bot_macros::command;
 
 use crate::{context::cmd::CommandContext, services::messaging::PermissionLevel};
 
-pub type CommandResult = std::result::Result<(), CommandError>;
+pub type CommandResult = Result<(), CommandError>;
 pub type CommandFuture = Pin<Box<dyn Future<Output = CommandResult> + Send>>;
-pub type PrepareFuture = Pin<Box<dyn Future<Output = ExtractorResult<CommandFuture>> + Send>>;
 
 #[derive(Debug)]
 pub struct CommandArgDesc {
@@ -34,7 +34,7 @@ pub struct NativeCommand {
     pub args: &'static [CommandArgDesc],
     pub module_path: &'static str,
     pub line_number: u32,
-    pub action: fn(CommandContext, Args) -> PrepareFuture,
+    pub action: fn(CommandContext, Args) -> CommandFuture,
     pub tags: &'static [CommandTag],
     /// Which minimum permission level is needed to use this command
     pub permission: PermissionLevel,
