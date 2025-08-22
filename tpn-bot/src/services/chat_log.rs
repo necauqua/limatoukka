@@ -1,25 +1,14 @@
 use anyhow::{Context as _, Result, bail};
+use async_trait::async_trait;
 use elasticsearch::{
     CountParts, Elasticsearch, SearchParts, auth::Credentials, http::transport::Transport,
 };
 use serde_json::{Value, json};
 
-use crate::config::Config;
-
-pub struct ChatLog {
-    client: Elasticsearch,
-}
-
-const INDEX: &str = "twitch-chat-necauqua";
-
 #[derive(Debug, Clone)]
 pub enum Edge<'s> {
     First,
-    Last {
-        /// Allows to exclude the message containing the command from the
-        /// search, avoiding a race between elastic twitch logger and the bot
-        exclude_message_id: Option<&'s str>,
-    },
+    Last { exclude_message_id: Option<&'s str> },
 }
 
 impl Edge<'_> {
@@ -44,17 +33,33 @@ pub enum Rank {
     Bottom,
 }
 
-impl ChatLog {
-    pub async fn new(config: &Config) -> Result<Self> {
-        let transport = Transport::single_node(&config.elastic.url)?;
-        transport.set_auth(Credentials::EncodedApiKey(config.elastic.api_key.clone()));
+#[async_trait]
+pub trait ChatLogService: Send + Sync {
+    async fn stat(&self, word: Option<&str>, user_id: Option<&str>) -> Result<i64>;
+    async fn edge(&self, user_id: &str, edge: Edge<'_>) -> Result<Option<EdgeMessage>>;
+    async fn top_n(&self, n: u64, exclude: &[&str]) -> Result<Vec<(String, i64)>>;
+    async fn rank(&self, user_id: &str, exclude: &[&str]) -> Result<Rank>;
+}
+
+pub struct ChatLogServiceElastic {
+    client: Elasticsearch,
+    index: String,
+}
+
+impl ChatLogServiceElastic {
+    pub async fn new(elastic_url: &str, elastic_api_key: &str, index: &str) -> Result<Self> {
+        let transport = Transport::single_node(elastic_url)?;
+        transport.set_auth(Credentials::EncodedApiKey(elastic_api_key.to_owned()));
         Ok(Self {
             client: Elasticsearch::new(transport),
+            index: index.to_owned(),
         })
     }
+}
 
-    #[tracing::instrument(skip(self))]
-    pub async fn stat(&self, word: Option<&str>, user_id: Option<&str>) -> Result<i64> {
+#[async_trait]
+impl ChatLogService for ChatLogServiceElastic {
+    async fn stat(&self, word: Option<&str>, user_id: Option<&str>) -> Result<i64> {
         let mut must = vec![json!({ "term": { "irc.cmd": "PRIVMSG" } })];
 
         if let Some(user_id) = user_id {
@@ -71,7 +76,7 @@ impl ChatLog {
 
         let response = self
             .client
-            .count(CountParts::Index(&[INDEX]))
+            .count(CountParts::Index(&[&self.index]))
             .body(json!({ "query": { "bool": { "must": must } } }))
             .send()
             .await?
@@ -84,7 +89,7 @@ impl ChatLog {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn edge(&self, user_id: &str, edge: Edge<'_>) -> Result<Option<EdgeMessage>> {
+    async fn edge(&self, user_id: &str, edge: Edge<'_>) -> Result<Option<EdgeMessage>> {
         let mut bool = serde_json::Map::new();
         bool.insert(
             "must".into(),
@@ -128,7 +133,7 @@ impl ChatLog {
 
         let response = self
             .client
-            .search(SearchParts::Index(&[INDEX]))
+            .search(SearchParts::Index(&[&self.index]))
             .body(json!({
                 "query": { "bool": bool },
                 "sort": [{ "@timestamp": edge.sort() }],
@@ -156,10 +161,10 @@ impl ChatLog {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn top_n(&self, n: u64, exclude: &[&str]) -> Result<Vec<(String, i64)>> {
+    async fn top_n(&self, n: u64, exclude: &[&str]) -> Result<Vec<(String, i64)>> {
         let response = self
             .client
-            .search(SearchParts::Index(&[INDEX]))
+            .search(SearchParts::Index(&[&self.index]))
             .body(json!({
                 "size": 0,
                 "query": {
@@ -205,10 +210,10 @@ impl ChatLog {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn rank(&self, user_id: &str, exclude: &[&str]) -> Result<Rank> {
+    async fn rank(&self, user_id: &str, exclude: &[&str]) -> Result<Rank> {
         let response = self
             .client
-            .search(SearchParts::Index(&[INDEX]))
+            .search(SearchParts::Index(&[&self.index]))
             .body(json!({
                 "size": 0,
                 "query": {

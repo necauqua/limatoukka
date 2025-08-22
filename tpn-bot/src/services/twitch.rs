@@ -693,7 +693,7 @@ mod tests {
     };
     use twitch_api::helix::points::CreateCustomRewardBody;
 
-    use crate::services::{Services, storage::Storage};
+    use crate::services::{Injector, Services, storage::Storage};
 
     use super::*;
 
@@ -723,7 +723,7 @@ mod tests {
         let services = Services::mock().with_storage(Storage::new(&config).await?);
         services.storage().select(1).await?;
 
-        let ctx = AppContext::new(config, services);
+        let ctx = AppContext::new(config, services, Injector::default());
 
         let mut rx = eventsub.subscribe();
         tokio::spawn(async move {

@@ -9,15 +9,19 @@ use std::{
 };
 
 use anyhow::{Result, bail};
+use futures::future::pending;
 use maud::html;
 use rustis::commands::{PubSubCommands, SetCondition, SetExpiration, StringCommands};
 use tokio::{
     process::{Child, Command},
-    sync::Notify,
+    sync::{Notify, oneshot::Receiver},
     time::sleep,
 };
 
-use crate::{config::Config, services::Services};
+use crate::{
+    config::Config,
+    services::{Injector, Services},
+};
 
 #[derive(Default)]
 struct AppState {
@@ -146,21 +150,27 @@ struct Inner {
 pub struct AppContext {
     inner: Arc<Inner>,
     services: Services,
+    injector: Injector,
 }
 
 impl AppContext {
-    pub fn new(config: Config, services: Services) -> Self {
+    pub fn new(config: Config, services: Services, injector: Injector) -> Self {
         Self {
             inner: Arc::new(Inner {
                 state: Default::default(),
                 config,
             }),
             services,
+            injector,
         }
     }
 
     pub fn config(&self) -> &Config {
         &self.inner.config
+    }
+
+    pub fn service<T: ?Sized + Send + Sync + 'static>(&self) -> Arc<T> {
+        self.injector.get::<T>()
     }
 
     /// Returns true once (atomically) in the given period - per key.
@@ -311,10 +321,17 @@ impl Process {
         }
     }
 
-    pub async fn wait(&mut self, interrupt_signal: impl Future) -> bool {
+    pub async fn wait(&mut self, stop: Option<Receiver<()>>) -> bool {
+        let stop = async {
+            if let Some(stop) = stop {
+                _ = stop.await;
+            } else {
+                pending::<()>().await;
+            }
+        };
         tokio::select! {
             _ = self.do_wait() => true,
-            _ = interrupt_signal => {
+            _ = stop => {
                 // ugh meh
                 let pid = self.child.id().unwrap();
                 unsafe { libc::killpg(pid as _, libc::SIGTERM) };

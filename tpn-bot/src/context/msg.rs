@@ -12,7 +12,7 @@ use rustis::{
     client::BatchPreparedCommand,
     commands::{GenericCommands, ListCommands},
 };
-use tokio::time::sleep;
+use tokio::{sync::oneshot::Receiver, time::sleep};
 
 use crate::{commands::runner::Runner, services::messaging::Message};
 
@@ -73,6 +73,16 @@ impl MessageContext {
 
     pub fn wait_for_interrupt(&self) -> impl Future<Output = InterruptKind> + use<> {
         self.state.interrupt_ticket.wait()
+    }
+
+    pub fn interrupt_signal(&self) -> Receiver<()> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let f = self.wait_for_interrupt();
+        tokio::spawn(async move {
+            f.await;
+            let _ = tx.send(());
+        });
+        rx
     }
 
     pub fn inc_repeats(&self) -> u32 {

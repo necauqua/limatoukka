@@ -41,6 +41,8 @@ pub struct Elastic {
     pub url: String,
     /// The API key for the Elastic instance
     pub api_key: String,
+    /// The index to use for chat logs
+    pub index: String,
 }
 
 #[derive(Deserialize /*, JsonSchema*/, Default, Clone)]

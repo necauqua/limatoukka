@@ -6,7 +6,11 @@ use crate::{
     commands::{CommandResult, args::InRange, command, runner::CommandError},
     context::{app::AppContext, cmd::CommandContext},
     fail,
-    services::{messaging::PermissionLevel, sounds::SoundError},
+    services::{
+        messaging::PermissionLevel,
+        sounds::{SoundError, SoundService},
+        tts::TtsService,
+    },
 };
 
 /// Say something on stream through the TTS.
@@ -23,9 +27,10 @@ async fn tts(ctx: CommandContext, msg: String) -> CommandResult {
         fail!("TTS is pay to win, or from global macros");
     }
 
-    let int = ctx.wait_for_interrupt();
+    ctx.service::<dyn TtsService>()
+        .tts(&msg, Some(ctx.interrupt_signal()))
+        .await?;
 
-    ctx.sounds().tts(&msg, int).await?;
     Ok(())
 }
 
@@ -38,9 +43,11 @@ async fn play_sound(ctx: CommandContext, sound_id: String) -> CommandResult {
         fail!("Sounds can only be played through global macros");
     }
 
-    let int = ctx.wait_for_interrupt();
-
-    match ctx.sounds().play_sound(&sound_id, int).await {
+    match ctx
+        .service::<dyn SoundService>()
+        .play(&sound_id, Some(ctx.interrupt_signal()))
+        .await
+    {
         Ok(_) => Ok(()),
         Err(e @ (SoundError::NotFound | SoundError::DidntChoose)) => fail!("{e}"),
         Err(SoundError::InternalError(e)) => Err(e.into()),

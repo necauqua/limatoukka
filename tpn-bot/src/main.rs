@@ -1,4 +1,4 @@
-use std::{borrow::Cow, time::Duration};
+use std::{borrow::Cow, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use futures::{FutureExt, StreamExt};
@@ -13,13 +13,14 @@ use tpn_bot::{
     context::app::{AppContext, InterruptKind},
     logging,
     services::{
-        Services,
-        chat_log::ChatLog,
+        Injector, Services,
+        chat_log::{ChatLogService, ChatLogServiceElastic},
         messaging,
         noita::{ItemFound, NoitaEvent, NoitaHandle},
-        sounds::Sounds,
+        sounds::{SoundService, SoundServiceImpl},
         status_wall::StatusWall,
         storage::Storage,
+        tts::{TtsService, TtsServiceImpl},
         twitch::{EventSub, Twitch},
         xdo::XDoClient,
     },
@@ -39,7 +40,6 @@ use twitch_api::{
 };
 
 async fn run(config: Config) -> Result<()> {
-    let chat_log = ChatLog::new(&config).await?;
     let storage = Storage::new(&config).await?;
     let xdo = XDoClient::new(config.display.clone());
 
@@ -51,18 +51,30 @@ async fn run(config: Config) -> Result<()> {
     let mut eventsub_rx = eventsub.subscribe();
     let eventsub_init = eventsub.wait_for_full_init();
 
+    let mut injector = Injector::default();
+
+    injector.add::<dyn ChatLogService>(Arc::new(
+        ChatLogServiceElastic::new(
+            &config.elastic.url,
+            &config.elastic.api_key,
+            &config.elastic.index,
+        )
+        .await?,
+    ));
+    injector.add::<dyn SoundService>(Arc::new(SoundServiceImpl::default()));
+    injector.add::<dyn TtsService>(Arc::new(TtsServiceImpl::default()));
+
     let ctx = AppContext::new(
         config,
         Services::new(
             messaging,
             storage,
-            chat_log,
             xdo,
             NoitaHandle::default(),
             StatusWall::default(),
             twitch,
-            Sounds::default(),
         ),
+        injector,
     );
 
     let mut commands = discover_declared_commands();
@@ -389,8 +401,8 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
                 text = data.message.text,
                 "resub"
             );
-            ctx.sounds()
-                .tts(&data.message.text, std::future::pending::<()>())
+            ctx.service::<dyn TtsService>()
+                .tts(&data.message.text, None)
                 .await?;
         }
         Event::ChannelCheerV1(Payload {
@@ -404,9 +416,9 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
                 text = data.message,
                 "cheer"
             );
-            if data.bits >= 100 {
-                ctx.sounds()
-                    .tts(&data.message, std::future::pending::<()>())
+            if data.bits >= 25 {
+                ctx.service::<dyn TtsService>()
+                    .tts(&data.message, None)
                     .await?;
             }
         }
@@ -424,8 +436,8 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
             let handle = ctx.clone();
             tokio::spawn(async move {
                 handle
-                    .sounds()
-                    .play_sound("RAID", std::future::pending::<()>())
+                    .service::<dyn SoundService>()
+                    .play("RAID", None)
                     .await
             });
 

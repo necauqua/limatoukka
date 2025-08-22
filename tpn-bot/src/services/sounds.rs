@@ -1,15 +1,16 @@
 use std::collections::HashMap;
 
 use anyhow::{Result, anyhow};
+use async_trait::async_trait;
 use rand::seq::IndexedRandom;
 use serde::Deserialize;
 use thiserror::Error;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, oneshot::Receiver};
 
 use crate::{commands::runner::CommandError, context::app::AppContext};
 
 #[derive(Default)]
-pub struct Sounds {
+pub struct SoundServiceImpl {
     exclusive_sound: Mutex<()>,
 }
 
@@ -77,24 +78,14 @@ impl From<SoundError> for CommandError {
     }
 }
 
-impl Sounds {
-    pub async fn tts(&self, text: &str, interrupt_signal: impl Future) -> Result<()> {
-        tracing::debug!(text, "sending TTS");
+#[async_trait]
+pub trait SoundService: Send + Sync {
+    async fn play(&self, sound_id: &str, stop: Option<Receiver<()>>) -> Result<(), SoundError>;
+}
 
-        let mut process = AppContext::just("aws-tts", &[text])?;
-        if process.wait(interrupt_signal).await {
-            tracing::debug!(text, "finished TTS")
-        } else {
-            tracing::debug!(text, "interrupted TTS");
-        }
-        Ok(())
-    }
-
-    pub async fn play_sound(
-        &self,
-        sound_id: &str,
-        interrupt_signal: impl Future,
-    ) -> Result<(), SoundError> {
+#[async_trait]
+impl SoundService for SoundServiceImpl {
+    async fn play(&self, sound_id: &str, stop: Option<Receiver<()>>) -> Result<(), SoundError> {
         // just read it every time for runtime editing (like with justfile)
         let data: SoundMeta = serde_yml::from_str(
             &std::fs::read_to_string("./sounds/_meta.yml").map_err(|e| anyhow!(e))?,
@@ -118,7 +109,7 @@ impl Sounds {
             &[&sound_file.file, volume.to_string().as_str()],
         )?;
 
-        if process.wait(interrupt_signal).await {
+        if process.wait(stop).await {
             tracing::debug!(sound_id, "finished playing sound");
         } else {
             tracing::debug!(sound_id, "interrupted sound playback");

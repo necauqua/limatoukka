@@ -171,13 +171,12 @@ impl Runner {
 
         if let Ok((personal, global)) = res
             && (personal || global)
+            && let Some(meta) = self.inner.commands.get("macro").cloned()
         {
-            if let Some(meta) = self.inner.commands.get("macro").cloned() {
-                // empty string for current username, to allow macro params to immediately follow
-                expr.params.push_front(Param::default());
-                expr.params.push_front(Param::simple(name.to_owned()));
-                return Some(meta);
-            }
+            // empty string for current username, to allow macro params to immediately follow
+            expr.params.push_front(Param::default());
+            expr.params.push_front(Param::simple(name.to_owned()));
+            return Some(meta);
         }
         None
     }
@@ -322,21 +321,21 @@ impl Runner {
     }
 
     async fn run_command(ctx: CommandContext, fut: CommandFuture) -> Result<(), CommandError> {
-        if let Some(global_gate) = &ctx.meta.global_gate {
-            if !ctx.gate(ctx.meta.name, *global_gate).await? {
-                fail!(
-                    "global timeout {}",
-                    humantime::format_duration(*global_gate)
-                );
-            }
+        if let Some(global_gate) = &ctx.meta.global_gate
+            && !ctx.gate(ctx.meta.name, *global_gate).await?
+        {
+            fail!(
+                "global timeout {}",
+                humantime::format_duration(*global_gate)
+            );
         }
-        if let Some(sender_gate) = &ctx.meta.sender_gate {
-            if !ctx.sender_gate(ctx.meta.name, *sender_gate).await? {
-                fail!(
-                    "sender timeout {}",
-                    humantime::format_duration(*sender_gate)
-                );
-            }
+        if let Some(sender_gate) = &ctx.meta.sender_gate
+            && !ctx.sender_gate(ctx.meta.name, *sender_gate).await?
+        {
+            fail!(
+                "sender timeout {}",
+                humantime::format_duration(*sender_gate)
+            );
         }
 
         let status = html! {

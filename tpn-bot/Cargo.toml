@@ -67,6 +67,7 @@ paste = "1.0.15"
 sysinfo = "0.35.1"
 rand = "0.9.1"
 compact_str = "0.9.0"
+dashmap = "6.1.0"
 
 [build-dependencies]
 anyhow = "1.0.97"

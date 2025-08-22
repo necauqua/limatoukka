@@ -117,7 +117,7 @@ impl Hold<'_> {
 }
 
 impl Storage {
-    pub fn hold(&self, key: &str) -> Result<Hold> {
+    pub fn hold<'a>(&'a self, key: &str) -> Result<Hold<'a>> {
         Ok(Hold {
             storage: self,
             key: format!("holds:{key}"),
@@ -168,7 +168,7 @@ impl Cache<'_> {
 }
 
 impl Storage {
-    pub fn cache(&self, ttl: Duration, key: &'static str) -> Result<Cache> {
+    pub fn cache<'a>(&'a self, ttl: Duration, key: &'static str) -> Result<Cache<'a>> {
         Ok(Cache {
             storage: self,
             ttl,

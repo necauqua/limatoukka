@@ -23,11 +23,11 @@ async fn hold(
 ) -> CommandResult {
     let hold = ctx.storage().hold(key)?;
 
-    if hold.down().await? {
-        if let Err(e) = down(&ctx).await {
-            _ = hold.up().await;
-            return Err(e);
-        }
+    if hold.down().await?
+        && let Err(e) = down(&ctx).await
+    {
+        _ = hold.up().await;
+        return Err(e);
     }
 
     let sleep = ctx.interruptible(tokio::time::sleep(duration.get())).await;
