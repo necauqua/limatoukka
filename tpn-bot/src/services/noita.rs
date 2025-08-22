@@ -129,6 +129,7 @@ impl NoitaHandle {
                 tracing::info!("died");
 
                 best_inv = Inventory::empty();
+                last_inv_update = Instant::now(); // avoid races with inventory reading by resetting its timer
                 _ = ctx.noita().events.send(NoitaEvent::PlayerDeath);
             }
 
