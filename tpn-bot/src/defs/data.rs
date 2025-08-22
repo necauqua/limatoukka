@@ -11,6 +11,7 @@ use noita_engine_reader::{
         components::{DamageModelComponent, UIIconComponent},
     },
 };
+use serde_json::json;
 
 use crate::{
     commands::{CommandResult, args::RestOfArgs, command, runner::CommandError},
@@ -129,28 +130,13 @@ async fn damage_multipliers(ctx: CommandContext) -> CommandResult {
 
     let m = dmc.damage_multipliers;
 
-    // no compile-time reflection sadge
-    let list = vec![
-        ("melee", m.melee),
-        ("projectile", m.projectile),
-        ("explosion", m.explosion),
-        ("electricity", m.electricity),
-        ("fire", m.fire),
-        ("drill", m.drill),
-        ("slice", m.slice),
-        ("ice", m.ice),
-        ("healing", m.healing),
-        ("physics_hit", m.physics_hit),
-        ("radioactive", m.radioactive),
-        ("poison", m.poison),
-        ("overeating", m.overeating),
-        ("curse", m.curse),
-        ("holy", m.holy),
-    ];
-
-    let msg = list
+    // using serde for compile-time reflection here lmao
+    let json = serde_json::to_value(&m)?;
+    let msg = json
+        .as_object()
+        .unwrap()
         .into_iter()
-        .filter(|(_, v)| *v != 1.0)
+        .filter(|(_, v)| **v != json!(1.0))
         .map(|(name, value)| format!("{name}={value:?}",))
         .collect::<Vec<_>>()
         .join(",\n");
