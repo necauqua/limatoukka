@@ -144,6 +144,8 @@ impl AppContext {
 struct Inner {
     state: Mutex<AppState>,
     config: Config,
+    caster_id: Option<String>,
+    bot_id: Option<String>,
 }
 
 #[derive(Clone)]
@@ -159,14 +161,38 @@ impl AppContext {
             inner: Arc::new(Inner {
                 state: Default::default(),
                 config,
+                caster_id: None,
+                bot_id: None,
             }),
             services,
             injector,
         }
     }
 
+    pub fn with_caster_id(mut self, caster_id: String) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("setting caster id after cloning app context")
+            .caster_id = Some(caster_id);
+        self
+    }
+
+    pub fn with_bot_id(mut self, bot_id: String) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("setting bot id after cloning app context")
+            .bot_id = Some(bot_id);
+        self
+    }
+
     pub fn config(&self) -> &Config {
         &self.inner.config
+    }
+
+    pub fn caster_id(&self) -> Option<&str> {
+        self.inner.caster_id.as_deref()
+    }
+
+    pub fn bot_id(&self) -> Option<&str> {
+        self.inner.bot_id.as_deref()
     }
 
     pub fn service<T: ?Sized + Send + Sync + 'static>(&self) -> Arc<T> {

@@ -14,9 +14,7 @@ use twitch_irc::{
     message::{Badge, IRCMessage, IRCTags, ServerMessage},
 };
 
-use crate::context::app::AppContext;
-
-use super::twitch::Twitch;
+use crate::{context::app::AppContext, twitch::Twitch};
 
 #[derive(Debug, Clone)]
 pub struct Sender {

@@ -6,13 +6,12 @@ use std::{
     time::Duration,
 };
 
-use anyhow::anyhow;
 use async_trait::async_trait;
 use compact_str::{CompactString, ToCompactString as _};
 use humantime_serde::re::humantime;
 use thiserror::Error;
 
-use crate::context::cmd::CommandContext;
+use crate::{context::cmd::CommandContext, services::twitch::TwitchService};
 
 use neca_cmd::{
     Statement,
@@ -438,15 +437,14 @@ impl CommandArg for Chatter {
             .storage()
             .cache(Duration::from_secs(24 * 60 * 60), "twitch-id")?
             .get(&login, async || {
-                let full = ctx
-                    .twitch()
-                    .call(async |t| t.helix.get_user_from_login(&login, &t.token).await)
-                    .await
-                    .map_err(|e| anyhow!(e))?;
-                let Some(user) = full else {
+                let user_id = ctx
+                    .service::<dyn TwitchService>()
+                    .get_user_id(&login)
+                    .await?;
+                let Some(user_id) = user_id else {
                     return Err(ArgError::Precondition(format!("user {login} not found")));
                 };
-                Ok(user.id.take())
+                Ok(user_id)
             })
             .await?;
 

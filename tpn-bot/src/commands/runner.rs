@@ -61,7 +61,7 @@ impl Runner {
     pub async fn process_message(&self, ctx: AppContext, message: Message) -> Result<()> {
         let s = &message.sender;
 
-        if s.id == ctx.twitch().bot_id() {
+        if ctx.bot_id() == Some(&s.id) {
             return Ok(());
         }
 

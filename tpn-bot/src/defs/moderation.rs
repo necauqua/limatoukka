@@ -2,7 +2,6 @@ use std::time::{Duration, SystemTime};
 
 use humantime_serde::re::humantime;
 use rustis::commands::{GenericCommands, StringCommands};
-use twitch_api::helix::channels::modify_channel_information::*;
 
 use crate::{
     commands::{
@@ -12,6 +11,7 @@ use crate::{
     },
     context::{app::AppContext, cmd::CommandContext},
     fail,
+    services::twitch::TwitchService,
 };
 
 pub async fn do_banish(
@@ -50,11 +50,11 @@ async fn banish(
     chatter: Required<Chatter>,
     duration: Option<Duration>,
 ) -> CommandResult {
-    if chatter.id == ctx.twitch().caster_id() {
+    if ctx.caster_id() == Some(&*chatter.id) {
         ctx.reply("🤨".into()).await?;
         return Ok(());
     }
-    if chatter.id == ctx.twitch().bot_id() {
+    if ctx.bot_id() == Some(&*chatter.id) {
         fail!("lol. lmao.")
     }
     if ctx
@@ -120,19 +120,9 @@ async fn banished(ctx: CommandContext, chatter: Required<Chatter>) -> CommandRes
 /// Set the stream title, common moderation command, nothing special here.
 #[command(permission = Moderator, global_gate = 5s, Hidden)]
 async fn set_title(ctx: CommandContext, title: String) -> CommandResult {
-    ctx.twitch()
-        .caster_call(async |t| {
-            let request = ModifyChannelInformationRequest::broadcaster_id(t.caster_id);
-            let mut body = ModifyChannelInformationBody::new();
-            body.title(&title);
-
-            let response: ModifyChannelInformation =
-                t.helix.req_patch(request, body, &t.token).await?.data;
-
-            Ok(response)
-        })
+    ctx.service::<dyn TwitchService>()
+        .set_stream_title(&title)
         .await?;
-
     Ok(())
 }
 

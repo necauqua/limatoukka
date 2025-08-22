@@ -21,9 +21,10 @@ use tpn_bot::{
         status_wall::StatusWall,
         storage::Storage,
         tts::{TtsService, TtsServiceImpl},
-        twitch::{EventSub, Twitch},
+        twitch::{TwitchService, TwitchServiceImpl},
         xdo::XDoClient,
     },
+    twitch::{EventSub, Twitch},
 };
 
 use tracing::{Instrument, Span, instrument};
@@ -53,6 +54,7 @@ async fn run(config: Config) -> Result<()> {
 
     let mut injector = Injector::default();
 
+    injector.add::<dyn TwitchService>(Arc::new(TwitchServiceImpl::new(twitch.clone())));
     injector.add::<dyn ChatLogService>(Arc::new(
         ChatLogServiceElastic::new(
             &config.elastic.url,
@@ -72,10 +74,11 @@ async fn run(config: Config) -> Result<()> {
             xdo,
             NoitaHandle::default(),
             StatusWall::default(),
-            twitch,
         ),
         injector,
-    );
+    )
+    .with_caster_id(twitch.caster_id().to_owned())
+    .with_bot_id(twitch.bot_id().to_owned());
 
     let mut commands = discover_declared_commands();
 
@@ -92,7 +95,7 @@ async fn run(config: Config) -> Result<()> {
 
     eventsub_init.await;
     // after eventsub init so we can receive redemptions
-    ctx.twitch().unpause_rewards().await?;
+    twitch.unpause_rewards().await?;
 
     ctx.storage().publish("bot-restart", "1").await?;
 
@@ -162,7 +165,8 @@ async fn run(config: Config) -> Result<()> {
             },
             Ok(event) = eventsub_rx.recv() => {
                 let ctx = ctx.clone();
-                mainloop_task(&mut tasks, async move { eventsub_event(ctx, event).await })
+                let twitch = twitch.clone();
+                mainloop_task(&mut tasks, async move { eventsub_event(ctx, twitch, event).await })
             },
             else => break,
         };
@@ -170,7 +174,7 @@ async fn run(config: Config) -> Result<()> {
 
     // just pray nothing errored beforehand
     // where's my errdefer :(
-    ctx.twitch().pause_rewards().await?;
+    twitch.pause_rewards().await?;
 
     tasks.join_all().await;
 
@@ -239,7 +243,7 @@ async fn noita_event(ctx: AppContext, event: NoitaEvent) -> Result<()> {
 }
 
 #[instrument(skip_all)]
-async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
+async fn eventsub_event(ctx: AppContext, twitch: Twitch, event: Event) -> Result<()> {
     match event {
         Event::ChannelPointsCustomRewardRedemptionAddV1(Payload {
             message: Message::Notification(data),
@@ -292,7 +296,7 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
             if fulfilled {
                 let id = &data.id;
                 let reward_id = &data.reward.id;
-                ctx.twitch()
+                twitch
                     .caster_call(async |t| {
                         let request =
                             UpdateRedemptionStatusRequest::new(t.caster_id, reward_id, id);
@@ -446,7 +450,7 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
                 data.from_broadcaster_user_name
             ))
             .await?;
-            ctx.twitch()
+            twitch
                 .call(async |t| {
                     let request = SendAShoutoutRequest::new(
                         t.caster_id,

@@ -80,9 +80,13 @@ async fn last_message(ctx: CommandContext, chatter: Chatter) -> CommandResult {
 /// Get a list of top-N chatters of all time, by number of sent messages.
 #[command(sender_gate = 10m)]
 async fn top(ctx: CommandContext, n: Option<InRange<1, 15>>) -> CommandResult {
+    let exclude: &[&str] = match ctx.bot_id() {
+        Some(bot_id) => &[bot_id],
+        None => &[],
+    };
     ctx.reply(
         ctx.service::<dyn ChatLogService>()
-            .top_n(n.map_or(5, |n| n.get() as _), &[ctx.twitch().bot_id()])
+            .top_n(n.map_or(5, |n| n.get() as _), exclude)
             .await?
             .into_iter()
             .map(|(name, count)| format!("{name}: {count}"))
@@ -100,10 +104,14 @@ async fn rank(ctx: CommandContext, chatter: Chatter) -> CommandResult {
         true => ("You", "you"),
         false => ("They", "them"),
     };
+    let exclude: &[&str] = match ctx.bot_id() {
+        Some(bot_id) => &[bot_id],
+        None => &[],
+    };
     ctx.reply(
         match ctx
             .service::<dyn ChatLogService>()
-            .rank(&chatter.id, &[ctx.twitch().bot_id()])
+            .rank(&chatter.id, exclude)
             .await?
         {
             Rank::Top1 => {

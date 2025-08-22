@@ -8,7 +8,6 @@ use messaging::MessagingClient;
 use noita::NoitaHandle;
 use status_wall::StatusWall;
 use storage::Storage;
-use twitch::Twitch;
 use xdo::XDoClient;
 
 pub mod chat_log;
@@ -70,7 +69,6 @@ services! {
     xdo: XDoClient,
     noita: NoitaHandle,
     status_wall: StatusWall,
-    twitch: Twitch,
 }
 
 #[derive(Default, Clone)]
