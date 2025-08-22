@@ -329,12 +329,8 @@ impl NoitaState {
             .as_bool();
 
         let (polied, drowning) = is_polied_or_low_oxygen(noita)?.unwrap_or_default();
+        let dead = noita.read_config_player_stats()?.stats.dead.as_bool();
 
-        // -> CONFIG_PLAYER_STATS.stats.dead
-        let dead = RawPtr::of(0x01208784)
-            .read::<PadBool<3>>(noita.proc())?
-            .get()
-            .as_bool();
         Ok(Self {
             inventory_open,
             low_oxygen: drowning,

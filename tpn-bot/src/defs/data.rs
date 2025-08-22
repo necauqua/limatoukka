@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use noita_engine_reader::{
-    memory::{MemoryStorage, Ptr},
+    memory::MemoryStorage,
     types::{
         Bitset512, Vec2,
         components::{DamageModelComponent, UIIconComponent},
@@ -45,8 +45,10 @@ async fn death_count(ctx: CommandContext) -> CommandResult {
         .noita()
         .with(|n| Ok(n.read_stats()?))
         .await
-        .map_err(data_error("stats"))?;
-    ctx.reply(stats.global.death_count.to_string()).await?;
+        .map_err(data_error("stats"))?
+        .global
+        .death_count;
+    ctx.reply(stats.to_string()).await?;
     Ok(())
 }
 
@@ -55,10 +57,11 @@ async fn death_count(ctx: CommandContext) -> CommandResult {
 async fn kicks(ctx: CommandContext) -> CommandResult {
     let kicks = ctx
         .noita()
-        // CONFIG_PLAYER_STATS.stats.kicks <- should really add this CONFIG_PLAYER_STATS thing to the engine reader
-        .with(|n| Ok(Ptr::<u32>::of(0x01208824).read(n.proc())?))
+        .with(|n| Ok(n.read_config_player_stats()?))
         .await
-        .map_err(data_error("kicks"))?;
+        .map_err(data_error("stats"))?
+        .stats
+        .kicks;
     ctx.reply(kicks.to_string()).await?;
     Ok(())
 }
