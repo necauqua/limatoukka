@@ -1,12 +1,16 @@
 use crate::{
     commands::{CommandResult, command},
     context::cmd::CommandContext,
+    services::charges::ChargesService,
 };
 
 /// Check your current balance of charges
 #[command(sender_gate = 3s)]
 async fn balance(ctx: CommandContext) -> CommandResult {
-    let charges = ctx.storage().get_charges(&ctx.message().sender.id).await?;
+    let charges = ctx
+        .service::<dyn ChargesService>()
+        .get(&ctx.message().sender.id)
+        .await?;
 
     match (charges / 1000, charges % 1000) {
         (1, 0) => ctx.reply("Your have 1 charge".into()),

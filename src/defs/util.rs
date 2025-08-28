@@ -29,7 +29,7 @@ use tokio::time::sleep;
 /// Also this gives you a charge :)
 #[command(global_gate = 1h)]
 async fn ping(ctx: CommandContext) -> CommandResult {
-    ctx.give_charges(1000).await?;
+    ctx.add_charges(1000).await?;
     ctx.reply("pong!".into()).await?;
     Ok(())
 }

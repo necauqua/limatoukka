@@ -160,7 +160,7 @@ pub struct AppContext {
     inner: Arc<Inner>,
     services: Services,
     gate_service: Arc<dyn GateService>,
-    messaging_service: Arc<dyn MessagingService>,
+    messaging: Arc<dyn MessagingService>,
     injector: Injector,
 }
 
@@ -177,7 +177,7 @@ impl AppContext {
             gate_service: injector
                 .get_opt::<dyn GateService>()
                 .unwrap_or_else(|| Arc::new(GateServiceNoop)),
-            messaging_service: injector
+            messaging: injector
                 .get_opt::<dyn MessagingService>()
                 .unwrap_or_else(|| Arc::new(MessagingServiceMock)),
             injector,
@@ -220,13 +220,12 @@ impl AppContext {
     }
 
     pub async fn send(&self, message: String) -> Result<()> {
-        tracing::debug!(text = message, "sending");
-        self.messaging_service.send(message).await?;
+        self.messaging.send(message).await?;
         Ok(())
     }
 
     pub fn messaging(&self) -> &dyn MessagingService {
-        &*self.messaging_service
+        &*self.messaging
     }
 
     // eh I couldnt be bothered lol

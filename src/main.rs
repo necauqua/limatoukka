@@ -15,6 +15,7 @@ use tpn_bot::{
     logging,
     services::{
         Injector, Services,
+        charges::{ChargesService, ChargesServiceRedis},
         chat_log::{ChatLogService, ChatLogServiceElastic},
         gates::{GateService, GateServiceRedis},
         messaging::{self, MessagingService},
@@ -58,6 +59,7 @@ async fn run(config: Config) -> Result<()> {
     let mut injector = Injector::default();
 
     injector.add::<dyn MessagingService>(messaging.into());
+    injector.add::<dyn ChargesService>(Arc::new(ChargesServiceRedis::new(valkey.clone())));
     injector.add::<dyn GateService>(Arc::new(GateServiceRedis::new(valkey.clone())));
     injector.add::<dyn TwitchService>(Arc::new(TwitchServiceImpl::new(twitch.clone())));
     injector.add::<dyn ChatLogService>(Arc::new(
@@ -266,32 +268,32 @@ async fn eventsub_event(ctx: AppContext, twitch: Twitch, event: Event) -> Result
                     true
                 }
                 "Buy 1 charge" => {
-                    ctx.storage()
-                        .add_charges(data.user_id.as_str(), 1000)
+                    ctx.service::<dyn ChargesService>()
+                        .add(data.user_id.as_str(), 1000)
                         .await?;
                     true
                 }
                 "Buy 5 charges" => {
-                    ctx.storage()
-                        .add_charges(data.user_id.as_str(), 5000)
+                    ctx.service::<dyn ChargesService>()
+                        .add(data.user_id.as_str(), 5000)
                         .await?;
                     true
                 }
                 "Buy 10 charges" => {
-                    ctx.storage()
-                        .add_charges(data.user_id.as_str(), 10000)
+                    ctx.service::<dyn ChargesService>()
+                        .add(data.user_id.as_str(), 10000)
                         .await?;
                     true
                 }
                 "Buy 50 charges" => {
-                    ctx.storage()
-                        .add_charges(data.user_id.as_str(), 50000)
+                    ctx.service::<dyn ChargesService>()
+                        .add(data.user_id.as_str(), 50000)
                         .await?;
                     true
                 }
                 "Buy 100 charges" => {
-                    ctx.storage()
-                        .add_charges(data.user_id.as_str(), 100000)
+                    ctx.service::<dyn ChargesService>()
+                        .add(data.user_id.as_str(), 100000)
                         .await?;
                     true
                 }

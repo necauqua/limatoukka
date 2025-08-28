@@ -14,7 +14,10 @@ use rustis::{
 };
 use tokio::{sync::oneshot::Receiver, time::sleep};
 
-use crate::{commands::runner::Runner, services::messaging::Message};
+use crate::{
+    commands::runner::Runner,
+    services::{charges::ChargesService, messaging::Message},
+};
 
 use super::app::{AppContext, InterruptKind, InterruptTicket};
 
@@ -127,14 +130,14 @@ impl MessageContext {
         self.reply(messages.join("; ")).await
     }
 
-    pub async fn give_charges(&self, amount: u64) -> Result<i64> {
-        self.storage()
-            .add_charges(&self.message().sender.id, amount as i64)
+    pub async fn add_charges(&self, amount: u64) -> Result<i64> {
+        self.service::<dyn ChargesService>()
+            .add(&self.message().sender.id, amount as i64)
             .await
     }
 
     pub async fn consume_charges(&self, amount: u64) -> Result<bool> {
-        self.storage()
+        self.service::<dyn ChargesService>()
             .consume(&self.message().sender.id, amount)
             .await
     }

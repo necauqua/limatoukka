@@ -9,6 +9,7 @@ use status_wall::StatusWall;
 use storage::Storage;
 use xdo::XDoClient;
 
+pub mod charges;
 pub mod chat_log;
 pub mod gates;
 pub mod messaging;
