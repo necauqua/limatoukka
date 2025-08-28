@@ -17,7 +17,7 @@ use tpn_bot::{
         Injector, Services,
         chat_log::{ChatLogService, ChatLogServiceElastic},
         gates::{GateService, GateServiceRedis},
-        messaging,
+        messaging::{self, MessagingService},
         noita::{ItemFound, NoitaEvent, NoitaHandle},
         sounds::{SoundService, SoundServiceImpl},
         status_wall::StatusWall,
@@ -57,6 +57,7 @@ async fn run(config: Config) -> Result<()> {
 
     let mut injector = Injector::default();
 
+    injector.add::<dyn MessagingService>(messaging.into());
     injector.add::<dyn GateService>(Arc::new(GateServiceRedis::new(valkey.clone())));
     injector.add::<dyn TwitchService>(Arc::new(TwitchServiceImpl::new(twitch.clone())));
     injector.add::<dyn ChatLogService>(Arc::new(
@@ -73,7 +74,6 @@ async fn run(config: Config) -> Result<()> {
     let ctx = AppContext::new(
         config,
         Services::new(
-            messaging,
             Storage::new(valkey),
             xdo,
             NoitaHandle::default(),

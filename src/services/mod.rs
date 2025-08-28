@@ -4,7 +4,6 @@ use std::{
 };
 
 use dashmap::DashMap;
-use messaging::MessagingClient;
 use noita::NoitaHandle;
 use status_wall::StatusWall;
 use storage::Storage;
@@ -65,7 +64,6 @@ macro_rules! services {
 }
 
 services! {
-    messaging: MessagingClient,
     storage: Storage,
     xdo: XDoClient,
     noita: NoitaHandle,

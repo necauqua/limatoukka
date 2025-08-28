@@ -1,5 +1,4 @@
 use std::{
-    ops::Deref,
     process::Stdio,
     sync::{
         Arc, Mutex,
@@ -23,6 +22,11 @@ use crate::{
     services::{
         Injector, Services,
         gates::{GateService, GateServiceNoop},
+        messaging::{MessagingService, MessagingServiceMock},
+        noita::NoitaHandle,
+        status_wall::StatusWall,
+        storage::Storage,
+        xdo::XDoClient,
     },
 };
 
@@ -156,6 +160,7 @@ pub struct AppContext {
     inner: Arc<Inner>,
     services: Services,
     gate_service: Arc<dyn GateService>,
+    messaging_service: Arc<dyn MessagingService>,
     injector: Injector,
 }
 
@@ -172,6 +177,9 @@ impl AppContext {
             gate_service: injector
                 .get_opt::<dyn GateService>()
                 .unwrap_or_else(|| Arc::new(GateServiceNoop)),
+            messaging_service: injector
+                .get_opt::<dyn MessagingService>()
+                .unwrap_or_else(|| Arc::new(MessagingServiceMock)),
             injector,
         }
     }
@@ -213,8 +221,12 @@ impl AppContext {
 
     pub async fn send(&self, message: String) -> Result<()> {
         tracing::debug!(text = message, "sending");
-        self.messaging().send(message).await?;
+        self.messaging_service.send(message).await?;
         Ok(())
+    }
+
+    pub fn messaging(&self) -> &dyn MessagingService {
+        &*self.messaging_service
     }
 
     // eh I couldnt be bothered lol
@@ -302,13 +314,21 @@ impl AppContext {
         self.restart().await?;
         Ok(())
     }
-}
 
-impl Deref for AppContext {
-    type Target = Services;
+    pub fn storage(&self) -> &Storage {
+        self.services.storage()
+    }
 
-    fn deref(&self) -> &Self::Target {
-        &self.services
+    pub fn xdo(&self) -> &XDoClient {
+        self.services.xdo()
+    }
+
+    pub fn status_wall(&self) -> &StatusWall {
+        self.services.status_wall()
+    }
+
+    pub fn noita(&self) -> &NoitaHandle {
+        self.services.noita()
     }
 }
 
