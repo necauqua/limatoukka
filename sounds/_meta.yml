@@ -44,6 +44,9 @@ factorio-game-over:
 smoke-detector-beep:
   file: "smoke-detector-beep.ogg"
   volume: 0.2
+bald:
+  file: "bald.ogg"
+  volume: 0.4
 
 RAID:
   file: "pipes.ogg"
