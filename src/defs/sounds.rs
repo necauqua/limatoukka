@@ -65,8 +65,15 @@ async fn now_playing(ctx: CommandContext) -> CommandResult {
 }
 
 /// Skips the song that's currently playing on stream, if any.
-#[command(global_gate = 15s, permission = Vip)]
+///
+/// This will cost you 1 charge, unless you're VIP or higher.
+#[command(global_gate = 15s)]
 async fn skip(ctx: CommandContext) -> CommandResult {
+    let is_free = ctx.message().sender.level >= PermissionLevel::Vip;
+    if !is_free && !ctx.consume_charges(1_000).await? {
+        fail!("Skip costs 1 charge");
+    }
+
     match AppContext::just("music-skip", &[])?.get().await? {
         Ok(_) => ctx.reply("song skipped Madge".into()).await?,
         Err(_) => fail!("Nothing is playing right now"),
