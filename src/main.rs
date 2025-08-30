@@ -485,6 +485,8 @@ async fn eventsub_event(ctx: AppContext, twitch: Twitch, event: Event) -> Result
             ))
             .await?;
         }
+        Event::StreamOnlineV1(_) => ctx.send("→ stream start cutoff ←".into()).await?,
+        Event::StreamOfflineV1(_) => ctx.send("→ stream end cutoff ←".into()).await?,
         event => tracing::info!(?event, "unhandled eventsub event"),
     }
     Ok(())

@@ -393,6 +393,8 @@ impl EventSub {
             channel::ChannelRaidV1 to_broadcaster_user_id,
             channel::ChannelHypeTrainBeginV1,
             channel::ChannelHypeTrainEndV1,
+            stream::StreamOnlineV1,
+            stream::StreamOfflineV1,
         ];
 
         self.on_subscribed.notify_waiters();
