@@ -1,7 +1,10 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use twitch_api::helix::channels::{
-    ModifyChannelInformation, ModifyChannelInformationBody, ModifyChannelInformationRequest,
+use twitch_api::helix::{
+    channels::{
+        ModifyChannelInformation, ModifyChannelInformationBody, ModifyChannelInformationRequest,
+    },
+    chat::SendAShoutoutRequest,
 };
 
 use crate::twitch::Twitch;
@@ -10,6 +13,7 @@ use crate::twitch::Twitch;
 pub trait TwitchService: Send + Sync {
     async fn get_user_id(&self, login: &str) -> Result<Option<String>>;
     async fn set_stream_title(&self, title: &str) -> Result<()>;
+    async fn shout_out(&self, user_id: &str) -> Result<()>;
 }
 
 pub struct TwitchServiceImpl {
@@ -43,6 +47,20 @@ impl TwitchService for TwitchServiceImpl {
                     t.helix.req_patch(request, body, &t.token).await?.data;
 
                 Ok(response)
+            })
+            .await?;
+        Ok(())
+    }
+
+    async fn shout_out(&self, user_id: &str) -> Result<()> {
+        self.twitch
+            .call(async |t| {
+                let request =
+                    SendAShoutoutRequest::new(t.caster_id, user_id, t.token.user_id.clone());
+                t.helix
+                    .req_post(request, Default::default(), &t.token)
+                    .await?;
+                Ok(())
             })
             .await?;
         Ok(())

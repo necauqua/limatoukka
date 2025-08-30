@@ -34,11 +34,8 @@ use tracing::{Instrument, Span, instrument};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use twitch_api::{
     eventsub::{Event, Message, Payload},
-    helix::{
-        chat::SendAShoutoutRequest,
-        points::{
-            CustomRewardRedemptionStatus, UpdateRedemptionStatusBody, UpdateRedemptionStatusRequest,
-        },
+    helix::points::{
+        CustomRewardRedemptionStatus, UpdateRedemptionStatusBody, UpdateRedemptionStatusRequest,
     },
     types::SubscriptionTier,
 };
@@ -456,18 +453,9 @@ async fn eventsub_event(ctx: AppContext, twitch: Twitch, event: Event) -> Result
                 data.from_broadcaster_user_name
             ))
             .await?;
-            twitch
-                .call(async |t| {
-                    let request = SendAShoutoutRequest::new(
-                        t.caster_id,
-                        &data.from_broadcaster_user_id,
-                        t.token.user_id.clone(),
-                    );
-                    t.helix
-                        .req_post(request, Default::default(), &t.token)
-                        .await?;
-                    Ok(())
-                })
+
+            ctx.service::<dyn TwitchService>()
+                .shout_out(data.from_broadcaster_user_id.as_str())
                 .await?;
         }
         Event::ChannelHypeTrainBeginV1(Payload {
