@@ -1,7 +1,8 @@
 use crate::{
     commands::{CommandResult, command},
     context::cmd::CommandContext,
-    services::charges::ChargesService,
+    fail,
+    services::{charges::ChargesService, gates::GateService},
 };
 
 /// Check your current balance of charges
@@ -21,6 +22,20 @@ async fn balance(ctx: CommandContext) -> CommandResult {
         )),
     }
     .await?;
+
+    Ok(())
+}
+
+/// Spend a charge to remove all of your current timeouts.
+#[command]
+async fn unleash_me(ctx: CommandContext) -> CommandResult {
+    if !ctx.consume_charges(1_000).await? {
+        fail!("poor");
+    }
+
+    ctx.service::<dyn GateService>()
+        .ungate_all(&ctx.message().sender.id)
+        .await?;
 
     Ok(())
 }

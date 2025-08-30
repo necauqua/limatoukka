@@ -23,7 +23,10 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 use crate::{
     commands::CommandTag,
     context::{app::AppContext, eval::EvalContext, msg::MessageContext},
-    services::messaging::{Message, PermissionLevel},
+    services::{
+        gates::GateService,
+        messaging::{Message, PermissionLevel},
+    },
 };
 
 use super::{
@@ -300,34 +303,57 @@ impl Runner {
     }
 
     async fn run_command(ctx: CommandContext, fut: CommandFuture) -> Result<(), CommandError> {
-        if let Some(global_gate) = &ctx.meta.global_gate
-            && !ctx.gate(ctx.meta.name, *global_gate).await?
-        {
-            fail!(
-                "global timeout {}",
-                humantime::format_duration(*global_gate)
-            );
-        }
-        if let Some(sender_gate) = &ctx.meta.sender_gate
-            && !ctx.sender_gate(ctx.meta.name, *sender_gate).await?
-        {
-            fail!(
-                "sender timeout {}",
-                humantime::format_duration(*sender_gate)
-            );
+        let gate_service = ctx.service::<dyn GateService>();
+
+        let no_gates = ctx.message().sender.level == PermissionLevel::Caster;
+
+        if !no_gates {
+            if let Some(global_gate) = &ctx.meta.global_gate
+                && !gate_service
+                    .gate("global", ctx.meta.name, *global_gate)
+                    .await?
+            {
+                fail!(
+                    "global timeout {}",
+                    humantime::format_duration(*global_gate)
+                );
+            }
+            if let Some(sender_gate) = &ctx.meta.sender_gate
+                && !gate_service
+                    .gate(&ctx.message().sender.id, ctx.meta.name, *sender_gate)
+                    .await?
+            {
+                fail!(
+                    "sender timeout {}",
+                    humantime::format_duration(*sender_gate)
+                );
+            }
         }
 
-        let status = html! {
-            span style="color: #E38AF0" { (ctx.message().sender.name) } ": " (ctx.token) " " (ctx.nesting_str())
-        };
-        let _guard = if ctx.meta.is(CommandTag::NoWall) {
-            None
+        let _guard = if !ctx.meta.is(CommandTag::NoWall) {
+            Some(ctx.status_wall().push(html! {
+                span style="color: #E38AF0" { (ctx.message().sender.name) } ": " (ctx.token) " " (ctx.nesting_str())
+            }).await)
         } else {
-            Some(ctx.status_wall().push(status).await)
+            None
         };
 
         tracing::trace!("running: {}", ctx.token);
-        fut.await
+
+        let res = fut.await;
+
+        if !no_gates && res.is_err() {
+            if ctx.meta.global_gate.is_some() {
+                gate_service.ungate("global", ctx.meta.name).await?
+            }
+            if ctx.meta.sender_gate.is_some() {
+                gate_service
+                    .ungate(&ctx.message().sender.id, ctx.meta.name)
+                    .await?
+            }
+        }
+
+        res
     }
 }
 

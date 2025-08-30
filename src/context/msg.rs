@@ -16,7 +16,7 @@ use tokio::{sync::oneshot::Receiver, time::sleep};
 
 use crate::{
     commands::runner::Runner,
-    services::{charges::ChargesService, messaging::Message},
+    services::{charges::ChargesService, gates::GateService, messaging::Message},
 };
 
 use super::app::{AppContext, InterruptKind, InterruptTicket};
@@ -98,7 +98,8 @@ impl MessageContext {
 
     /// Returns true once (atomically) in the given period - per key and per sender.
     pub async fn sender_gate(&self, key: &str, period: Duration) -> Result<bool> {
-        self.gate(&format!("{key}:{}", self.message().sender.id), period)
+        self.service::<dyn GateService>()
+            .gate(&self.message().sender.id, key, period)
             .await
     }
 

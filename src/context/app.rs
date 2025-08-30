@@ -21,7 +21,7 @@ use crate::{
     config::Config,
     services::{
         Injector, Services,
-        gates::{GateService, GateServiceNoop},
+        gates::GateService,
         messaging::{MessagingService, MessagingServiceMock},
         noita::NoitaHandle,
         status_wall::StatusWall,
@@ -159,7 +159,6 @@ struct Inner {
 pub struct AppContext {
     inner: Arc<Inner>,
     services: Services,
-    gate_service: Arc<dyn GateService>,
     messaging: Arc<dyn MessagingService>,
     injector: Injector,
 }
@@ -174,9 +173,6 @@ impl AppContext {
                 bot_id: None,
             }),
             services,
-            gate_service: injector
-                .get_opt::<dyn GateService>()
-                .unwrap_or_else(|| Arc::new(GateServiceNoop)),
             messaging: injector
                 .get_opt::<dyn MessagingService>()
                 .unwrap_or_else(|| Arc::new(MessagingServiceMock)),
@@ -216,7 +212,9 @@ impl AppContext {
 
     /// Returns true once (atomically) in the given period - per key.
     pub async fn gate(&self, key: &str, period: Duration) -> Result<bool> {
-        self.gate_service.gate(key, period).await
+        self.service::<dyn GateService>()
+            .gate(key, "global", period)
+            .await
     }
 
     pub async fn send(&self, message: String) -> Result<()> {

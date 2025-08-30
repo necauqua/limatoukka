@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::Result;
 use reqwest::Url;
 use serde::Deserialize;
@@ -37,10 +39,18 @@ async fn tts(ctx: CommandContext, msg: String) -> CommandResult {
 /// Play a sound on stream.
 /// Sounds ids are secret.
 /// And also the command can only be run from global macros anyway ¯\_(ツ)_/¯.
-#[command(sender_gate = 1m)]
+///
+/// Dynamic sender gate 1 minute per sound for now.
+#[command]
 async fn play_sound(ctx: CommandContext, sound_id: String) -> CommandResult {
     if !ctx.in_global_macro && ctx.message().sender.level < PermissionLevel::Caster {
         fail!("Sounds can only be played through global macros");
+    }
+    if !ctx
+        .sender_gate(&format!("play-sound:{sound_id}"), Duration::from_secs(60))
+        .await?
+    {
+        fail!("sender gate 1m");
     }
 
     match ctx
