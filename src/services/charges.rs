@@ -140,8 +140,8 @@ impl ChargesService for ChargesServiceRedis {
         const SCRIPT: &str = r#"
             local user_id = KEYS[1]
             local amount = tonumber(ARGV[1])
-            local current = tonumber(redis.call("GET", user_id))
-            if not current or not amount or current < amount then
+            local current = tonumber(redis.call("GET", user_id)) or 0
+            if current < amount then
                 return
             end
             redis.call("DECRBY", user_id, amount)
@@ -164,6 +164,12 @@ impl ChargesService for ChargesServiceRedis {
         to_user_id: &str,
         amount: Charges,
     ) -> Result<bool> {
+        if amount.as_i64() < 0 {
+            return Ok(false);
+        }
+        if amount.as_i64() == 0 {
+            return Ok(true);
+        }
         const SCRIPT: &str = r#"
             local from = KEYS[1]
             local to = KEYS[2]

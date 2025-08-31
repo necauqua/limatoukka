@@ -46,8 +46,11 @@ async fn transfer(
         .transfer(&ctx.message().sender.id, &target.id, amount)
         .await?
     {
-        ctx.reply(format!("Successfully transferred {amount} to {target}"))
-            .await?;
+        ctx.reply(format!(
+            "Successfully transferred {amount} to {}",
+            target.login
+        ))
+        .await?;
     } else {
         fail!("poor");
     }
