@@ -48,6 +48,10 @@ smoke-detector-beep:
 bald:
   file: "bald.ogg"
   volume: 0.4
+yolksium:
+  file: "yolksium.ogg"
+  volume: 0.4
+  exclusive: true
 
 RAID:
   file: "pipes.ogg"

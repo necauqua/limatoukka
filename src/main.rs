@@ -15,7 +15,7 @@ use tpn_bot::{
     logging,
     services::{
         Injector, Services,
-        charges::{ChargesService, ChargesServiceRedis},
+        charges::{Charges, ChargesService, ChargesServiceRedis},
         chat_log::{ChatLogService, ChatLogServiceElastic},
         gates::{GateService, GateServiceRedis},
         messaging::{self, MessagingService},
@@ -266,31 +266,31 @@ async fn eventsub_event(ctx: AppContext, twitch: Twitch, event: Event) -> Result
                 }
                 "Buy 1 charge" => {
                     ctx.service::<dyn ChargesService>()
-                        .add(data.user_id.as_str(), 1000)
+                        .add(data.user_id.as_str(), Charges::ONE)
                         .await?;
                     true
                 }
                 "Buy 5 charges" => {
                     ctx.service::<dyn ChargesService>()
-                        .add(data.user_id.as_str(), 5000)
+                        .add(data.user_id.as_str(), Charges::new(5, 0))
                         .await?;
                     true
                 }
                 "Buy 10 charges" => {
                     ctx.service::<dyn ChargesService>()
-                        .add(data.user_id.as_str(), 10000)
+                        .add(data.user_id.as_str(), Charges::new(10, 0))
                         .await?;
                     true
                 }
                 "Buy 50 charges" => {
                     ctx.service::<dyn ChargesService>()
-                        .add(data.user_id.as_str(), 50000)
+                        .add(data.user_id.as_str(), Charges::new(50, 0))
                         .await?;
                     true
                 }
                 "Buy 100 charges" => {
                     ctx.service::<dyn ChargesService>()
-                        .add(data.user_id.as_str(), 100000)
+                        .add(data.user_id.as_str(), Charges::new(100, 0))
                         .await?;
                     true
                 }

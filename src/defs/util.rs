@@ -10,7 +10,6 @@ use crate::{
         app::{AppContext, InterruptKind},
         cmd::CommandContext,
     },
-    fail,
     services::messaging::PermissionLevel,
 };
 use humantime_serde::re::humantime;
@@ -26,10 +25,9 @@ use tokio::time::sleep;
 /// I heard that scarcity creates value, so getting a pong is very _cool_ and
 /// _pog_, because only one person can get it in an hour.
 ///
-/// Also this gives you a charge :)
-#[command(global_gate = 1h)]
+/// There is also some magical property to this command..
+#[command(global_gate = 1h, cost = -1)]
 async fn ping(ctx: CommandContext) -> CommandResult {
-    ctx.add_charges(1000).await?;
     ctx.reply("pong!".into()).await?;
     Ok(())
 }
@@ -39,11 +37,8 @@ async fn ping(ctx: CommandContext) -> CommandResult {
 /// This just makes the bot print the given text, but non-moderators can only call it through global macros.
 ///
 /// So you can call a global macro `discord~` which will resolve to `echo:"discord link etc"~` and print it.
-#[command(sender_gate = 5s)]
+#[command(sender_gate = 5s, permission = Caster, GlobalMacroExempt)]
 async fn echo(ctx: CommandContext, text: String) -> CommandResult {
-    if !ctx.in_global_macro && ctx.message().sender.level < PermissionLevel::Caster {
-        fail!("only works from inside of global macros")
-    }
     ctx.send(text).await?;
     Ok(())
 }

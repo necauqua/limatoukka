@@ -6,7 +6,7 @@ use serde::Serialize;
 use strum::{EnumMessage, IntoEnumIterator};
 use tpn_bot::{
     commands::{CommandTag, NativeCommand},
-    services::messaging::PermissionLevel,
+    services::{charges::Charges, messaging::PermissionLevel},
 };
 
 fn capitalise(s: &str) -> String {
@@ -33,11 +33,17 @@ struct CommandOut {
     #[serde(skip_serializing_if = "Option::is_none")]
     permission: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    global_macro_exempt: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     global_gate: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     sender_gate: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     shortcode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cost: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    free_for: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -110,6 +116,11 @@ fn main() -> Result<()> {
                         PermissionLevel::Viewer => None,
                         _ => Some(<&'static str>::from(cmd.permission).into()),
                     },
+                    global_macro_exempt: if cmd.is(CommandTag::GlobalMacroExempt) {
+                        Some(true)
+                    } else {
+                        None
+                    },
                     global_gate: cmd
                         .global_gate
                         .map(|d| format!("{}", humantime::format_duration(d))),
@@ -117,6 +128,11 @@ fn main() -> Result<()> {
                         .sender_gate
                         .map(|d| format!("{}", humantime::format_duration(d))),
                     shortcode: cmd.shortcode.map(|s| s.into()),
+                    cost: cmd.cost.map(|c| Charges::from(c).to_string()),
+                    free_for: match cmd.free_for {
+                        PermissionLevel::Caster => None,
+                        _ => Some(<&'static str>::from(cmd.free_for).into()),
+                    },
                 })
                 .collect(),
         });

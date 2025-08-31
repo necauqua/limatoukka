@@ -37,6 +37,8 @@ struct CommandMacroAttrs {
     global_gate: Option<MacroArg>,
     sender_gate: Option<MacroArg>,
     shortcode: Option<MacroArg>,
+    cost: Option<MacroArg>,
+    free_for: Option<MacroArg>,
     extras: Vec<MacroArg>,
 }
 
@@ -50,6 +52,8 @@ impl Parse for CommandMacroAttrs {
                 "global_gate" => args.global_gate.replace(arg),
                 "sender_gate" => args.sender_gate.replace(arg),
                 "shortcode" => args.shortcode.replace(arg),
+                "cost" => args.cost.replace(arg),
+                "free_for" => args.free_for.replace(arg),
                 _ => {
                     let prev = args.extras.iter().position(|a| a.name == arg.name);
                     args.extras.push(arg);
@@ -153,11 +157,10 @@ pub fn command(attrs: TokenStream, input: TokenStream) -> TokenStream {
     let permission = match attrs.permission {
         Some(permission) => {
             let name = permission.name;
-            match permission.value {
-                None => {
-                    quote_spanned!(name.span() => #name: compile_error!("missing permission value"))
-                }
-                Some(value) => quote!(#name: crate::services::messaging::PermissionLevel::#value),
+            if let Some(value) = permission.value {
+                quote!(#name: crate::services::messaging::PermissionLevel::#value)
+            } else {
+                quote_spanned!(name.span() => #name: compile_error!("missing permission value"))
             }
         }
         None => quote!(permission: crate::services::messaging::PermissionLevel::Viewer),
@@ -166,14 +169,11 @@ pub fn command(attrs: TokenStream, input: TokenStream) -> TokenStream {
         None => quote!(global_gate: None),
         Some(global_gate) => {
             let name = global_gate.name;
-            match global_gate.value {
-                None => {
-                    quote_spanned!(name.span() => #name: compile_error!("missing global gate value"))
-                }
-                Some(value) => {
-                    let d = parse_duration(&value);
-                    quote!(#name: Some(#d))
-                }
+            if let Some(value) = global_gate.value {
+                let d = parse_duration(&value);
+                quote!(#name: Some(#d))
+            } else {
+                quote_spanned!(name.span() => #name: compile_error!("missing global gate value"))
             }
         }
     };
@@ -181,14 +181,11 @@ pub fn command(attrs: TokenStream, input: TokenStream) -> TokenStream {
         None => quote!(sender_gate: None),
         Some(sender_gate) => {
             let name = sender_gate.name;
-            match sender_gate.value {
-                None => {
-                    quote_spanned!(name.span() => #name: compile_error!("missing sender gate value"))
-                }
-                Some(value) => {
-                    let d = parse_duration(&value);
-                    quote!(#name: Some(#d))
-                }
+            if let Some(value) = sender_gate.value {
+                let d = parse_duration(&value);
+                quote!(#name: Some(#d))
+            } else {
+                quote_spanned!(name.span() => #name: compile_error!("missing sender gate value"))
             }
         }
     };
@@ -203,6 +200,29 @@ pub fn command(attrs: TokenStream, input: TokenStream) -> TokenStream {
             }
         }
         None => quote!(shortcode: None),
+    };
+    let cost = match attrs.cost {
+        Some(cost) => {
+            let name = cost.name;
+            if let Some(value) = cost.value {
+                let charges = parse_charges(&value);
+                quote!(#name: Some(#charges))
+            } else {
+                quote_spanned!(name.span() => #name: compile_error!("missing cost value"))
+            }
+        }
+        None => quote!(cost: None),
+    };
+    let free_for = match attrs.free_for {
+        Some(free_for) => {
+            let name = free_for.name;
+            if let Some(value) = free_for.value {
+                quote!(#name: crate::services::messaging::PermissionLevel::#value)
+            } else {
+                quote_spanned!(name.span() => #name: compile_error!("missing free_for value"))
+            }
+        }
+        None => quote!(free_for: crate::services::messaging::PermissionLevel::Caster),
     };
 
     let tags = attrs.extras.into_iter().map(|attr| {
@@ -238,6 +258,8 @@ pub fn command(attrs: TokenStream, input: TokenStream) -> TokenStream {
             #global_gate,
             #sender_gate,
             #shortcode,
+            #cost,
+            #free_for,
         });
     }
     .into()
@@ -255,4 +277,31 @@ fn parse_duration(input: &syn::Expr) -> proc_macro2::TokenStream {
             quote_spanned!(input.span() => compile_error!(#e))
         }
     }
+}
+
+// todo should somehow reuse Charges impl here
+fn parse_charges(input: &syn::Expr) -> proc_macro2::TokenStream {
+    let input = input.to_token_stream().to_string().replace(' ', "");
+    let mut parts = input.splitn(2, '.');
+    let whole = parts.next().unwrap();
+    let fraction = parts.next().unwrap_or("0");
+    let whole: i64 = match whole.parse() {
+        Ok(n) => n,
+        _ => {
+            return quote_spanned!(input.span() => compile_error!("cost must be a number"));
+        }
+    };
+    let fraction: i64 = match (fraction.len(), fraction.parse()) {
+        (1, Ok(n)) => n * 100,
+        (2, Ok(n)) => n * 10,
+        (3, Ok(n)) => n,
+        (_, Err(_)) => {
+            return quote_spanned!(input.span() => compile_error!("cost must be a number"));
+        }
+        _ => {
+            return quote_spanned!(input.span() => compile_error!("cost can have at most 3 decimal places"));
+        }
+    };
+    let total = whole * 1000 + fraction;
+    quote!(#total)
 }

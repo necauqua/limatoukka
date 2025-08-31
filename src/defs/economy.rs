@@ -1,8 +1,15 @@
 use crate::{
-    commands::{CommandResult, command},
+    commands::{
+        CommandResult,
+        args::{Chatter, Required},
+        command,
+    },
     context::cmd::CommandContext,
     fail,
-    services::{charges::ChargesService, gates::GateService},
+    services::{
+        charges::{Charges, ChargesService},
+        gates::GateService,
+    },
 };
 
 /// Check your current balance of charges
@@ -13,29 +20,36 @@ async fn balance(ctx: CommandContext) -> CommandResult {
         .get(&ctx.message().sender.id)
         .await?;
 
-    match (charges / 1000, charges % 1000) {
-        (1, 0) => ctx.reply("Your have 1 charge".into()),
-        (whole, 0) => ctx.reply(format!("Your have {whole} charges")),
-        (whole, fraction) => ctx.reply(format!(
-            "Your have {whole}.{} charges",
-            format!("{fraction:03}",).trim_end_matches('0')
-        )),
-    }
-    .await?;
+    ctx.reply(format!("Your balance is {charges}")).await?;
 
     Ok(())
 }
 
 /// Spend a charge to remove all of your current timeouts.
-#[command]
+#[command(cost = 1)]
 async fn unleash_me(ctx: CommandContext) -> CommandResult {
-    if !ctx.consume_charges(1_000).await? {
-        fail!("poor");
-    }
-
     ctx.service::<dyn GateService>()
         .ungate_all(&ctx.message().sender.id)
         .await?;
+    Ok(())
+}
 
+/// Transfer some of your charges to another user
+#[command(sender_gate = 3s, cost = 0.004)]
+async fn transfer(
+    ctx: CommandContext,
+    target: Required<Chatter>,
+    amount: Charges,
+) -> CommandResult {
+    if ctx
+        .service::<dyn ChargesService>()
+        .transfer(&ctx.message().sender.id, &target.id, amount)
+        .await?
+    {
+        ctx.reply(format!("Successfully transferred {amount} to {target}"))
+            .await?;
+    } else {
+        fail!("poor");
+    }
     Ok(())
 }

@@ -24,6 +24,7 @@ use crate::{
     commands::CommandTag,
     context::{app::AppContext, eval::EvalContext, msg::MessageContext},
     services::{
+        charges::{Charges, ChargesService},
         gates::GateService,
         messaging::{Message, PermissionLevel},
     },
@@ -197,14 +198,6 @@ impl Runner {
             ));
         };
 
-        if meta.permission > ctx.message().sender.level {
-            return Err(ContextualCommandError::new(
-                CommandError::Permission,
-                command.token,
-                pos,
-            ));
-        }
-
         let cmd_ctx = CommandContext::new(ctx.clone(), meta.clone(), token, pos.clone());
 
         let fut = (meta.action)(cmd_ctx.clone(), Args::new(command.params));
@@ -304,29 +297,42 @@ impl Runner {
 
     async fn run_command(ctx: CommandContext, fut: CommandFuture) -> Result<(), CommandError> {
         let gate_service = ctx.service::<dyn GateService>();
+        let charges_service = ctx.service::<dyn ChargesService>();
 
-        let no_gates = ctx.message().sender.level == PermissionLevel::Caster;
+        let level = ctx.message().sender.level;
+        let exempt = ctx.in_global_macro && ctx.meta.is(CommandTag::GlobalMacroExempt);
 
-        if !no_gates {
+        if !exempt && level < ctx.meta.permission {
+            return Err(CommandError::Permission);
+        }
+
+        if level != PermissionLevel::Caster {
             if let Some(global_gate) = &ctx.meta.global_gate
                 && !gate_service
                     .gate("global", ctx.meta.name, *global_gate)
                     .await?
             {
-                fail!(
-                    "global timeout {}",
-                    humantime::format_duration(*global_gate)
-                );
+                return Err(CommandError::GlobalTimeout(*global_gate));
             }
             if let Some(sender_gate) = &ctx.meta.sender_gate
                 && !gate_service
                     .gate(&ctx.message().sender.id, ctx.meta.name, *sender_gate)
                     .await?
             {
-                fail!(
-                    "sender timeout {}",
-                    humantime::format_duration(*sender_gate)
-                );
+                return Err(CommandError::SenderTimeout(*sender_gate));
+            }
+        }
+
+        if !exempt
+            && level < ctx.meta.free_for
+            && let Some(cost) = ctx.meta.cost
+        {
+            let cost = cost.into();
+            if !charges_service
+                .consume(&ctx.message().sender.id, cost)
+                .await?
+            {
+                return Err(CommandError::NotEnoughCharges { cost });
             }
         }
 
@@ -342,7 +348,7 @@ impl Runner {
 
         let res = fut.await;
 
-        if !no_gates && res.is_err() {
+        if level != PermissionLevel::Caster && res.is_err() {
             if ctx.meta.global_gate.is_some() {
                 gate_service.ungate("global", ctx.meta.name).await?
             }
@@ -391,10 +397,16 @@ impl From<EvalError> for CommandError {
 pub enum CommandError {
     #[error("command does not exist")]
     NotFound,
-    #[error("no permission")]
-    Permission,
     #[error("bad arguments: {0}")]
     BadArgs(#[from] ExtractorError),
+    #[error("no permission")]
+    Permission,
+    #[error("global timeout {}", humantime::format_duration(*.0))]
+    GlobalTimeout(Duration),
+    #[error("sender timeout {}", humantime::format_duration(*.0))]
+    SenderTimeout(Duration),
+    #[error("poor (command costs {cost})")]
+    NotEnoughCharges { cost: Charges },
     #[error("recursion limit")]
     RecursionLimit,
     #[error("cancelled")]

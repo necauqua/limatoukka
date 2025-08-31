@@ -44,6 +44,10 @@ pub struct NativeCommand {
     pub sender_gate: Option<Duration>,
     /// An ultra-short version of the command
     pub shortcode: Option<&'static str>,
+    /// Cost in charges to use the command
+    pub cost: Option<i64>,
+    /// Minimum permission level that allows to use the command for free
+    pub free_for: PermissionLevel,
 }
 
 impl NativeCommand {
@@ -62,6 +66,8 @@ pub enum CommandTag {
     NoitaControl,
     /// Whether the command is for reading the game state
     NoitaData,
+    /// Whether the command cost and permission should be ignored if the command is run behind a global macro
+    GlobalMacroExempt,
 }
 
 inventory::collect!(NativeCommand);

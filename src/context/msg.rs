@@ -16,7 +16,7 @@ use tokio::{sync::oneshot::Receiver, time::sleep};
 
 use crate::{
     commands::runner::Runner,
-    services::{charges::ChargesService, gates::GateService, messaging::Message},
+    services::{gates::GateService, messaging::Message},
 };
 
 use super::app::{AppContext, InterruptKind, InterruptTicket};
@@ -129,17 +129,5 @@ impl MessageContext {
         };
 
         self.reply(messages.join("; ")).await
-    }
-
-    pub async fn add_charges(&self, amount: u64) -> Result<i64> {
-        self.service::<dyn ChargesService>()
-            .add(&self.message().sender.id, amount as i64)
-            .await
-    }
-
-    pub async fn consume_charges(&self, amount: u64) -> Result<bool> {
-        self.service::<dyn ChargesService>()
-            .consume(&self.message().sender.id, amount)
-            .await
     }
 }

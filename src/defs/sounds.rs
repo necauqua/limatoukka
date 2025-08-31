@@ -9,24 +9,16 @@ use crate::{
     context::{app::AppContext, cmd::CommandContext},
     fail,
     services::{
-        messaging::PermissionLevel,
         sounds::{SoundError, SoundService},
         tts::TtsService,
     },
 };
 
 /// Say something on stream through the TTS.
-///
-/// Only works for >= subscriber level, or from global macros.
-#[command(sender_gate = 1m)]
+#[command(sender_gate = 1m, cost=0.5, free_for = Subscriber, GlobalMacroExempt)]
 async fn tts(ctx: CommandContext, msg: String) -> CommandResult {
     if msg.is_empty() {
         fail!("message cannot be empty");
-    }
-
-    let is_free = ctx.in_global_macro || ctx.message().sender.level >= PermissionLevel::Subscriber;
-    if !is_free && !ctx.consume_charges(500).await? {
-        fail!("TTS is pay to win, or from global macros");
     }
 
     ctx.service::<dyn TtsService>()
@@ -37,20 +29,18 @@ async fn tts(ctx: CommandContext, msg: String) -> CommandResult {
 }
 
 /// Play a sound on stream.
-/// Sounds ids are secret.
-/// And also the command can only be run from global macros anyway ¯\_(ツ)_/¯.
+/// Sounds ids are secret, but look through `global-macro-list~` for macros that
+/// use this command to get an idea of what sounds are available.
 ///
-/// Dynamic sender gate 1 minute per sound for now.
-#[command]
+/// Sender gate is at least 10 seconds for everything, but individual sounds
+/// can have their own dynamic cooldowns (currently all sounds at 1 minute).
+#[command(sender_gate=10s, permission = Caster, GlobalMacroExempt)]
 async fn play_sound(ctx: CommandContext, sound_id: String) -> CommandResult {
-    if !ctx.in_global_macro && ctx.message().sender.level < PermissionLevel::Caster {
-        fail!("Sounds can only be played through global macros");
-    }
     if !ctx
         .sender_gate(&format!("play-sound:{sound_id}"), Duration::from_secs(60))
         .await?
     {
-        fail!("sender gate 1m");
+        fail!("sender gate 1m for {sound_id}");
     }
 
     match ctx
@@ -75,15 +65,8 @@ async fn now_playing(ctx: CommandContext) -> CommandResult {
 }
 
 /// Skips the song that's currently playing on stream, if any.
-///
-/// This will cost you 1 charge, unless you're VIP or higher.
-#[command(global_gate = 15s)]
+#[command(global_gate = 15s, cost = 1, free_for = Vip)]
 async fn skip(ctx: CommandContext) -> CommandResult {
-    let is_free = ctx.message().sender.level >= PermissionLevel::Vip;
-    if !is_free && !ctx.consume_charges(1_000).await? {
-        fail!("Skip costs 1 charge");
-    }
-
     match AppContext::just("music-skip", &[])?.get().await? {
         Ok(_) => ctx.reply("song skipped Madge".into()).await?,
         Err(_) => fail!("Nothing is playing right now"),
@@ -139,7 +122,9 @@ fn get_youtube_id(raw: &str) -> Result<String, CommandError> {
 async fn song_request(ctx: CommandContext, url_or_id: String) -> CommandResult {
     let id = get_youtube_id(&url_or_id)?;
     if id == "dQw4w9WgXcQ" {
-        fail!("At least don't use a dQw link ICANT");
+        ctx.reply("At least don't use a dQw link ICANT".into())
+            .await?;
+        return Ok(());
     }
 
     let res = AppContext::just("music-queue-add", &[&id])?.check().await?;
