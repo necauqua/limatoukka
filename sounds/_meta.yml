@@ -1,5 +1,6 @@
 scream:
   - file: "scream/wilhelm.ogg"
+    volume: 0.2
   - file: "scream/howie.ogg"
     volume: 0.2
     rarity: 0.05
@@ -25,15 +26,15 @@ wrrr:
   volume: 0.6
 quack:
   - file: "quack/quack.ogg"
-    volume: 0.6
+    volume: 0.4
   - file: "quack/male.ogg"
-    volume: 0.6
+    volume: 0.4
     rarity: 0.15
   - file: "quack/female.ogg"
-    volume: 0.6
+    volume: 0.4
     rarity: 0.15
   - file: "quack/flamingo.ogg"
-    volume: 0.6
+    volume: 0.4
     rarity: 0.05
 factorio-alert:
   file: "factorio-alert.ogg"
@@ -51,3 +52,4 @@ bald:
 RAID:
   file: "pipes.ogg"
   volume: 0.25
+  exclusive: true
