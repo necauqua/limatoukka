@@ -12,6 +12,7 @@ use tpn_bot::{
     commands::{CommandTag, discover_declared_commands, runner::Runner},
     config::Config,
     context::app::{AppContext, InterruptKind},
+    integration::{eventsub::EventSub, twitch_api::TwitchApi},
     logging,
     services::{
         Injector, Services,
@@ -27,16 +28,12 @@ use tpn_bot::{
         twitch::{TwitchService, TwitchServiceImpl},
         xdo::XDoClient,
     },
-    twitch::{EventSub, Twitch},
 };
 
 use tracing::{Instrument, Span, instrument};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 use twitch_api::{
     eventsub::{Event, Message, Payload},
-    helix::points::{
-        CustomRewardRedemptionStatus, UpdateRedemptionStatusBody, UpdateRedemptionStatusRequest,
-    },
     types::SubscriptionTier,
 };
 
@@ -45,10 +42,10 @@ async fn run(config: Config) -> Result<()> {
 
     let xdo = XDoClient::new(config.display.clone());
 
-    let twitch = Twitch::new(&config).await?;
+    let twitch_api = TwitchApi::new(&config).await?;
 
-    let eventsub = EventSub::new(twitch.clone());
-    let (mut incoming, messaging) = messaging::connect_to_twitch(twitch.clone());
+    let eventsub = EventSub::new(twitch_api.clone());
+    let (mut incoming, messaging) = messaging::connect_to_twitch(twitch_api.clone());
 
     let mut eventsub_rx = eventsub.subscribe();
     let eventsub_init = eventsub.wait_for_full_init();
@@ -58,7 +55,7 @@ async fn run(config: Config) -> Result<()> {
     injector.add::<dyn MessagingService>(messaging.into());
     injector.add::<dyn ChargesService>(Arc::new(ChargesServiceRedis::new(valkey.clone())));
     injector.add::<dyn GateService>(Arc::new(GateServiceRedis::new(valkey.clone())));
-    injector.add::<dyn TwitchService>(Arc::new(TwitchServiceImpl::new(twitch.clone())));
+    injector.add::<dyn TwitchService>(Arc::new(TwitchServiceImpl::new(twitch_api.clone())));
     injector.add::<dyn ChatLogService>(Arc::new(
         ChatLogServiceElastic::new(
             &config.elastic.url,
@@ -80,8 +77,8 @@ async fn run(config: Config) -> Result<()> {
         ),
         injector,
     )
-    .with_caster_id(twitch.caster_id().to_owned())
-    .with_bot_id(twitch.bot_id().to_owned());
+    .with_caster_id(twitch_api.caster_id().to_owned())
+    .with_bot_id(twitch_api.bot_id().to_owned());
 
     let mut commands = discover_declared_commands();
 
@@ -98,7 +95,7 @@ async fn run(config: Config) -> Result<()> {
 
     eventsub_init.await;
     // after eventsub init so we can receive redemptions
-    twitch.unpause_rewards().await?;
+    twitch_api.unpause_rewards().await?;
 
     ctx.storage().publish("bot-restart", "1").await?;
 
@@ -168,8 +165,7 @@ async fn run(config: Config) -> Result<()> {
             },
             Ok(event) = eventsub_rx.recv() => {
                 let ctx = ctx.clone();
-                let twitch = twitch.clone();
-                mainloop_task(&mut tasks, async move { eventsub_event(ctx, twitch, event).await })
+                mainloop_task(&mut tasks, async move { eventsub_event(ctx, event).await })
             },
             else => break,
         };
@@ -177,7 +173,7 @@ async fn run(config: Config) -> Result<()> {
 
     // just pray nothing errored beforehand
     // where's my errdefer :(
-    twitch.pause_rewards().await?;
+    twitch_api.pause_rewards().await?;
 
     tasks.join_all().await;
 
@@ -246,7 +242,7 @@ async fn noita_event(ctx: AppContext, event: NoitaEvent) -> Result<()> {
 }
 
 #[instrument(skip_all)]
-async fn eventsub_event(ctx: AppContext, twitch: Twitch, event: Event) -> Result<()> {
+async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
     match event {
         Event::ChannelPointsCustomRewardRedemptionAddV1(Payload {
             message: Message::Notification(data),
@@ -297,18 +293,8 @@ async fn eventsub_event(ctx: AppContext, twitch: Twitch, event: Event) -> Result
                 _ => false,
             };
             if fulfilled {
-                let id = &data.id;
-                let reward_id = &data.reward.id;
-                twitch
-                    .caster_call(async |t| {
-                        let request =
-                            UpdateRedemptionStatusRequest::new(t.caster_id, reward_id, id);
-                        let body = UpdateRedemptionStatusBody::status(
-                            CustomRewardRedemptionStatus::Fulfilled,
-                        );
-                        t.helix.req_patch(request, body, &t.token).await?;
-                        Ok(())
-                    })
+                ctx.service::<dyn TwitchService>()
+                    .fulfill_redemption(data.reward.id.as_str(), data.id.as_str())
                     .await?;
             }
         }

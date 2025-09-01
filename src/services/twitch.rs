@@ -1,43 +1,60 @@
 use anyhow::Result;
 use async_trait::async_trait;
+use futures::TryStreamExt;
 use twitch_api::helix::{
     channels::{
         ModifyChannelInformation, ModifyChannelInformationBody, ModifyChannelInformationRequest,
     },
     chat::SendAShoutoutRequest,
+    points::{
+        CustomRewardRedemptionStatus, UpdateRedemptionStatusBody, UpdateRedemptionStatusRequest,
+    },
 };
 
-use crate::twitch::Twitch;
+use crate::integration::twitch_api::TwitchApi;
 
 #[async_trait]
 pub trait TwitchService: Send + Sync {
+    async fn is_live(&self) -> Result<bool>;
     async fn get_user_id(&self, login: &str) -> Result<Option<String>>;
     async fn set_stream_title(&self, title: &str) -> Result<()>;
     async fn shout_out(&self, user_id: &str) -> Result<()>;
+    async fn fulfill_redemption(&self, reward_id: &str, id: &str) -> Result<()>;
 }
 
-pub struct TwitchServiceImpl {
-    twitch: Twitch,
-}
+pub struct TwitchServiceImpl(TwitchApi);
 
 impl TwitchServiceImpl {
-    pub fn new(twitch: Twitch) -> Self {
-        Self { twitch }
+    pub fn new(twitch: TwitchApi) -> Self {
+        Self(twitch)
     }
 }
 
 #[async_trait]
 impl TwitchService for TwitchServiceImpl {
+    async fn is_live(&self) -> Result<bool> {
+        let streams = self
+            .0
+            .call(async |t| {
+                t.helix
+                    .get_streams_from_ids(&(&[t.caster_id]).into(), &t.token)
+                    .try_collect::<Vec<_>>()
+                    .await
+            })
+            .await?;
+        Ok(!streams.is_empty())
+    }
+
     async fn get_user_id(&self, login: &str) -> Result<Option<String>> {
         let user = self
-            .twitch
+            .0
             .call(async |t| t.helix.get_user_from_login(login, &t.token).await)
             .await?;
         Ok(user.map(|u| u.id.take()))
     }
 
     async fn set_stream_title(&self, title: &str) -> Result<()> {
-        self.twitch
+        self.0
             .caster_call(async |t| {
                 let request = ModifyChannelInformationRequest::broadcaster_id(t.caster_id);
                 let mut body = ModifyChannelInformationBody::new();
@@ -53,13 +70,26 @@ impl TwitchService for TwitchServiceImpl {
     }
 
     async fn shout_out(&self, user_id: &str) -> Result<()> {
-        self.twitch
+        self.0
             .call(async |t| {
                 let request =
                     SendAShoutoutRequest::new(t.caster_id, user_id, t.token.user_id.clone());
                 t.helix
                     .req_post(request, Default::default(), &t.token)
                     .await?;
+                Ok(())
+            })
+            .await?;
+        Ok(())
+    }
+
+    async fn fulfill_redemption(&self, reward_id: &str, id: &str) -> Result<()> {
+        self.0
+            .caster_call(async |t| {
+                let request = UpdateRedemptionStatusRequest::new(t.caster_id, reward_id, id);
+                let body =
+                    UpdateRedemptionStatusBody::status(CustomRewardRedemptionStatus::Fulfilled);
+                t.helix.req_patch(request, body, &t.token).await?;
                 Ok(())
             })
             .await?;

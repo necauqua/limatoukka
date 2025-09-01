@@ -10,7 +10,8 @@ use crate::{
         app::{AppContext, InterruptKind},
         cmd::CommandContext,
     },
-    services::messaging::PermissionLevel,
+    fail,
+    services::{messaging::PermissionLevel, twitch::TwitchService},
 };
 use humantime_serde::re::humantime;
 use maud::html;
@@ -28,6 +29,9 @@ use tokio::time::sleep;
 /// There is also some magical property to this command..
 #[command(global_gate = 1h, cost = -1)]
 async fn ping(ctx: CommandContext) -> CommandResult {
+    if !ctx.service::<dyn TwitchService>().is_live().await? {
+        fail!("stream is offline lmao")
+    }
     ctx.reply("pong!".into()).await?;
     Ok(())
 }

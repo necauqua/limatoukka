@@ -15,7 +15,7 @@ use twitch_irc::{
     message::{Badge, IRCMessage, IRCTags, ServerMessage},
 };
 
-use crate::{context::app::AppContext, twitch::Twitch};
+use crate::{context::app::AppContext, integration::twitch_api::TwitchApi};
 
 #[derive(Debug, Clone)]
 pub struct Sender {
@@ -33,10 +33,10 @@ pub struct Message {
     pub text: String,
 }
 
-pub fn connect_to_twitch(twitch: Twitch) -> (MessageSource, Box<dyn MessagingService>) {
-    let channel = twitch.caster_login().to_owned();
-    let bot = twitch.bot_login().to_owned();
-    let (incoming, client) = TwitchIRCClient::new(ClientConfig::new_simple(twitch));
+pub fn connect_to_twitch(api: TwitchApi) -> (MessageSource, Box<dyn MessagingService>) {
+    let channel = api.caster_login().to_owned();
+    let bot = api.bot_login().to_owned();
+    let (incoming, client) = TwitchIRCClient::new(ClientConfig::new_simple(api));
     client.join(channel.clone()).unwrap(); // panic on invalid channel
     client.join(bot.clone()).unwrap(); // panic on invalid channel
     (
@@ -167,7 +167,7 @@ pub trait MessagingService: Send + Sync {
 }
 
 pub struct MessagingServiceTwitch {
-    client: TwitchIRCClient<SecureTCPTransport, Twitch>,
+    client: TwitchIRCClient<SecureTCPTransport, TwitchApi>,
     channel: String,
 }
 
