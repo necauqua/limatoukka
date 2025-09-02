@@ -59,7 +59,7 @@ async fn last_error(ctx: CommandContext, chatter: Chatter) -> CommandResult {
             .get::<_, Option<_>>(format!("last-error:{chatter}"))
             .await?
             .unwrap_or_else(|| {
-                let whom = match chatter.id == ctx.shared.owner.id {
+                let whom = match ctx.is_owner(&chatter) {
                     true => "your",
                     false => "their",
                 };

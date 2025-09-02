@@ -16,7 +16,10 @@ use tokio::{sync::oneshot::Receiver, time::sleep};
 
 use crate::{
     commands::runner::Runner,
-    services::{gates::GateService, messaging::Message},
+    services::{
+        gates::GateService,
+        messaging::{Message, PermissionLevel},
+    },
 };
 
 use super::app::{AppContext, InterruptKind, InterruptTicket};
@@ -58,6 +61,14 @@ impl MessageContext {
 
     pub fn message(&self) -> &Message {
         &self.state.message
+    }
+
+    pub fn sender(&self) -> &str {
+        &self.state.message.sender.id
+    }
+
+    pub fn level(&self) -> PermissionLevel {
+        self.state.message.sender.level
     }
 
     pub fn runner(&self) -> &Runner {

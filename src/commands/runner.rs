@@ -316,7 +316,7 @@ impl Runner {
             }
             if let Some(sender_gate) = &ctx.meta.sender_gate
                 && !gate_service
-                    .gate(&ctx.message().sender.id, ctx.meta.name, *sender_gate)
+                    .gate(ctx.sender(), ctx.meta.name, *sender_gate)
                     .await?
             {
                 return Err(CommandError::SenderTimeout(*sender_gate));
@@ -328,10 +328,7 @@ impl Runner {
             && let Some(cost) = ctx.meta.cost
         {
             let cost = cost.into();
-            if !charges_service
-                .consume(&ctx.message().sender.id, cost)
-                .await?
-            {
+            if !charges_service.consume(ctx.sender(), cost).await? {
                 return Err(CommandError::NotEnoughCharges { cost });
             }
         }
@@ -353,9 +350,7 @@ impl Runner {
                 gate_service.ungate("global", ctx.meta.name).await?
             }
             if ctx.meta.sender_gate.is_some() {
-                gate_service
-                    .ungate(&ctx.message().sender.id, ctx.meta.name)
-                    .await?
+                gate_service.ungate(ctx.sender(), ctx.meta.name).await?
             }
         }
 

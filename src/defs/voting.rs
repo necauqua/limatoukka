@@ -71,8 +71,8 @@ async fn vote(ctx: CommandContext, vote: Vote) -> CommandResult {
     let key_inv = format!("vote:{}:{}", vote_data.key, vote.inverse());
 
     let mut tx = ctx.storage().create_transaction();
-    tx.sadd(&key, &ctx.message().sender.id).forget();
-    tx.srem(&key_inv, &ctx.message().sender.id).forget();
+    tx.sadd(&key, ctx.sender()).forget();
+    tx.srem(&key_inv, ctx.sender()).forget();
     tx.scard(&key).queue();
     tx.scard(&key_inv).queue();
     tx.exists("vote").queue(); // re-check the vote status to avoid a race here ig
@@ -138,7 +138,7 @@ where
     let trig_key = format!("vote:trigger:{key}");
 
     let mut tx = ctx.storage().create_transaction();
-    tx.sadd(&trig_key, &*ctx.message().sender.id).forget();
+    tx.sadd(&trig_key, ctx.sender()).forget();
     tx.scard(&trig_key).queue();
 
     let triggerers = tx.execute::<usize>().await?;

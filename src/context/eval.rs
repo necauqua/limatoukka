@@ -65,6 +65,10 @@ impl EvalContext {
         })
     }
 
+    pub fn is_owner(&self, chatter: &Chatter) -> bool {
+        self.shared.owner.id == chatter.id
+    }
+
     pub fn nesting_str(&self) -> String {
         let mut s = String::with_capacity(self.depth as _);
         for _ in 0..self.depth {
