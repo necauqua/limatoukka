@@ -7,7 +7,7 @@ use maud::html;
 use neca_cmd::Statement;
 use rustis::{
     client::BatchPreparedCommand,
-    commands::{GenericCommands, HashCommands, SetCondition, SetExpiration, StringCommands},
+    commands::{GenericCommands, HashCommands},
 };
 
 use crate::{
@@ -317,41 +317,6 @@ async fn r#try(ctx: CommandContext, script: Script) -> CommandResult {
             }
         }
     }
-
-    Ok(())
-}
-
-/// Similarly to `group`, executes a given string without counting towards
-/// limits.
-///
-/// The difference is that only one `lock` script can run at a time, if
-/// one is already running this command does nothing.
-#[command(shortcode=b, NoWall)]
-async fn lock(ctx: CommandContext, script: Script) -> CommandResult {
-    let exclusive = ctx
-        .storage()
-        .set_with_options(
-            "holds:exclusive",
-            "1",
-            SetCondition::NX,
-            SetExpiration::None,
-            false,
-        )
-        .await?;
-    if !exclusive {
-        fail!("non-exclusive")
-    }
-
-    let status = html! {
-        "current lock: " span style="color: #E38AF0" { (ctx.message().sender.name) }
-    };
-    let _guard = ctx.status_wall().push_top(status).await;
-
-    let err = ctx.runner().eval(ctx.nest(), script.stmt).await;
-
-    ctx.storage().del("holds:exclusive").await?;
-
-    err?;
 
     Ok(())
 }
