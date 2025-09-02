@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     fmt::{self, Debug, Display},
     ops::Deref,
     time::Duration,
@@ -10,8 +10,12 @@ use async_trait::async_trait;
 use compact_str::{CompactString, ToCompactString as _};
 use humantime_serde::re::humantime;
 use thiserror::Error;
+use tokio::task::JoinSet;
 
-use crate::{context::cmd::CommandContext, services::twitch::TwitchService};
+use crate::{
+    context::{app::AppContext, cmd::CommandContext},
+    services::{charges::ChargesService, twitch::TwitchService},
+};
 
 use neca_cmd::{
     Statement,
@@ -55,15 +59,78 @@ impl Arg<RawScript> {
     }
 }
 
+async fn var_resolvers(ctx: &CommandContext, name: &str) -> anyhow::Result<Option<String>> {
+    match name {
+        "i" => {
+            if let Some(i) = ctx.repeat_i {
+                return Ok(Some(i.to_string()));
+            }
+        }
+        "self" => return Ok(Some(ctx.shared.owner.login.clone())),
+        "rand" => return Ok(Some(rand::random_range(0..100_i32).to_string())),
+        "volume" => {
+            let volume = AppContext::just("music-volume-get", &[])?.check().await?;
+            return Ok(Some(volume));
+        }
+        "balance" => {
+            let balance = ctx
+                .service::<dyn ChargesService>()
+                .get(ctx.sender())
+                .await?;
+            return Ok(Some(balance.as_i64().to_string()));
+        }
+        _ => {}
+    }
+    if let Some(arg) = name.parse::<u32>().ok().filter(|n| *n != 0).and_then(|n| {
+        ctx.shared
+            .macro_args
+            .get((n - 1) as _)
+            .and_then(|opt| opt.as_ref())
+    }) {
+        return Ok(Some(arg.clone()));
+    }
+    Ok(ctx.vars.get(name).map(|v| v.clone()))
+}
+
+async fn expand(ctx: &CommandContext, param: Param) -> anyhow::Result<CompactString> {
+    let refs = param.references();
+
+    Ok(match &refs[..] {
+        [] => param.expand(|_| None),
+        [name] => {
+            let resolved = var_resolvers(ctx, name).await?;
+            param.expand(|_| resolved.clone())
+        }
+        _ => {
+            let mut join_set = JoinSet::new();
+            for name in refs {
+                let ctx = ctx.clone();
+                join_set.spawn(async move {
+                    let resolved = var_resolvers(&ctx, &name).await;
+                    (name, resolved)
+                });
+            }
+            let mut results = HashMap::new();
+            while let Some(res) = join_set.join_next().await {
+                let (k, v) = res?;
+                if let Some(v) = v? {
+                    results.insert(k, v);
+                }
+            }
+            param.expand(|k| results.get(k).cloned())
+        }
+    })
+}
+
 impl<T: CommandArg> Arg<T> {
     pub async fn get(self, ctx: &CommandContext) -> ArgResult<T> {
         match self {
             Arg::Static(t) => Ok(t),
             Arg::Expandable(param) => {
-                let expanded = param.expand(&mut ctx.arg_expander());
-                let arg = Some(expanded)
+                let tpe = param.tpe();
+                let arg = Some(expand(ctx, param).await?)
                     .filter(|s| !s.is_empty())
-                    .map(|s| match param.tpe() {
+                    .map(|s| match tpe {
                         ParamType::Math => Calculator::eval(&s).map(|n| n.to_compact_string()),
                         _ => Ok(s),
                     })

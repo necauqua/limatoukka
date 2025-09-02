@@ -15,10 +15,7 @@ use crate::{
 /// Check the current charge balance
 #[command(sender_gate = 3s)]
 async fn balance(ctx: CommandContext, chatter: Chatter) -> CommandResult {
-    let charges = ctx
-        .service::<dyn ChargesService>()
-        .get(ctx.sender())
-        .await?;
+    let charges = ctx.service::<dyn ChargesService>().get(&chatter.id).await?;
 
     let whom = match ctx.is_owner(&chatter) {
         true => "Your",

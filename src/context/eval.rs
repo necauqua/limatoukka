@@ -104,30 +104,6 @@ impl EvalContext {
         })
     }
 
-    pub fn arg_expander(&self) -> impl FnMut(&str) -> Option<String> {
-        |name| {
-            match name {
-                "i" => {
-                    if let Some(i) = self.repeat_i {
-                        return Some(i.to_string());
-                    }
-                }
-                "self" => return Some(self.shared.owner.login.clone()),
-                "rand" => return Some(rand::random_range(0..100_i32).to_string()),
-                _ => {}
-            }
-            if let Some(arg) = name.parse::<u32>().ok().filter(|n| *n != 0).and_then(|n| {
-                self.shared
-                    .macro_args
-                    .get((n - 1) as _)
-                    .and_then(|opt| opt.as_ref())
-            }) {
-                return Some(arg.clone());
-            }
-            self.vars.get(name).map(|v| v.clone())
-        }
-    }
-
     pub fn interruptible<F, R>(
         &self,
         f: F,

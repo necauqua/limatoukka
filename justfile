@@ -95,3 +95,7 @@ music-queue-add videoId:
     curl -s http://localhost:26538/api/v1/volume \
         -H 'Content-Type: application/json' \
         -d '{"volume":{{volume}}}'
+
+[no-exit-message]
+@music-volume-get:
+    curl -s http://localhost:26538/api/v1/volume | jq -r .state
