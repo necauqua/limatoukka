@@ -394,8 +394,30 @@ async fn set(ctx: CommandContext, name: String, value: Option<String>) -> Comman
         ctx.reply("too many variables brother, this incident will be investigated Stare".into())
             .await?;
     } else {
-        ctx.vars.write().await.insert(name, value);
+        ctx.vars.insert(name, value);
     }
+    Ok(())
+}
+
+/// A moderator-only version of `set~` that sets a global variable instead of a
+/// personal one.
+///
+/// Global variables will be replaced by anyone referencing them as `%name`,
+/// unless they have their own personal variable with the same name, which
+/// would take precedence.
+#[command(permission = Moderator)]
+async fn global_set(ctx: CommandContext, name: String, value: Option<String>) -> CommandResult {
+    let value = value.unwrap_or_default();
+    if name.len() > 8192 || value.len() > 8192 {
+        fail!("name or value too long (max 8192 chars)");
+    }
+    let name = name.to_lowercase();
+
+    ctx.storage().hset("vars:global", (&name, &value)).await?;
+
+    // only insert into cache if was not set there before
+    ctx.vars.entry(name).or_insert(value);
+
     Ok(())
 }
 
@@ -407,7 +429,7 @@ async fn r#let(ctx: CommandContext, name: String, value: Option<String>) -> Comm
         fail!("name or value too long (max 8192 chars)");
     }
     let name = name.to_lowercase();
-    ctx.vars.write().await.insert(name, value);
+    ctx.vars.insert(name, value);
     Ok(())
 }
 
@@ -434,9 +456,8 @@ async fn del(ctx: CommandContext, names: RestOfArgs) -> CommandResult {
         0 | 1 => {}
         n => ctx.reply(format!("{n} vars deleted")).await?,
     }
-    let mut vars = ctx.vars.write().await;
     for name in names.into_iter().flatten() {
-        vars.remove(&name);
+        ctx.vars.remove(&name);
     }
 
     Ok(())
@@ -456,8 +477,8 @@ async fn list_vars(ctx: CommandContext) -> CommandResult {
 /// A debug command that replies with the value of the given variable.
 #[command(sender_gate=5s)]
 async fn get(ctx: CommandContext, name: String) -> CommandResult {
-    ctx.reply(match ctx.vars.read().await.get(&name) {
-        Some(value) => format!("{name} = {value}"),
+    ctx.reply(match ctx.vars.get(&name) {
+        Some(value) => format!("{name} = {}", *value),
         None => format!("no variable named `{name}`"),
     })
     .await?;
@@ -471,7 +492,7 @@ async fn clear(ctx: CommandContext) -> CommandResult {
         .del(format!("vars:{}", ctx.shared.owner))
         .await?;
 
-    ctx.vars.write().await.clear();
+    ctx.vars.clear();
 
     Ok(())
 }

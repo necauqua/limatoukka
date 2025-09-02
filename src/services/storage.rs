@@ -4,11 +4,14 @@ use std::{
 };
 
 use anyhow::{Result, anyhow};
+use dashmap::DashMap;
 use rustis::{
     client::{BatchPreparedCommand, Client, Transaction},
-    commands::{ExpireOption, GenericCommands, StringCommands},
+    commands::{ExpireOption, GenericCommands, HashCommands, StringCommands},
 };
 use serde::{Serialize, de::DeserializeOwned};
+
+use crate::commands::args::Chatter;
 
 pub struct Storage {
     client: Client,
@@ -170,5 +173,21 @@ impl Storage {
             ttl,
             key,
         })
+    }
+}
+
+impl Storage {
+    pub async fn read_vars(&self, owner: &Chatter) -> Result<DashMap<String, String>> {
+        let mut pp = self.create_pipeline();
+
+        type Pairs = Vec<(String, String)>;
+
+        pp.hgetall::<_, _, _, Pairs>("vars:global").queue();
+        pp.hgetall::<_, _, _, Pairs>(format!("vars:{owner}"))
+            .queue();
+
+        let (globals, vars): (Pairs, Pairs) = pp.execute().await?;
+
+        Ok(globals.into_iter().chain(vars.into_iter()).collect())
     }
 }

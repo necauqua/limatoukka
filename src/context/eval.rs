@@ -1,14 +1,8 @@
-use std::{
-    collections::{HashMap, VecDeque},
-    num::NonZero,
-    ops::Deref,
-    sync::Arc,
-};
+use std::{collections::VecDeque, num::NonZero, ops::Deref, sync::Arc};
 
 use anyhow::Result;
-use rustis::commands::HashCommands;
+use dashmap::DashMap;
 use thiserror::Error;
-use tokio::sync::RwLock;
 
 use crate::{
     commands::{args::Chatter, runner::CommandError},
@@ -25,7 +19,7 @@ pub struct EvalContextShared {
 #[derive(Clone)]
 pub struct EvalContext {
     pub shared: Arc<EvalContextShared>,
-    pub vars: Arc<RwLock<HashMap<String, String>>>,
+    pub vars: Arc<DashMap<String, String>>,
     pub in_global_macro: bool,
     pub macro_depth: u32,
     pub repeat_i: Option<NonZero<u32>>,
@@ -47,16 +41,12 @@ impl EvalContext {
             id: parent.message().sender.id.clone(),
             login: parent.message().sender.login.clone(),
         };
-
-        let vars: HashMap<String, String> =
-            parent.storage().hgetall(format!("vars:{owner}")).await?;
-
         Ok(Self {
+            vars: Arc::new(parent.storage().read_vars(&owner).await?),
             shared: Arc::new(EvalContextShared {
                 owner,
                 macro_args: Default::default(),
             }),
-            vars: Arc::new(RwLock::new(vars)),
             in_global_macro: false,
             macro_depth: 0,
             repeat_i: None,
@@ -98,9 +88,7 @@ impl EvalContext {
         let vars = if self.shared.owner.id == owner.id {
             self.vars.clone()
         } else {
-            Arc::new(RwLock::new(
-                self.storage().hgetall(format!("vars:{owner}")).await?,
-            ))
+            Arc::new(self.storage().read_vars(&owner).await?)
         };
         Ok(Self {
             shared: Arc::new(EvalContextShared {
@@ -136,8 +124,7 @@ impl EvalContext {
             }) {
                 return Some(arg.clone());
             }
-            // meh
-            tokio::task::block_in_place(|| self.vars.blocking_read().get(name).cloned())
+            self.vars.get(name).map(|v| v.clone())
         }
     }
 
