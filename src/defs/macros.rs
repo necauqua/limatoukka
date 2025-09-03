@@ -19,6 +19,7 @@ use crate::{
     },
     context::cmd::CommandContext,
     fail,
+    services::status_wall::StatusService,
 };
 
 /// Stores a string as a personal macro.
@@ -219,10 +220,10 @@ async fn r#macro(
     let args = rest.get(&ctx).await?;
     let stmt = Statement::parse(&script);
 
-    let status = html! {
+    let wall = ctx.service::<dyn StatusService>();
+    let _guard = wall.push(html! {
         span style="color: #E38AF0" { (ctx.message().sender.name) } ": macro:" (name) " " (ctx.nesting_str())
-    };
-    let _guard = ctx.status_wall().push(status).await;
+    }).await;
 
     ctx.runner()
         .eval(ctx.nest_macro(chatter, global, args).await?, stmt)
@@ -246,7 +247,8 @@ const REPEAT_LIMIT: u32 = 1000;
 async fn repeat(ctx: CommandContext, times: InRange<0, 1000>, script: RawScript) -> CommandResult {
     let times = times.get();
 
-    let entry = ctx.status_wall().allocate().await;
+    let wall = ctx.service::<dyn StatusService>();
+    let entry = wall.allocate().await;
 
     for i in (1..=times).rev() {
         if ctx.inc_repeats() > REPEAT_LIMIT {
@@ -254,7 +256,7 @@ async fn repeat(ctx: CommandContext, times: InRange<0, 1000>, script: RawScript)
         }
         entry.set(html! {
             span style="color: #E38AF0" { (ctx.message().sender.name) } ": repeat:" (i) " " (ctx.nesting_str())
-        }).await;
+        }.0).await;
 
         ctx.runner()
             .eval(
@@ -285,10 +287,10 @@ async fn group(
         Some(text) => html! { "group:" span style="color: #CCCCFF" { (text) } },
         None => html! { (ctx.token) },
     };
-    let status = html! {
+    let wall = ctx.service::<dyn StatusService>();
+    let _guard = wall.push(html! {
         span style="color: #E38AF0" { (ctx.message().sender.name) } ": " (name) " " (ctx.nesting_str())
-    };
-    let _guard = ctx.status_wall().push(status).await;
+    }).await;
 
     ctx.runner().eval(ctx.nest(), script.stmt).await?;
 
@@ -303,10 +305,10 @@ async fn group(
 /// last-error.
 #[command(NoWall)]
 async fn r#try(ctx: CommandContext, script: Script) -> CommandResult {
-    let status = html! {
+    let wall = ctx.service::<dyn StatusService>();
+    let _guard = wall.push(html! {
         span style="color: #E38AF0" { (ctx.message().sender.name) } ": " (ctx.token) " " (ctx.nesting_str())
-    };
-    let _guard = ctx.status_wall().push(status).await;
+    }).await;
 
     match ctx.runner().eval(ctx.nest(), script.stmt).await {
         Ok(()) => {}
@@ -338,15 +340,15 @@ async fn r#try(ctx: CommandContext, script: Script) -> CommandResult {
 /// ```
 #[command(permission=Subscriber, NoWall)]
 async fn r#loop(ctx: CommandContext, script: RawScript) -> CommandResult {
-    let entry = ctx.status_wall().allocate().await;
+    let status = ctx.service::<dyn StatusService>().allocate().await;
 
     let mut i = 0;
     loop {
         i += 1;
         ctx.reset_repeats();
-        entry.set(html! {
+        status.set(html! {
             span style="color: #E38AF0" { (ctx.message().sender.name) } ": loop:" (i) " " (ctx.nesting_str())
-        }).await;
+        }.0).await;
         let start = Instant::now();
 
         ctx.runner()

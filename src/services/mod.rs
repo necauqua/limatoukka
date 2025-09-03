@@ -4,10 +4,6 @@ use std::{
 };
 
 use dashmap::DashMap;
-use noita::NoitaHandle;
-use status_wall::StatusWall;
-use storage::Storage;
-use xdo::XDoClient;
 
 pub mod charges;
 pub mod chat_log;
@@ -19,57 +15,6 @@ pub mod status_wall;
 pub mod storage;
 pub mod tts;
 pub mod twitch;
-pub mod xdo;
-
-macro_rules! services {
-    ($($name:ident : $type:ty),* $(,)?) => {
-        #[derive(Clone)]
-        pub struct Services {
-            $(
-                $name: Option<Arc<$type>>,
-            )*
-        }
-
-        impl Services {
-            #[allow(clippy::too_many_arguments)]
-            pub fn new($($name: $type),*) -> Self {
-                Self {
-                    $($name: Some(Arc::new($name)),)*
-                }
-            }
-
-            #[cfg(test)]
-            pub fn mock() -> Self {
-                Self {
-                    $($name: None,)*
-                }
-            }
-
-            $(
-                pub fn $name(&self) -> &$type {
-                    self.$name.as_ref().unwrap()
-                }
-
-                paste::paste! {
-                    #[cfg(test)]
-                    pub fn [< with_ $name >](self, $name: $type) -> Self {
-                        Self {
-                            $name: Some(Arc::new($name)),
-                            ..self
-                        }
-                    }
-                }
-            )*
-        }
-    };
-}
-
-services! {
-    storage: Storage,
-    xdo: XDoClient,
-    noita: NoitaHandle,
-    status_wall: StatusWall,
-}
 
 #[derive(Default, Clone)]
 pub struct Injector {
@@ -77,6 +22,15 @@ pub struct Injector {
 }
 
 impl Injector {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with<T: ?Sized + Send + Sync + 'static>(mut self, service: Arc<T>) -> Self {
+        self.add(service);
+        self
+    }
+
     pub fn add<T: ?Sized + Send + Sync + 'static>(&mut self, service: Arc<T>) {
         self.services.insert(TypeId::of::<T>(), Box::new(service));
     }

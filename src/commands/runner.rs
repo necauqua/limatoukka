@@ -27,6 +27,7 @@ use crate::{
         charges::{Charges, ChargesService},
         gates::GateService,
         messaging::{Message, PermissionLevel},
+        status_wall::StatusService,
     },
 };
 
@@ -334,9 +335,11 @@ impl Runner {
         }
 
         let _guard = if !ctx.meta.is(CommandTag::NoWall) {
-            Some(ctx.status_wall().push(html! {
+            let wall = ctx.service::<dyn StatusService>();
+            let guard = wall.push(html! {
                 span style="color: #E38AF0" { (ctx.message().sender.name) } ": " (ctx.token) " " (ctx.nesting_str())
-            }).await)
+            }).await;
+            Some(guard)
         } else {
             None
         };

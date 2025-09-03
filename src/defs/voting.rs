@@ -19,7 +19,7 @@ use crate::{
     config::Voting,
     context::cmd::CommandContext,
     fail,
-    services::status_wall::EntryKey,
+    services::status_wall::{EntryKey, StatusService},
 };
 
 #[derive(Clone, Copy)]
@@ -89,7 +89,10 @@ async fn vote(ctx: CommandContext, vote: Vote) -> CommandResult {
         vote_data.title,
         ctx.config().vote_min_ratio * 100.0
     );
-    ctx.status_wall().set_top(vote_data.wall, status).await;
+
+    ctx.service::<dyn StatusService>()
+        .set_and_bump(vote_data.wall, status)
+        .await;
 
     Ok(())
 }
@@ -159,7 +162,8 @@ where
         return Ok(());
     }
 
-    let wall_entry = ctx.status_wall().allocate().await;
+    let wall = ctx.service::<dyn StatusService>();
+    let wall_entry = wall.allocate().await;
 
     let data = serde_json::to_string(&VoteData {
         key: (&key).into(),
@@ -189,7 +193,7 @@ where
     }
 
     wall_entry
-        .set_top(html! { "Vote started (type yes~/no~):\n"(wall_title) })
+        .set_and_bump(html! { "Vote started (type yes~/no~):\n"(wall_title) }.into())
         .await;
 
     let mut tx = ctx.storage().create_transaction();
@@ -206,12 +210,12 @@ where
 
     if yes / sum >= ctx.config().vote_min_ratio {
         tracing::info!(key, "vote passed");
-        wall_entry.set_top("Vote passed!").await;
+        wall_entry.set_and_bump("Vote passed!".into()).await;
         ctx.send(format!("Vote '{chat_title}' passed! :)")).await?;
         action.await?;
     } else {
         tracing::info!(key, "vote failed");
-        wall_entry.set_top("Vote failed!").await;
+        wall_entry.set_and_bump("Vote failed!".into()).await;
         ctx.send(format!("Vote '{chat_title}' failed! :(")).await?;
     }
 

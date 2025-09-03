@@ -297,7 +297,7 @@ mod tests {
 
     use crate::{
         config::Config,
-        services::{Injector, Services, storage::Storage},
+        services::{Injector, storage::Storage},
     };
 
     use super::*;
@@ -328,11 +328,7 @@ mod tests {
         let valkey = rustis::client::Client::connect(&*config.valkey).await?;
         valkey.select(1).await?;
 
-        let ctx = AppContext::new(
-            config,
-            Services::mock().with_storage(Storage::new(valkey)),
-            Injector::default(),
-        );
+        let ctx = AppContext::new(Injector::new().with(Arc::new(Storage::new(valkey))));
 
         let mut rx = eventsub.subscribe();
         tokio::spawn(async move {

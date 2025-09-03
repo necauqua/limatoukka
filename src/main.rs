@@ -15,18 +15,17 @@ use tpn_bot::{
     integration::{eventsub::EventSub, twitch_api::TwitchApi},
     logging,
     services::{
-        Injector, Services,
+        Injector,
         charges::{Charges, ChargesService, ChargesServiceRedis},
         chat_log::{ChatLogService, ChatLogServiceElastic},
         gates::{GateService, GateServiceRedis},
         messaging::{self, MessagingService},
         noita::{ItemFound, NoitaEvent, NoitaHandle},
         sounds::{SoundService, SoundServiceImpl},
-        status_wall::StatusWall,
+        status_wall::{StatusService, StatusWall},
         storage::Storage,
         tts::{TtsService, TtsServiceImpl},
         twitch::{TwitchService, TwitchServiceImpl},
-        xdo::XDoClient,
     },
 };
 
@@ -40,8 +39,6 @@ use twitch_api::{
 async fn run(config: Config) -> Result<()> {
     let valkey = ValkeyClient::connect(&*config.valkey).await?;
 
-    let xdo = XDoClient::new(config.display.clone());
-
     let twitch_api = TwitchApi::new(&config).await?;
 
     let eventsub = EventSub::new(twitch_api.clone());
@@ -50,35 +47,34 @@ async fn run(config: Config) -> Result<()> {
     let mut eventsub_rx = eventsub.subscribe();
     let eventsub_init = eventsub.wait_for_full_init();
 
-    let mut injector = Injector::default();
+    let status_wall = Arc::new(StatusWall::default());
 
-    injector.add::<dyn MessagingService>(messaging.into());
-    injector.add::<dyn ChargesService>(Arc::new(ChargesServiceRedis::new(valkey.clone())));
-    injector.add::<dyn GateService>(Arc::new(GateServiceRedis::new(valkey.clone())));
-    injector.add::<dyn TwitchService>(Arc::new(TwitchServiceImpl::new(twitch_api.clone())));
-    injector.add::<dyn ChatLogService>(Arc::new(
-        ChatLogServiceElastic::new(
-            &config.elastic.url,
-            &config.elastic.api_key,
-            &config.elastic.index,
-        )
-        .await?,
-    ));
-    injector.add::<dyn SoundService>(Arc::new(SoundServiceImpl::default()));
-    injector.add::<dyn TtsService>(Arc::new(TtsServiceImpl::default()));
+    let services = Injector::new()
+        .with::<dyn MessagingService>(messaging.into())
+        .with::<dyn ChargesService>(Arc::new(ChargesServiceRedis::new(valkey.clone())))
+        .with::<dyn GateService>(Arc::new(GateServiceRedis::new(valkey.clone())))
+        .with::<dyn TwitchService>(Arc::new(TwitchServiceImpl::new(twitch_api.clone())))
+        .with::<dyn ChatLogService>(Arc::new(
+            ChatLogServiceElastic::new(
+                &config.elastic.url,
+                &config.elastic.api_key,
+                &config.elastic.index,
+            )
+            .await?,
+        ))
+        .with::<dyn SoundService>(Arc::new(SoundServiceImpl::default()))
+        .with::<dyn TtsService>(Arc::new(TtsServiceImpl::default()))
+        .with::<dyn StatusService>(status_wall.clone())
+        // todo make it into a dyn service ofc
+        .with(Arc::new(NoitaHandle::default()))
+        // todo most of storage usage should be replaced with separate services
+        .with(Arc::new(Storage::new(valkey.clone())))
+        // config is *only* used in voting, todo remove/refactor it
+        .with(Arc::new(config));
 
-    let ctx = AppContext::new(
-        config,
-        Services::new(
-            Storage::new(valkey),
-            xdo,
-            NoitaHandle::default(),
-            StatusWall::default(),
-        ),
-        injector,
-    )
-    .with_caster_id(twitch_api.caster_id().to_owned())
-    .with_bot_id(twitch_api.bot_id().to_owned());
+    let ctx = AppContext::new(services)
+        .with_caster_id(twitch_api.caster_id().to_owned())
+        .with_bot_id(twitch_api.bot_id().to_owned());
 
     let mut commands = discover_declared_commands();
 
@@ -88,7 +84,7 @@ async fn run(config: Config) -> Result<()> {
     let runner = Runner::new(commands);
 
     tokio::spawn(eventsub.run(ctx.clone()));
-    tokio::spawn(ctx.status_wall().start(&ctx.config().browser_source_bind));
+    tokio::spawn(status_wall.start(&ctx.config().browser_source_bind));
     tokio::spawn(NoitaHandle::poll_state_updates(ctx.clone()));
 
     let mut noita_events = ctx.noita().subscribe();

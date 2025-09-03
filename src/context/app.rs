@@ -9,24 +9,20 @@ use std::{
 
 use anyhow::{Result, bail};
 use futures::future::pending;
-use maud::html;
 use rustis::commands::{PubSubCommands, StringCommands};
 use tokio::{
     process::{Child, Command},
     sync::{Notify, oneshot::Receiver},
-    time::sleep,
 };
 
 use crate::{
     config::Config,
     services::{
-        Injector, Services,
+        Injector,
         gates::GateService,
         messaging::{MessagingService, MessagingServiceMock},
         noita::NoitaHandle,
-        status_wall::StatusWall,
         storage::Storage,
-        xdo::XDoClient,
     },
 };
 
@@ -150,7 +146,6 @@ impl AppContext {
 
 struct Inner {
     state: Mutex<AppState>,
-    config: Config,
     caster_id: Option<String>,
     bot_id: Option<String>,
 }
@@ -158,21 +153,18 @@ struct Inner {
 #[derive(Clone)]
 pub struct AppContext {
     inner: Arc<Inner>,
-    services: Services,
     messaging: Arc<dyn MessagingService>,
     injector: Injector,
 }
 
 impl AppContext {
-    pub fn new(config: Config, services: Services, injector: Injector) -> Self {
+    pub fn new(injector: Injector) -> Self {
         Self {
             inner: Arc::new(Inner {
                 state: Default::default(),
-                config,
                 caster_id: None,
                 bot_id: None,
             }),
-            services,
             messaging: injector
                 .get_opt::<dyn MessagingService>()
                 .unwrap_or_else(|| Arc::new(MessagingServiceMock)),
@@ -194,8 +186,8 @@ impl AppContext {
         self
     }
 
-    pub fn config(&self) -> &Config {
-        &self.inner.config
+    pub fn config(&self) -> Arc<Config> {
+        self.service::<Config>()
     }
 
     pub fn caster_id(&self) -> Option<&str> {
@@ -288,44 +280,12 @@ impl AppContext {
         .await
     }
 
-    pub async fn next_run(&self) -> Result<()> {
-        sleep(Duration::from_millis(500)).await;
-
-        self.xdo().key("Enter").await?;
-
-        let no_restarts: Option<String> = self.storage().get("flags:no-restarts").await?;
-        if no_restarts.is_some() {
-            return Ok(());
-        }
-
-        let entry = self.status_wall().allocate().await;
-        for i in (1..=10).rev() {
-            entry
-                .set_top(html! { span style="color:orange" { "Starting new game in " (i) } })
-                .await;
-            sleep(Duration::from_secs(1)).await;
-        }
-
-        self.interrupt(None, InterruptKind::Interrupt);
-
-        self.restart().await?;
-        Ok(())
+    pub fn storage(&self) -> Arc<Storage> {
+        self.service::<Storage>()
     }
 
-    pub fn storage(&self) -> &Storage {
-        self.services.storage()
-    }
-
-    pub fn xdo(&self) -> &XDoClient {
-        self.services.xdo()
-    }
-
-    pub fn status_wall(&self) -> &StatusWall {
-        self.services.status_wall()
-    }
-
-    pub fn noita(&self) -> &NoitaHandle {
-        self.services.noita()
+    pub fn noita(&self) -> Arc<NoitaHandle> {
+        self.service::<NoitaHandle>()
     }
 }
 

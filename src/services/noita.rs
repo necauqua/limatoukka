@@ -92,7 +92,9 @@ impl NoitaHandle {
             .unwrap_or_default();
         let mut best_inv = Inventory::from_bits_truncate(best_inv);
 
-        let mut last_flags = ctx.noita().read_flags().await.ok();
+        let noita = ctx.noita();
+
+        let mut last_flags = noita.read_flags().await.ok();
 
         let mut last_inv_update = Instant::now();
         let mut inv_errored = false;
@@ -100,7 +102,7 @@ impl NoitaHandle {
         loop {
             sleep(Duration::from_millis(30)).await;
 
-            let state = ctx.noita().with(NoitaState::read).await.ok();
+            let state = noita.with(NoitaState::read).await.ok();
             if state.is_none() {
                 // prevent busy looping when most likely noita is simply not running
                 sleep(Duration::from_secs(5)).await;
@@ -109,28 +111,28 @@ impl NoitaHandle {
             if inventory_open.changed(state.as_ref().map(|n| n.inventory_open)) {
                 let inventory_open = inventory_open.value.unwrap_or_default();
 
-                ctx.noita()
+                noita
                     .inventory_open
                     .store(inventory_open, Ordering::Relaxed);
 
-                _ = ctx.noita().events.send(match inventory_open {
+                _ = noita.events.send(match inventory_open {
                     true => NoitaEvent::InventoryOpened,
                     false => NoitaEvent::InventoryClosed,
                 });
             }
 
             if low_oxygen.was_set(state.as_ref().map(|n| n.low_oxygen)) {
-                _ = ctx.noita().events.send(NoitaEvent::LowOxygen);
+                _ = noita.events.send(NoitaEvent::LowOxygen);
             }
             if polied.was_set(state.as_ref().map(|n| n.polied)) {
-                _ = ctx.noita().events.send(NoitaEvent::Polymorphed);
+                _ = noita.events.send(NoitaEvent::Polymorphed);
             }
             if dead.was_set(state.as_ref().map(|s| s.dead)) {
                 tracing::info!("died");
 
                 best_inv = Inventory::empty();
                 last_inv_update = Instant::now(); // avoid races with inventory reading by resetting its timer
-                _ = ctx.noita().events.send(NoitaEvent::PlayerDeath);
+                _ = noita.events.send(NoitaEvent::PlayerDeath);
             }
 
             if last_inv_update.elapsed() < Duration::from_secs(1) {
@@ -138,7 +140,7 @@ impl NoitaHandle {
             }
             last_inv_update = Instant::now();
 
-            let inv = match ctx.noita().with(Inventory::read).await {
+            let inv = match noita.with(Inventory::read).await {
                 Ok(inv) => inv,
                 Err(e) if e.is::<NoNoita>() => {
                     sleep(Duration::from_secs(5)).await;
@@ -163,21 +165,21 @@ impl NoitaHandle {
                 use NoitaEvent as E;
 
                 if diff.contains(Inventory::BEST_TABLET) {
-                    _ = ctx.noita().events.send(E::ItemFound(I::TreeTablet));
+                    _ = noita.events.send(E::ItemFound(I::TreeTablet));
                 } else if diff.contains(Inventory::TABLET) {
-                    _ = ctx.noita().events.send(E::ItemFound(I::OtherTablet));
+                    _ = noita.events.send(E::ItemFound(I::OtherTablet));
                 }
                 if diff.contains(Inventory::EVIL_EYE) {
-                    _ = ctx.noita().events.send(E::ItemFound(I::EvilEye));
+                    _ = noita.events.send(E::ItemFound(I::EvilEye));
                 }
                 if diff.contains(Inventory::EARTH_STONE) {
-                    _ = ctx.noita().events.send(E::ItemFound(I::EarthStone));
+                    _ = noita.events.send(E::ItemFound(I::EarthStone));
                 }
                 if diff.contains(Inventory::TAIKASAUVA) {
-                    _ = ctx.noita().events.send(E::ItemFound(I::Taikasauva));
+                    _ = noita.events.send(E::ItemFound(I::Taikasauva));
                 }
                 if diff.contains(Inventory::TOUCH_OF_GOLD) {
-                    _ = ctx.noita().events.send(E::ItemFound(I::TouchOfGold));
+                    _ = noita.events.send(E::ItemFound(I::TouchOfGold));
                 }
 
                 if let Err(e) = ctx.storage().set("best-inventory", best_inv.bits()).await {
@@ -187,11 +189,11 @@ impl NoitaHandle {
 
             let Some(last_flags_ref) = last_flags.as_ref() else {
                 // no flags read yet, skip
-                last_flags = ctx.noita().read_flags().await.ok();
+                last_flags = noita.read_flags().await.ok();
                 continue;
             };
 
-            let current_flags = ctx.noita().read_flags().await.unwrap_or_default();
+            let current_flags = noita.read_flags().await.unwrap_or_default();
             let new_flags = current_flags
                 .difference(last_flags_ref)
                 .cloned()
@@ -200,15 +202,15 @@ impl NoitaHandle {
             if !new_flags.is_empty() {
                 last_flags = Some(current_flags);
                 for flag in new_flags {
-                    _ = ctx.noita().events.send(
-                        if let Some(pillar) = PILLAR_FLAG_NAMES.get(&flag) {
+                    _ = noita
+                        .events
+                        .send(if let Some(pillar) = PILLAR_FLAG_NAMES.get(&flag) {
                             NoitaEvent::PillarCompleted(pillar.clone())
                         } else if let Some(action) = ACTION_NAMES.get(&flag) {
                             NoitaEvent::NewSpellCast(flag, action.clone())
                         } else {
                             NoitaEvent::OtherPermanentFlag(flag)
-                        },
-                    );
+                        });
                 }
             }
         }
@@ -237,19 +239,18 @@ impl NoitaHandle {
         }
 
         // if the process died we re-lookup (3 is libc::ESRCH, has no ErrorKind variant)
-        if e.downcast_ref::<io::Error>().and_then(|e| e.raw_os_error()) == Some(3) {
-            *noita = find_noita().await?;
-
-            let measure = Instant::now();
-            let res = f(noita.as_mut().ok_or(NoNoita)?);
-            let elapsed = measure.elapsed();
-            if elapsed.as_millis() > 100 {
-                tracing::warn!("slow noita call, took {elapsed:?}");
-            }
-            res
-        } else {
-            Err(e)
+        if e.downcast_ref::<io::Error>().and_then(|e| e.raw_os_error()) != Some(3) {
+            return Err(e);
         }
+        *noita = find_noita().await?;
+
+        let measure = Instant::now();
+        let res = f(noita.as_mut().ok_or(NoNoita)?);
+        let elapsed = measure.elapsed();
+        if elapsed.as_millis() > 100 {
+            tracing::warn!("slow noita call, took {elapsed:?}");
+        }
+        res
     }
 
     pub async fn has_flag(&self, flag: &str) -> Result<bool> {

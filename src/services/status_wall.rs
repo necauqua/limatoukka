@@ -1,6 +1,10 @@
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 
 use anyhow::{Ok, Result};
+use async_trait::async_trait;
 use axum::{
     Router,
     response::{Sse, sse::Event},
@@ -14,121 +18,112 @@ use tokio::sync::{
     broadcast::{self, Sender},
 };
 
-struct Inner {
-    entries: IndexMap<EntryKey, String>,
-    counter: usize,
-    broadcast: Sender<Event>,
-}
-
-impl Inner {
-    fn new_key(&mut self) -> EntryKey {
-        self.counter += 1;
-        EntryKey(self.counter)
-    }
-
-    fn get_text(&self) -> String {
-        self.entries
-            .iter()
-            .fold(String::new(), |acc, (_, entry)| acc + entry + "\n")
-    }
-
-    async fn sync(&mut self) {
-        _ = self.broadcast.send(Event::default().data(self.get_text()));
-    }
-}
-
-impl Default for Inner {
-    fn default() -> Self {
-        let (tx, _) = broadcast::channel(16);
-        Self {
-            entries: IndexMap::new(),
-            counter: 0,
-            broadcast: tx,
-        }
-    }
-}
-
-#[derive(Default, Clone)]
-pub struct StatusWall {
-    inner: Arc<Mutex<Inner>>,
-}
-
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(transparent)]
-pub struct EntryKey(pub usize);
+pub struct EntryKey(usize);
 
-pub struct EntryGuard(EntryKey, StatusWall);
+#[async_trait]
+pub trait StatusService: Send + Sync {
+    fn new_key(&self) -> EntryKey;
+    async fn set(&self, key: EntryKey, text: String) -> Option<String>;
+    async fn set_and_bump(&self, key: EntryKey, text: String) -> Option<String>;
+    async fn remove(&self, key: EntryKey) -> Option<String>;
+}
+
+pub struct EntryGuard {
+    key: EntryKey,
+    wall: Arc<dyn StatusService>,
+}
 
 impl EntryGuard {
-    pub async fn set(&self, new_entry: impl Into<String>) -> Option<String> {
-        self.1
-            .update(|inner| inner.entries.insert(self.0, new_entry.into()))
-            .await
-    }
-
-    pub async fn set_top(&self, new_entry: impl Into<String>) -> Option<String> {
-        self.1.set_top(self.0, new_entry).await
-    }
-
     pub fn key(&self) -> EntryKey {
-        self.0
+        self.key
+    }
+
+    pub async fn set(&self, text: String) -> Option<String> {
+        self.wall.set(self.key, text).await
+    }
+
+    pub async fn set_and_bump(&self, text: String) -> Option<String> {
+        self.wall.set_and_bump(self.key, text).await
     }
 }
 
 impl Drop for EntryGuard {
     fn drop(&mut self) {
-        let entry = self.0;
-        let wall = self.1.clone();
-        tokio::spawn(async move {
-            wall.update(|inner| inner.entries.shift_remove(&entry))
-                .await
-        });
+        let key = self.key;
+        let wall = self.wall.clone();
+        tokio::spawn(async move { wall.remove(key).await });
+    }
+}
+
+impl dyn StatusService {
+    pub async fn allocate(self: &Arc<Self>) -> EntryGuard {
+        EntryGuard {
+            key: self.new_key(),
+            wall: self.clone(),
+        }
+    }
+
+    pub async fn push(self: &Arc<Self>, text: impl Into<String>) -> EntryGuard {
+        let entry = self.allocate().await;
+        entry.set(text.into()).await;
+        entry
+    }
+
+    pub async fn push_top(self: &Arc<Self>, text: impl Into<String>) -> EntryGuard {
+        let entry = self.allocate().await;
+        entry.set_and_bump(text.into()).await;
+        entry
+    }
+}
+
+pub struct StatusWall {
+    entries: Mutex<IndexMap<EntryKey, String>>,
+    broadcast: Sender<Event>,
+    counter: AtomicUsize,
+}
+
+impl Default for StatusWall {
+    fn default() -> Self {
+        let (tx, _) = broadcast::channel(16);
+        Self {
+            entries: Default::default(),
+            broadcast: tx,
+            counter: AtomicUsize::new(0),
+        }
     }
 }
 
 impl StatusWall {
-    pub async fn allocate(&self) -> EntryGuard {
-        let key = self.inner.lock().await.new_key();
-        EntryGuard(key, self.clone())
+    async fn get_text(&self) -> String {
+        self.entries
+            .lock()
+            .await
+            .iter()
+            .fold(String::new(), |acc, (_, entry)| acc + entry + "\n")
     }
 
-    async fn update<R>(&self, f: impl FnOnce(&mut Inner) -> R) -> R {
-        let mut inner = self.inner.lock().await;
-        let r = f(&mut inner);
-        inner.sync().await;
+    async fn update<R>(&self, f: impl FnOnce(&mut IndexMap<EntryKey, String>) -> R) -> R {
+        let (r, text) = {
+            let mut entries = self.entries.lock().await;
+            let r = f(&mut entries);
+            let text = entries
+                .iter()
+                .fold(String::new(), |acc, (_, entry)| acc + entry + "\n");
+            (r, text)
+        };
+        _ = self.broadcast.send(Event::default().data(text));
         r
     }
 
-    pub async fn push(&self, entry: impl Into<String>) -> EntryGuard {
-        self.update(|inner| {
-            let id = inner.new_key();
-            inner.entries.insert(id, entry.into());
-            EntryGuard(id, self.clone())
-        })
-        .await
-    }
-
-    pub async fn push_top(&self, entry: impl Into<String>) -> EntryGuard {
-        self.update(|inner| {
-            let id = inner.new_key();
-            inner.entries.shift_insert(0, id, entry.into());
-            EntryGuard(id, self.clone())
-        })
-        .await
-    }
-
-    pub async fn set_top(&self, id: EntryKey, new_entry: impl Into<String>) -> Option<String> {
-        self.update(|inner| inner.entries.shift_insert(0, id, new_entry.into()))
-            .await
-    }
-
-    pub fn start(&self, bind_addr: &str) -> impl Future<Output = Result<()>> + use<> {
+    pub fn start(self: Arc<Self>, bind_addr: &str) -> impl Future<Output = Result<()>> + use<> {
         let app = Router::new()
             .route(
                 "/",
                 get({
-                    let inner = self.inner.clone();
-                    || async move {
+                    let handle = self.clone();
+                    async move || {
                         html! {
                             script {
                                 (PreEscaped(r#"new EventSource("/events").onmessage = (e) => text.innerHTML = e.data"#))
@@ -142,7 +137,7 @@ impl StatusWall {
                                 font-family: NoitaPixel;
                                 font-smooth: never;
                             " {
-                                (PreEscaped(inner.lock().await.get_text()))
+                                (PreEscaped(handle.get_text().await))
                             };
                         }
                     }
@@ -150,15 +145,12 @@ impl StatusWall {
             )
             .route(
                 "/events",
-                get({
-                    let inner = self.inner.clone();
-                    || async move {
-                        let rx = inner.lock().await.broadcast.subscribe();
-                        let s = futures::stream::try_unfold(rx, |mut rx| async {
-                            Ok(Some((rx.recv().await?, rx)))
-                        });
-                        Sse::new(s).keep_alive(Default::default())
-                    }
+                get(async move || {
+                    let rx = self.broadcast.subscribe();
+                    let s = futures::stream::try_unfold(rx, |mut rx| async {
+                        Ok(Some((rx.recv().await?, rx)))
+                    });
+                    Sse::new(s).keep_alive(Default::default())
                 }),
             );
 
@@ -170,5 +162,25 @@ impl StatusWall {
 
             Ok(())
         }
+    }
+}
+
+#[async_trait]
+impl StatusService for StatusWall {
+    fn new_key(&self) -> EntryKey {
+        EntryKey(self.counter.fetch_add(1, Ordering::Relaxed))
+    }
+
+    async fn set(&self, key: EntryKey, text: String) -> Option<String> {
+        self.update(|entries| entries.insert(key, text)).await
+    }
+
+    async fn set_and_bump(&self, key: EntryKey, text: String) -> Option<String> {
+        self.update(|entries| entries.shift_insert(0, key, text))
+            .await
+    }
+
+    async fn remove(&self, key: EntryKey) -> Option<String> {
+        self.update(|entries| entries.shift_remove(&key)).await
     }
 }

@@ -11,7 +11,7 @@ use crate::{
         cmd::CommandContext,
     },
     fail,
-    services::{messaging::PermissionLevel, twitch::TwitchService},
+    services::{messaging::PermissionLevel, status_wall::StatusService, twitch::TwitchService},
 };
 use humantime_serde::re::humantime;
 use maud::html;
@@ -101,16 +101,20 @@ async fn wait(ctx: CommandContext, duration: HoldTime<500, 300_000>) -> CommandR
         humantime::format_duration(duration)
     );
 
-    let entry = ctx.status_wall().allocate().await;
+    let wall = ctx.service::<dyn StatusService>();
+    let entry = wall.allocate().await;
     let inner_ctx = ctx.clone();
     let wall_task = tokio::spawn(async move {
         let name = &inner_ctx.message().sender.name;
         let nesting = inner_ctx.nesting_str();
         for i in (1..=duration.as_secs()).rev() {
             entry
-                .set(html! {
-                    span style="color: #E38AF0" { (name) } ": wait:" (i) "s " (nesting)
-                })
+                .set(
+                    html! {
+                        span style="color: #E38AF0" { (name) } ": wait:" (i) "s " (nesting)
+                    }
+                    .0,
+                )
                 .await;
             sleep(Duration::from_secs(1)).await;
         }

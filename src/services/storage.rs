@@ -13,6 +13,7 @@ use serde::{Serialize, de::DeserializeOwned};
 
 use crate::commands::args::Chatter;
 
+#[derive(Clone)]
 pub struct Storage {
     client: Client,
 }
