@@ -1,7 +1,6 @@
-use std::time::Duration;
-
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use reqwest::Url;
+use rustis::commands::GenericCommands;
 use serde::Deserialize;
 
 use crate::{
@@ -9,7 +8,10 @@ use crate::{
     context::{app::AppContext, cmd::CommandContext},
     fail,
     services::{
-        sounds::{SoundError, SoundService},
+        charges::{Charges, ChargesService},
+        gates::GateService,
+        messaging::PermissionLevel,
+        sounds::SoundService,
         tts::TtsService,
     },
 };
@@ -33,25 +35,38 @@ async fn tts(ctx: CommandContext, msg: String) -> CommandResult {
 /// use this command to get an idea of what sounds are available.
 ///
 /// Sender gate is at least 10 seconds for everything, but individual sounds
-/// can have their own dynamic cooldowns (currently all sounds at 1 minute).
-#[command(sender_gate=10s, permission = Caster, GlobalMacroExempt)]
+/// have their own dynamic cooldowns.
+#[command(sender_gate = 10s, permission = Caster, GlobalMacroExempt)]
 async fn play_sound(ctx: CommandContext, sound_id: String) -> CommandResult {
-    if !ctx
-        .sender_gate(&format!("play-sound:{sound_id}"), Duration::from_secs(60))
-        .await?
-    {
-        fail!("sender gate 1m for {sound_id}");
+    let sound_service = ctx.service::<dyn SoundService>();
+
+    let Some(s) = sound_service.select(&sound_id).await? else {
+        fail!("Sound not found");
+    };
+
+    let gate_key = format!("play-sound:{}", s.group.as_deref().unwrap_or(&*sound_id));
+
+    if ctx.message().sender.level != PermissionLevel::Caster {
+        ctx.service::<dyn GateService>()
+            .command_gates(ctx.sender(), &gate_key, s.global_gate, s.sender_gate)
+            .await?;
     }
 
-    match ctx
-        .service::<dyn SoundService>()
-        .play(&sound_id, Some(ctx.interrupt_signal()))
-        .await
-    {
-        Ok(_) => Ok(()),
-        Err(e @ (SoundError::NotFound | SoundError::DidntChoose)) => fail!("{e}"),
-        Err(SoundError::InternalError(e)) => Err(e.into()),
+    let Some(s) = s.choose() else {
+        fail!("Sound had a chance of not playing, you lost to random lmao");
+    };
+
+    if s.reward != 0 {
+        ctx.service::<dyn ChargesService>()
+            .add(ctx.sender(), Charges::from(s.reward))
+            .await?;
     }
+
+    ctx.service::<dyn SoundService>()
+        .play(s, Some(ctx.interrupt_signal()))
+        .await?;
+
+    Ok(())
 }
 
 /// Get the title of the song that's currently playing on stream, if any.
@@ -120,6 +135,16 @@ fn get_youtube_id(raw: &str) -> Result<String, CommandError> {
 /// point of the command is to show me a song you think I wont insta-skip :)
 #[command(sender_gate = 1m, shortcode=sr)]
 async fn song_request(ctx: CommandContext, url_or_id: String) -> CommandResult {
+    if ctx
+        .storage()
+        .exists("flags:nosr")
+        .await
+        .map_err(|e| anyhow!(e))?
+        != 0
+    {
+        fail!("Song requests are disabled");
+    }
+
     let id = get_youtube_id(&url_or_id)?;
     if id == "dQw4w9WgXcQ" {
         ctx.reply("At least don't use a dQw link ICANT".into())

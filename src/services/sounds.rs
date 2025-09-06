@@ -1,13 +1,32 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
 use rand::seq::IndexedRandom;
 use serde::Deserialize;
-use thiserror::Error;
 use tokio::sync::{Mutex, oneshot::Receiver};
+use tracing::{Span, field::Empty};
 
-use crate::{commands::runner::CommandError, context::app::AppContext};
+use crate::context::app::AppContext;
+
+#[async_trait]
+pub trait SoundService: Send + Sync {
+    async fn select(&self, sound_id: &str) -> Result<Option<SoundEntry>>;
+    async fn play(&self, sound: &SoundVariant, stop: Option<Receiver<()>>) -> Result<()>;
+}
+
+impl dyn SoundService {
+    pub async fn play_builtin(&self, id: &str) -> Result<()> {
+        let sound = self
+            .select(id)
+            .await?
+            .with_context(|| format!("'{id}' sound not found"))?;
+        let sound_variant = sound
+            .choose()
+            .with_context(|| format!("'{id}' sound did not choose a variant"))?;
+        self.play(sound_variant, None).await
+    }
+}
 
 #[derive(Default)]
 pub struct SoundServiceImpl {
@@ -18,25 +37,51 @@ pub struct SoundServiceImpl {
 pub struct SoundMeta(pub HashMap<String, SoundEntry>);
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct SoundEntry {
+    #[serde(default, with = "humantime_serde")]
+    pub global_gate: Option<Duration>,
+    #[serde(default, with = "humantime_serde")]
+    pub sender_gate: Option<Duration>,
+    #[serde(default)]
+    pub group: Option<String>,
+    #[serde(flatten)]
+    pub variants: SoundVariants,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(untagged)]
-pub enum SoundEntry {
-    Single(SoundFile),
-    Multiple(Vec<SoundFile>),
+pub enum SoundVariants {
+    Single(SoundVariant),
+    Multiple { variants: Vec<SoundVariant> },
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SoundVariant {
+    pub file: String,
+    #[serde(default)]
+    pub volume: Option<f32>,
+    #[serde(default)]
+    pub reward: i64,
+    #[serde(default)]
+    pub rarity: Option<f32>,
+    #[serde(default)]
+    pub exclusive: bool,
 }
 
 impl SoundEntry {
-    pub fn choose(&self) -> Option<&SoundFile> {
-        match self {
-            SoundEntry::Single(file) => Some(file),
-            SoundEntry::Multiple(files) => {
-                let known_rarity_sum: f32 = files.iter().filter_map(|f| f.rarity).sum();
-                let default_rarity_count = files.iter().filter(|f| f.rarity.is_none()).count();
+    pub fn choose(&self) -> Option<&SoundVariant> {
+        match &self.variants {
+            SoundVariants::Single(variant) => Some(variant),
+            SoundVariants::Multiple { variants } => {
+                let known_rarity_sum: f32 = variants.iter().filter_map(|f| f.rarity).sum();
+                let default_rarity_count = variants.iter().filter(|f| f.rarity.is_none()).count();
                 let default_rarity = if default_rarity_count > 0 {
                     (1.0 - known_rarity_sum) / default_rarity_count as f32
                 } else {
                     0.0
                 };
-                files
+                variants
                     .choose_weighted(&mut rand::rng(), |f| f.rarity.unwrap_or(default_rarity))
                     .ok()
             }
@@ -44,75 +89,38 @@ impl SoundEntry {
     }
 }
 
-#[derive(Debug, Deserialize)]
-pub struct SoundFile {
-    pub file: String,
-    #[serde(default)]
-    pub volume: Option<f32>,
-    #[serde(default)]
-    pub rarity: Option<f32>,
-    #[serde(default)]
-    pub exclusive: bool,
-}
-
-#[derive(Debug, Error)]
-pub enum SoundError {
-    #[error("Sound not found")]
-    NotFound,
-    #[error(
-        "This sound allows randomly choosing to not play anything, and you failed the dice roll ¯\\_(ツ)_/¯"
-    )]
-    DidntChoose,
-    #[error("Internal error: {0}")]
-    InternalError(#[from] anyhow::Error),
-}
-
-impl From<SoundError> for CommandError {
-    fn from(e: SoundError) -> Self {
-        match e {
-            e @ (SoundError::NotFound | SoundError::DidntChoose) => {
-                CommandError::PreconditionFail(format!("{e}"))
-            }
-            SoundError::InternalError(e) => CommandError::Internal(e),
-        }
-    }
-}
-
-#[async_trait]
-pub trait SoundService: Send + Sync {
-    async fn play(&self, sound_id: &str, stop: Option<Receiver<()>>) -> Result<(), SoundError>;
-}
-
 #[async_trait]
 impl SoundService for SoundServiceImpl {
-    async fn play(&self, sound_id: &str, stop: Option<Receiver<()>>) -> Result<(), SoundError> {
+    async fn select(&self, sound_id: &str) -> Result<Option<SoundEntry>> {
         // just read it every time for runtime editing (like with justfile)
-        let data: SoundMeta = serde_yml::from_str(
+        let mut data: SoundMeta = serde_yml::from_str(
             &std::fs::read_to_string("./sounds/_meta.yml").map_err(|e| anyhow!(e))?,
         )
         .map_err(|e| anyhow!(e))?;
 
-        let sound = data.0.get(sound_id).ok_or(SoundError::NotFound)?;
-        let sound_file = sound.choose().ok_or(SoundError::DidntChoose)?;
+        Ok(data.0.remove(sound_id))
+    }
 
-        let _guard = if sound_file.exclusive {
+    #[tracing::instrument(skip(self, stop), fields(file = Empty))]
+    async fn play(&self, sound: &SoundVariant, stop: Option<Receiver<()>>) -> Result<()> {
+        let _guard = if sound.exclusive {
             Some(self.exclusive_sound.lock().await)
         } else {
             None
         };
 
-        let volume = sound_file.volume.unwrap_or(1.0);
+        Span::current().record("file", sound.file.as_str());
 
-        tracing::debug!(sound_id, "playing a sound");
-        let mut process = AppContext::just(
-            "play-sound",
-            &[&sound_file.file, volume.to_string().as_str()],
-        )?;
+        let volume = sound.volume.unwrap_or(1.0);
+
+        tracing::debug!("playing a sound");
+        let mut process =
+            AppContext::just("play-sound", &[&sound.file, volume.to_string().as_str()])?;
 
         if process.wait(stop).await {
-            tracing::debug!(sound_id, "finished playing sound");
+            tracing::debug!("finished playing sound");
         } else {
-            tracing::debug!(sound_id, "interrupted sound playback");
+            tracing::debug!("interrupted sound playback");
         }
 
         Ok(())

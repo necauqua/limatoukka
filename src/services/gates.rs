@@ -7,11 +7,51 @@ use rustis::{
     commands::{GenericCommands, SetCondition, SetExpiration, StringCommands},
 };
 
+use crate::commands::{CommandResult, runner::CommandError};
+
 #[async_trait]
 pub trait GateService: Send + Sync {
     async fn gate(&self, user: &str, key: &str, period: Duration) -> Result<bool>;
     async fn ungate(&self, user: &str, key: &str) -> Result<()>;
     async fn ungate_all(&self, user: &str) -> Result<()>;
+}
+
+impl dyn GateService {
+    pub async fn command_gates(
+        &self,
+        user: &str,
+        key: &str,
+        global: Option<Duration>,
+        sender: Option<Duration>,
+    ) -> CommandResult {
+        if let Some(global) = &global
+            && !self.gate("global", key, *global).await?
+        {
+            return Err(CommandError::GlobalTimeout(*global));
+        }
+        if let Some(sender) = &sender
+            && !self.gate(user, key, *sender).await?
+        {
+            return Err(CommandError::SenderTimeout(*sender));
+        }
+        Ok(())
+    }
+
+    pub async fn command_ungate(
+        &self,
+        user: &str,
+        key: &str,
+        global: Option<Duration>,
+        sender: Option<Duration>,
+    ) -> Result<()> {
+        if global.is_some() {
+            self.ungate("global", key).await?;
+        }
+        if sender.is_some() {
+            self.ungate(user, key).await?;
+        }
+        Ok(())
+    }
 }
 
 pub struct GateServiceNoop;

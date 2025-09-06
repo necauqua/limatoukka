@@ -422,13 +422,8 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
                 "raid"
             );
 
-            let handle = ctx.clone();
-            tokio::spawn(async move {
-                handle
-                    .service::<dyn SoundService>()
-                    .play("RAID", None)
-                    .await
-            });
+            let sound_service = ctx.service::<dyn SoundService>();
+            let sound = tokio::spawn(async move { sound_service.play_builtin("RAID").await });
 
             ctx.send(format!(
                 "VoHiYo Thanks for the raid @{}, and welcome raiders TwitchUnity",
@@ -439,6 +434,8 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
             ctx.service::<dyn TwitchService>()
                 .shout_out(data.from_broadcaster_user_id.as_str())
                 .await?;
+
+            sound.await??;
         }
         Event::ChannelHypeTrainBeginV1(Payload {
             message: Message::Notification(_),

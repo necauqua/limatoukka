@@ -300,41 +300,33 @@ impl Runner {
         let gate_service = ctx.service::<dyn GateService>();
         let charges_service = ctx.service::<dyn ChargesService>();
 
+        let m = &ctx.meta;
         let level = ctx.message().sender.level;
-        let exempt = ctx.in_global_macro && ctx.meta.is(CommandTag::GlobalMacroExempt);
+        let exempt = ctx.in_global_macro && m.is(CommandTag::GlobalMacroExempt);
 
-        if !exempt && level < ctx.meta.permission {
+        if !exempt && level < m.permission {
             return Err(CommandError::Permission);
         }
 
         if level != PermissionLevel::Caster {
-            if let Some(global_gate) = &ctx.meta.global_gate
-                && !gate_service
-                    .gate("global", ctx.meta.name, *global_gate)
-                    .await?
-            {
-                return Err(CommandError::GlobalTimeout(*global_gate));
-            }
-            if let Some(sender_gate) = &ctx.meta.sender_gate
-                && !gate_service
-                    .gate(ctx.sender(), ctx.meta.name, *sender_gate)
-                    .await?
-            {
-                return Err(CommandError::SenderTimeout(*sender_gate));
-            }
+            gate_service
+                .command_gates(ctx.sender(), m.name, m.global_gate, m.sender_gate)
+                .await?;
         }
 
+        let mut used = None;
         if !exempt
-            && level < ctx.meta.free_for
-            && let Some(cost) = ctx.meta.cost
+            && level < m.free_for
+            && let Some(cost) = m.cost
         {
             let cost = cost.into();
             if !charges_service.consume(ctx.sender(), cost).await? {
                 return Err(CommandError::NotEnoughCharges { cost });
             }
+            used = Some(cost);
         }
 
-        let _guard = if !ctx.meta.is(CommandTag::NoWall) {
+        let _guard = if !m.is(CommandTag::NoWall) {
             let wall = ctx.service::<dyn StatusService>();
             let guard = wall.push(html! {
                 span style="color: #E38AF0" { (ctx.message().sender.name) } ": " (ctx.token) " " (ctx.nesting_str())
@@ -348,12 +340,18 @@ impl Runner {
 
         let res = fut.await;
 
-        if level != PermissionLevel::Caster && res.is_err() {
-            if ctx.meta.global_gate.is_some() {
-                gate_service.ungate("global", ctx.meta.name).await?
+        // ungate and refund on errors
+        if res
+            .as_ref()
+            .is_err_and(|e| !matches!(e, CommandError::Interrupt))
+        {
+            if level != PermissionLevel::Caster {
+                gate_service
+                    .command_ungate(ctx.sender(), m.name, m.global_gate, m.sender_gate)
+                    .await?;
             }
-            if ctx.meta.sender_gate.is_some() {
-                gate_service.ungate(ctx.sender(), ctx.meta.name).await?
+            if let Some(used) = used {
+                charges_service.add(ctx.sender(), used).await?;
             }
         }
 

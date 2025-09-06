@@ -1,57 +1,128 @@
 scream:
-  - file: "scream/wilhelm.ogg"
-    volume: 0.2
-  - file: "scream/howie.ogg"
-    volume: 0.2
-    rarity: 0.05
-  - file: "scream/awful.ogg"
-    volume: 0.2
-    rarity: 0.005
+  variants:
+    - file: "scream/wilhelm.ogg"
+      volume: 0.2
+    - file: "scream/howie.ogg"
+      volume: 0.2
+      rarity: 0.05
+    - file: "scream/awful.ogg"
+      volume: 0.2
+      rarity: 0.005
+
 snek-moan-scare:
   file: "snek-moan.ogg"
-  volume: 0.25
+  volume: 0.1
+  global-gate: 10m
+
 uwu:
   file: "pulu-prepare-your-asses-for-a-cute-uwu.ogg"
   volume: 0.2
   exclusive: true
+  global-gate: 5m
+
 uguu:
-  - file: "uguu/uguu1.ogg"
-    volume: 0.15
-  - file: "uguu/uguu2.ogg"
-    volume: 0.15
-  - file: "uguu/uguu3.ogg"
-    volume: 0.15
+  variants:
+    - file: "uguu/uguu1.ogg"
+      volume: 0.15
+    - file: "uguu/uguu2.ogg"
+      volume: 0.15
+    - file: "uguu/uguu3.ogg"
+      volume: 0.15
+
 wrrr:
   file: "wrrr.ogg"
   volume: 0.6
+
 quack:
-  - file: "quack/quack.ogg"
-    volume: 0.4
-  - file: "quack/male.ogg"
-    volume: 0.4
-    rarity: 0.15
-  - file: "quack/female.ogg"
-    volume: 0.4
-    rarity: 0.15
-  - file: "quack/flamingo.ogg"
-    volume: 0.4
-    rarity: 0.05
+  variants:
+    - file: "quack/quack.ogg"
+      volume: 0.4
+    - file: "quack/male.ogg"
+      volume: 0.4
+      rarity: 0.15
+    - file: "quack/female.ogg"
+      volume: 0.4
+      rarity: 0.15
+    - file: "quack/flamingo.ogg"
+      volume: 0.4
+      rarity: 0.05
+      reward: 100
+
 factorio-alert:
   file: "factorio-alert.ogg"
   volume: 0.2
+
 factorio-game-over:
   file: "factorio-game-over.ogg"
   volume: 0.2
+
 smoke-detector-beep:
   file: "smoke-detector-beep.ogg"
   volume: 0.2
+
 bald:
-  file: "bald.ogg"
-  volume: 0.4
+  exclusive: true
+  sender-gate: 5m
+  variants:
+    - file: "bald.ogg"
+      volume: 0.4
+    - file: "baldenheimer.ogg"
+      volume: 0.4
+      rarity: 0.005
+      reward: 3000
+
 yolksium:
   file: "yolksium.ogg"
   volume: 0.4
   exclusive: true
+  sender-gate: 10m
+
+flashbang:
+  file: "flashbang.ogg"
+  volume: 0.025
+  global-gate: 15m
+
+temple-collapse:
+  global-gate: 1m
+  sender-gate: 5m
+  file: "temple-collapse.ogg"
+  volume: 0.1
+
+meow:
+  variants:
+    - file: "meow/meow1.ogg"
+      volume: 0.4
+    - file: "meow/meow2.ogg"
+      volume: 0.15
+      rarity: 0.06
+    - file: "meow/meow3.ogg"
+      volume: 0.15
+      rarity: 0.03
+    - file: "meow/meow-snek.ogg"
+      volume: 0.5
+      rarity: 0.005
+    - file: "meow/meow-hp.ogg"
+      rarity: 0.005
+
+nya:
+  file: "nya.ogg"
+  volume: 0.5
+  global-gate: 20m
+
+lizard:
+  file: "lizard.ogg"
+  volume: 0.2
+
+buhee:
+  file: "buhee.ogg"
+  volume: 0.4
+  global-gate: 5m
+
+mission-failed:
+  file: "mission-failed.ogg"
+  volume: 0.1
+  exclusive: true
+  sender-gate: 10m
 
 RAID:
   file: "pipes.ogg"
