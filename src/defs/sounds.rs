@@ -134,7 +134,11 @@ fn get_youtube_id(raw: &str) -> Result<String, CommandError> {
 /// because usually the queue is full of songs from my stream playlist and the
 /// point of the command is to show me a song you think I wont insta-skip :)
 #[command(sender_gate = 1m, shortcode=sr)]
-async fn song_request(ctx: CommandContext, url_or_id: String) -> CommandResult {
+async fn song_request(
+    ctx: CommandContext,
+    url_or_id: String,
+    extra: Option<String>,
+) -> CommandResult {
     if ctx
         .storage()
         .exists("flags:nosr")
@@ -144,6 +148,11 @@ async fn song_request(ctx: CommandContext, url_or_id: String) -> CommandResult {
     {
         fail!("Song requests are disabled");
     }
+
+    let url_or_id = match extra {
+        Some(e) => format!("{url_or_id}:{e}"),
+        None => url_or_id,
+    };
 
     let id = get_youtube_id(&url_or_id)?;
     if id == "dQw4w9WgXcQ" {
