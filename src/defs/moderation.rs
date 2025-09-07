@@ -118,7 +118,7 @@ async fn banished(ctx: CommandContext, chatter: Required<Chatter>) -> CommandRes
 }
 
 /// Set the stream title, common moderation command, nothing special here.
-#[command(permission = Moderator, global_gate = 5s, Hidden)]
+#[command(permission = Moderator, global_gate = 5s)]
 async fn set_title(ctx: CommandContext, title: String) -> CommandResult {
     ctx.service::<dyn TwitchService>()
         .set_stream_title(&title)
