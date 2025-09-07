@@ -1,6 +1,5 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use reqwest::Url;
-use rustis::commands::GenericCommands;
 use serde::Deserialize;
 
 use crate::{
@@ -12,6 +11,7 @@ use crate::{
         gates::GateService,
         messaging::PermissionLevel,
         sounds::SoundService,
+        storage::StorageService,
         tts::TtsService,
     },
 };
@@ -140,11 +140,9 @@ async fn song_request(
     extra: Option<String>,
 ) -> CommandResult {
     if ctx
-        .storage()
-        .exists("flags:nosr")
-        .await
-        .map_err(|e| anyhow!(e))?
-        != 0
+        .service::<dyn StorageService>()
+        .has("settings:nosr")
+        .await?
     {
         fail!("Song requests are disabled");
     }

@@ -9,7 +9,7 @@ use std::{
 
 use anyhow::{Result, bail};
 use futures::future::pending;
-use rustis::commands::{PubSubCommands, StringCommands};
+use rustis::commands::PubSubCommands;
 use tokio::{
     process::{Child, Command},
     sync::{Notify, oneshot::Receiver},
@@ -22,7 +22,7 @@ use crate::{
         gates::GateService,
         messaging::{MessagingService, MessagingServiceMock},
         noita::NoitaHandle,
-        storage::Storage,
+        storage_old::Storage,
     },
 };
 
@@ -249,35 +249,6 @@ impl AppContext {
                 .stdout(Stdio::piped())
                 .spawn()?,
         })
-    }
-
-    async fn get_gamemode(&self) -> Result<&'static str> {
-        let nightmare: Option<String> = self.storage().get("flags:nightmare").await?;
-        Ok(match nightmare {
-            Some(_) => "2",
-            None => "0",
-        })
-    }
-
-    async fn get_set_seed(&self) -> Result<String> {
-        let seed: Option<String> = self.storage().get("set-seed").await?;
-        Ok(seed.unwrap_or_default())
-    }
-
-    pub async fn restart(&self) -> Result<()> {
-        Self::just_detached(
-            "restart",
-            &[self.get_gamemode().await?, &self.get_set_seed().await?],
-        )
-        .await
-    }
-
-    pub async fn reset(&self) -> Result<()> {
-        Self::just_detached(
-            "reset-restart",
-            &[self.get_gamemode().await?, &self.get_set_seed().await?],
-        )
-        .await
     }
 
     pub fn storage(&self) -> Arc<Storage> {

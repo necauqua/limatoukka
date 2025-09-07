@@ -21,9 +21,10 @@ use tpn_bot::{
         gates::{GateService, GateServiceRedis},
         messaging::{self, MessagingService},
         noita::{ItemFound, NoitaEvent, NoitaHandle},
+        storage::{StorageService, StorageServiceRedis},
         sounds::{SoundService, SoundServiceImpl},
         status_wall::{StatusService, StatusWall},
-        storage::Storage,
+        storage_old::Storage,
         tts::{TtsService, TtsServiceImpl},
         twitch::{TwitchService, TwitchServiceImpl},
     },
@@ -51,6 +52,7 @@ async fn run(config: Config) -> Result<()> {
 
     let services = Injector::new()
         .with::<dyn MessagingService>(messaging.into())
+        .with::<dyn StorageService>(Arc::new(StorageServiceRedis::new(valkey.clone())))
         .with::<dyn ChargesService>(Arc::new(ChargesServiceRedis::new(valkey.clone())))
         .with::<dyn GateService>(Arc::new(GateServiceRedis::new(valkey.clone())))
         .with::<dyn TwitchService>(Arc::new(TwitchServiceImpl::new(twitch_api.clone())))

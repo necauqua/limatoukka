@@ -297,7 +297,7 @@ mod tests {
 
     use crate::{
         config::Config,
-        services::{Injector, storage::Storage},
+        services::{Injector, storage_old::Storage},
     };
 
     use super::*;

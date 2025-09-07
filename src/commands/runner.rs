@@ -28,6 +28,7 @@ use crate::{
         gates::GateService,
         messaging::{Message, PermissionLevel},
         status_wall::StatusService,
+        storage::StorageService,
     },
 };
 
@@ -73,14 +74,19 @@ impl Runner {
             ctx.send("plink".into()).await?;
         }
 
+        let storage = ctx.service::<dyn StorageService>();
         if s.level < PermissionLevel::Moderator {
-            let stop_count = ctx
-                .storage()
-                .exists(["flags:full-stop", &format!("kick:begone:{}", s.id)])
-                .await?;
-            if stop_count != 0 {
+            if storage.has("settings:stop").await? {
                 return Ok(());
             }
+            if storage.has(&format!("settings:banished:{}", s.id)).await? {
+                return Ok(());
+            }
+        } else if storage
+            .has(&format!("settings:turbo-banished:{}", s.id))
+            .await?
+        {
+            return Ok(());
         }
 
         let stmt = Statement::parse(&message.text);

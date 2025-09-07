@@ -10,9 +10,10 @@ pub mod chat_log;
 pub mod gates;
 pub mod messaging;
 pub mod noita;
+pub mod storage;
 pub mod sounds;
 pub mod status_wall;
-pub mod storage;
+pub mod storage_old;
 pub mod tts;
 pub mod twitch;
 

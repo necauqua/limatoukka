@@ -11,13 +11,16 @@ use crate::{
         cmd::CommandContext,
     },
     fail,
-    services::{messaging::PermissionLevel, status_wall::StatusService, twitch::TwitchService},
+    services::{
+        messaging::PermissionLevel, status_wall::StatusService, storage::StorageService,
+        twitch::TwitchService,
+    },
 };
 use humantime_serde::re::humantime;
 use maud::html;
 use rustis::{
     client::BatchPreparedCommand,
-    commands::{GenericCommands, HashCommands, StringCommands},
+    commands::{HashCommands, StringCommands},
 };
 use tokio::time::sleep;
 
@@ -108,14 +111,10 @@ async fn wait(ctx: CommandContext, duration: HoldTime<500, 300_000>) -> CommandR
         let name = &inner_ctx.message().sender.name;
         let nesting = inner_ctx.nesting_str();
         for i in (1..=duration.as_secs()).rev() {
-            entry
-                .set(
-                    html! {
-                        span style="color: #E38AF0" { (name) } ": wait:" (i) "s " (nesting)
-                    }
-                    .0,
-                )
-                .await;
+            let status = html! {
+                span style="color: #E38AF0" { (name) } ": wait:" (i) "s " (nesting)
+            };
+            entry.set(status.into()).await;
             sleep(Duration::from_secs(1)).await;
         }
     });
@@ -159,51 +158,27 @@ async fn discard(ctx: CommandContext) -> CommandResult {
     Ok(())
 }
 
-/// Set a bot flag.
+/// Set a bot setting.
 ///
-/// Flags that currently do things are:
+/// Settings that currently do things are:
 ///   - `full-stop`: disables processing any commands from non-mods
-///   - `no-restarts`: disables the game restarting on player death
-///   - `nightmare`: enables the nightmare mode
+///   - `nosr`: disables song requests
 ///
-/// If the flag argument is prefixed with `-` it is removed if it was set
-/// previously.
+/// If the key argument is prefixed with `-` the setting is removed (value is
+/// ignored).
 #[command(permission = Moderator)]
-async fn flag(ctx: CommandContext, flag: String) -> CommandResult {
-    if let Some(flag) = flag.strip_prefix("-") {
-        ctx.storage().del(format!("flags:{flag}")).await?;
+async fn setting(ctx: CommandContext, key: String, value: Option<String>) -> CommandResult {
+    if let Some(key) = key.strip_prefix("-") {
+        ctx.service::<dyn StorageService>()
+            .del(&format!("setting:{key}"))
+            .await?;
+        ctx.reply(format!("Bot setting '{key}' removed")).await?;
     } else {
-        ctx.storage().set(format!("flags:{flag}"), "1").await?;
+        ctx.service::<dyn StorageService>()
+            .set(&format!("setting:{key}"), value.as_deref().unwrap_or("1"))
+            .await?;
+        ctx.reply(format!("Bot setting '{key}' set")).await?;
     }
-    Ok(())
-}
-
-/// Makes the bot start the game in nightmare/ng.
-#[command(permission = Vip)]
-async fn set_nightmare(ctx: CommandContext, value: bool) -> CommandResult {
-    if value {
-        ctx.storage().set("flags:nightmare", "1").await?;
-        ctx.reply("Nightmare mode enabled".into()).await?;
-    } else {
-        ctx.storage().del("flags:nightmare").await?;
-        ctx.reply("Nightmare mode disabled".into()).await?;
-    }
-    Ok(())
-}
-
-/// Makes the bot start the game with a specific seed.
-#[command(permission = Vip)]
-async fn fix_seed(ctx: CommandContext, seed: u32) -> CommandResult {
-    ctx.storage().set("set-seed", seed).await?;
-    ctx.reply("Seed set".into()).await?;
-    Ok(())
-}
-
-/// Undoes the effect of `fix_seed~`, so the game will start with a random seed again.
-#[command(permission = Vip)]
-async fn unfix_seed(ctx: CommandContext) -> CommandResult {
-    ctx.storage().del("set-seed").await?;
-    ctx.reply("Seed unset".into()).await?;
     Ok(())
 }
 
