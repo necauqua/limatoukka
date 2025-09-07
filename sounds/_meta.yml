@@ -46,11 +46,15 @@ quack:
     - file: "quack/flamingo.ogg"
       volume: 0.4
       rarity: 0.05
-      reward: 100
+      # reward: 100
 
 factorio-alert:
-  file: "factorio-alert.ogg"
-  volume: 0.2
+  variants:
+    - file: "factorio-alert.ogg"
+      volume: 0.2
+    - file: "factorio-alert-old.ogg"
+      volume: 0.2
+      rarity: 0.2
 
 factorio-game-over:
   file: "factorio-game-over.ogg"
