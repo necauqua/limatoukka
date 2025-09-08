@@ -15,7 +15,7 @@ use twitch_irc::{
     message::{Badge, IRCMessage, IRCTags, ServerMessage},
 };
 
-use crate::{context::app::AppContext, integration::twitch_api::TwitchApi};
+use crate::integration::{justfile::just, twitch_api::TwitchApi};
 
 #[derive(Debug, Clone)]
 pub struct Sender {
@@ -224,9 +224,7 @@ impl MessagingService for MessagingServiceTwitch {
                 }
             }
         };
-        AppContext::just("upload-large-reply", &[&html.0])?
-            .check()
-            .await?;
+        just("upload-large-reply", &[&html.0])?.check().await?;
         self.client
             .say_in_reply_to(
                 &(&message.source_channel, &message.id),

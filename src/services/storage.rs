@@ -31,7 +31,7 @@ impl dyn StorageService {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct InMemoryStorageService {
     store: DashMap<String, String>,
 }

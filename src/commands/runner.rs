@@ -11,10 +11,7 @@ use humantime_serde::re::humantime;
 use maud::html;
 use neca_cmd::{Command, Statement, Token, param::Param};
 use opentelemetry::trace::Status;
-use rustis::{
-    client::BatchPreparedCommand,
-    commands::{GenericCommands, HashCommands, StringCommands},
-};
+use rustis::{client::BatchPreparedCommand, commands::HashCommands};
 use thiserror::Error;
 use tokio::task::JoinSet;
 use tracing::{Instrument, Span, debug_span};
@@ -96,6 +93,7 @@ impl Runner {
         }
         tracing::debug!("processing message: {}", message.text);
 
+        let msg_id = message.id.clone();
         let error_key = format!("last-error:{}", message.sender.id);
         let eval_ctx =
             EvalContext::new(MessageContext::new(ctx.clone(), self.clone(), message)).await?;
@@ -103,7 +101,7 @@ impl Runner {
         match self.eval(eval_ctx, stmt).await {
             Ok(_) | Err(EvalError::Interrupt) => {
                 Span::current().set_status(Status::Ok);
-                ctx.storage().del(error_key).await?;
+                ctx.service::<dyn StorageService>().del(&error_key).await?;
             }
             Err(EvalError::RecursionLimit) => unreachable!(),
             Err(EvalError::CommandErrors(errors)) => {
@@ -116,10 +114,12 @@ impl Runner {
                     .join("\n");
                 if errors.iter().any(|e| e.error.is_internal()) {
                     err.push_str(" (msg-id: ");
-                    err.push_str(&error_key[11..]); // meh
+                    err.push_str(&msg_id);
                     err.push(')');
                 }
-                ctx.storage().set(error_key, &err).await?;
+                ctx.service::<dyn StorageService>()
+                    .set(&error_key, &err)
+                    .await?;
             }
         }
         Ok(())
@@ -303,9 +303,6 @@ impl Runner {
     }
 
     async fn run_command(ctx: CommandContext, fut: CommandFuture) -> Result<(), CommandError> {
-        let gate_service = ctx.service::<dyn GateService>();
-        let charges_service = ctx.service::<dyn ChargesService>();
-
         let m = &ctx.meta;
         let level = ctx.message().sender.level;
         let exempt = ctx.in_global_macro && m.is(CommandTag::GlobalMacroExempt);
@@ -315,21 +312,25 @@ impl Runner {
         }
 
         if level != PermissionLevel::Caster {
-            gate_service
+            ctx.service::<dyn GateService>()
                 .command_gates(ctx.sender(), m.name, m.global_gate, m.sender_gate)
                 .await?;
         }
 
-        let mut used = None;
+        let mut refund = None;
         if !exempt
             && level < m.free_for
             && let Some(cost) = m.cost
         {
             let cost = cost.into();
-            if !charges_service.consume(ctx.sender(), cost).await? {
+            if !ctx
+                .service::<dyn ChargesService>()
+                .consume(ctx.sender(), cost)
+                .await?
+            {
                 return Err(CommandError::NotEnoughCharges { cost });
             }
-            used = Some(cost);
+            refund = Some(cost);
         }
 
         let _guard = if !m.is(CommandTag::NoWall) {
@@ -352,12 +353,14 @@ impl Runner {
             .is_err_and(|e| !matches!(e, CommandError::Interrupt))
         {
             if level != PermissionLevel::Caster {
-                gate_service
+                ctx.service::<dyn GateService>()
                     .command_ungate(ctx.sender(), m.name, m.global_gate, m.sender_gate)
                     .await?;
             }
-            if let Some(used) = used {
-                charges_service.add(ctx.sender(), used).await?;
+            if let Some(cost) = refund {
+                ctx.service::<dyn ChargesService>()
+                    .add(ctx.sender(), cost)
+                    .await?;
             }
         }
 

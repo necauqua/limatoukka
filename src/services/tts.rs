@@ -2,7 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use tokio::sync::{Mutex, oneshot::Receiver};
 
-use crate::context::app::AppContext;
+use crate::integration::justfile::just;
 
 #[async_trait]
 pub trait TtsService: Send + Sync {
@@ -21,7 +21,7 @@ impl TtsService for TtsServiceImpl {
 
         tracing::debug!(text, "sending TTS");
 
-        let mut process = AppContext::just("aws-tts", &[text])?;
+        let mut process = just("aws-tts", &[text])?;
         if process.wait(stop).await {
             tracing::debug!(text, "finished TTS")
         } else {

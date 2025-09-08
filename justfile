@@ -45,7 +45,7 @@ play-sound sound volume="1":
     playerctl -p YoutubeMusic next 2>/dev/null
 
 [no-exit-message]
-music-queue:
+music-queue pos="0":
     #!/usr/bin/env bash
     set -euo pipefail
 
@@ -54,7 +54,7 @@ music-queue:
           .items[] |
           (.playlistPanelVideoRenderer // .playlistPanelVideoWrapperRenderer.primaryRenderer.playlistPanelVideoRenderer) |
           if .unplayableText != null then
-            { videoId, reason: .unplayableText.runs[0].text }
+            { videoId, _broken: true }
           else
             { title: .title.runs[].text, author: .longBylineText.runs[0].text, videoId, current: .selected }
           end
@@ -62,19 +62,25 @@ music-queue:
     jq -sc '
         to_entries |
         (map(select(.value.current)) | first.key) as $start |
-        .[$start:][] |
+        .[:{{pos}} + 1][$start + 1:][] |
         .value.idx = .key |
         .value |
         del(.current)
     ' <<< "$full"
 
 [no-exit-message]
-music-queue-add videoId:
+music-queue-add videoId pos="0":
     #!/usr/bin/env bash
     set -euo pipefail
 
-    if [ -n "$(just music-queue | jq 'select(.videoId == "{{videoId}}")')" ]; then
+    if [ -n "$(just music-queue {{pos}} | jq 'select(.videoId == "{{videoId}}")')" ]; then
         echo '{"_already_in_queue":true}'
+        exit
+    fi
+
+    # try to avoid issues at the transition point
+    if [ "$(curl -s http://localhost:26538/api/v1/song | jq '.songDuration - .elapsedSeconds')" -le 2 ]; then
+        sleep 3
         exit
     fi
 
@@ -84,18 +90,19 @@ music-queue-add videoId:
 
     sleep 2
 
-    res=$(just music-queue | jq 'select(.videoId == "{{videoId}}")')
-    echo -n $res
-    if jq -e '.reason' <<< "$res" >/dev/null; then
-        curl -s http://localhost:26538/api/v1/queue/$(jq .idx <<< "$res") -X DELETE
+    res=$(just music-queue 999999 | jq 'select(.videoId == "{{videoId}}")')
+    idx=$(jq .idx <<< "$res")
+    if jq -e '._broken' <<< "$res" >/dev/null; then
+        curl -s "http://localhost:26538/api/v1/queue/$idx" -X DELETE
+        echo '{"_broken":true}'
+        exit
     fi
 
-[no-exit-message]
-@music-volume volume:
-    curl -s http://localhost:26538/api/v1/volume \
-        -H 'Content-Type: application/json' \
-        -d '{"volume":{{volume}}}'
-
-[no-exit-message]
-@music-volume-get:
-    curl -s http://localhost:26538/api/v1/volume | jq -r .state
+    if [ "{{pos}}" -gt "$idx" ]; then
+        curl -s "http://localhost:26538/api/v1/queue/$idx" -X PATCH \
+            -H 'Content-Type: application/json' \
+            -d '{"toIndex":'"{{pos}}"'}'
+        echo $res | jq -c '.idx = '"{{pos}}"''
+    else
+        echo -n $res
+    fi

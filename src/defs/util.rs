@@ -6,11 +6,9 @@ use crate::{
         args::{Chatter, HoldTime, Required},
         command,
     },
-    context::{
-        app::{AppContext, InterruptKind},
-        cmd::CommandContext,
-    },
+    context::{app::InterruptKind, cmd::CommandContext},
     fail,
+    integration::justfile::just,
     services::{
         messaging::PermissionLevel, status_wall::StatusService, storage::StorageService,
         twitch::TwitchService,
@@ -18,10 +16,7 @@ use crate::{
 };
 use humantime_serde::re::humantime;
 use maud::html;
-use rustis::{
-    client::BatchPreparedCommand,
-    commands::{HashCommands, StringCommands},
-};
+use rustis::{client::BatchPreparedCommand, commands::HashCommands};
 use tokio::time::sleep;
 
 /// Respond with "pong!".
@@ -35,7 +30,27 @@ async fn ping(ctx: CommandContext) -> CommandResult {
     if !ctx.service::<dyn TwitchService>().is_live().await? {
         fail!("stream is offline lmao")
     }
+    ctx.service::<dyn StorageService>()
+        .set("last-pinger", &ctx.message().sender.name)
+        .await?;
     ctx.reply("pong!".into()).await?;
+    Ok(())
+}
+
+/// Get the name of the last person who got the `ping~` command during the
+/// current stream.
+#[command(sender_gate = 15s)]
+async fn last_pinger(ctx: CommandContext) -> CommandResult {
+    let pinger = ctx
+        .service::<dyn StorageService>()
+        .get("last-pinger")
+        .await?;
+
+    match pinger {
+        Some(pinger) => ctx.reply(format!("Last ping~ was by {pinger}")).await?,
+        None => ctx.reply("No one has pinged yet".into()).await?,
+    }
+
     Ok(())
 }
 
@@ -58,8 +73,8 @@ async fn echo(ctx: CommandContext, text: String) -> CommandResult {
 #[command(sender_gate = 3s)]
 async fn last_error(ctx: CommandContext, chatter: Chatter) -> CommandResult {
     ctx.reply(
-        ctx.storage()
-            .get::<_, Option<_>>(format!("last-error:{chatter}"))
+        ctx.service::<dyn StorageService>()
+            .get(&format!("last-error:{chatter}"))
             .await?
             .unwrap_or_else(|| {
                 let whom = match ctx.is_owner(&chatter) {
@@ -77,11 +92,7 @@ async fn last_error(ctx: CommandContext, chatter: Chatter) -> CommandResult {
 #[command(sender_gate = 1m, NoitaData)]
 async fn is_game_running(ctx: CommandContext) -> CommandResult {
     ctx.reply(
-        if AppContext::just("is-game-running", &[])?
-            .get()
-            .await?
-            .is_ok()
-        {
+        if just("is-game-running", &[])?.get().await?.is_ok() {
             "It is running currently, yes"
         } else {
             "The game is NOT running"

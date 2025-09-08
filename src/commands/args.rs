@@ -13,8 +13,8 @@ use thiserror::Error;
 use tokio::task::JoinSet;
 
 use crate::{
-    context::{app::AppContext, cmd::CommandContext},
-    services::{charges::ChargesService, twitch::TwitchService},
+    context::cmd::CommandContext,
+    services::{charges::ChargesService, music::MusicService, twitch::TwitchService},
 };
 
 use neca_cmd::{
@@ -69,8 +69,8 @@ async fn var_resolvers(ctx: &CommandContext, name: &str) -> anyhow::Result<Optio
         "self" => return Ok(Some(ctx.shared.owner.login.clone())),
         "rand" => return Ok(Some(rand::random_range(0..100_i32).to_string())),
         "volume" => {
-            let volume = AppContext::just("music-volume-get", &[])?.check().await?;
-            return Ok(Some(volume));
+            let volume = ctx.service::<dyn MusicService>().get_volume().await?;
+            return Ok(Some(volume.to_string()));
         }
         "balance" => {
             let balance = ctx

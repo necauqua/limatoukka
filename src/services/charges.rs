@@ -37,7 +37,7 @@ impl From<i64> for Charges {
 impl Display for Charges {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let whole = self.0 / 1000;
-        let fraction = self.0 % 1000;
+        let fraction = (self.0 % 1000).abs();
         if fraction == 0 {
             write!(f, "{whole}⚡︎")
         } else if fraction < 10 {

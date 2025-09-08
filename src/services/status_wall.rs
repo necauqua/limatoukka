@@ -184,3 +184,30 @@ impl StatusService for StatusWall {
         self.update(|entries| entries.shift_remove(&key)).await
     }
 }
+
+#[derive(Default)]
+pub struct TestStatusWall {
+    counter: AtomicUsize,
+}
+
+#[async_trait]
+impl StatusService for TestStatusWall {
+    fn new_key(&self) -> EntryKey {
+        EntryKey(self.counter.fetch_add(1, Ordering::Relaxed))
+    }
+
+    async fn set(&self, key: EntryKey, text: String) -> Option<String> {
+        tracing::info!(key = key.0, %text, "set status");
+        None
+    }
+
+    async fn set_and_bump(&self, key: EntryKey, text: String) -> Option<String> {
+        tracing::info!(key = key.0, %text, "bump status");
+        None
+    }
+
+    async fn remove(&self, key: EntryKey) -> Option<String> {
+        tracing::info!(key = key.0, "remove status");
+        None
+    }
+}

@@ -7,7 +7,7 @@ use serde::Deserialize;
 use tokio::sync::{Mutex, oneshot::Receiver};
 use tracing::{Span, field::Empty};
 
-use crate::context::app::AppContext;
+use crate::integration::justfile::just;
 
 #[async_trait]
 pub trait SoundService: Send + Sync {
@@ -114,8 +114,7 @@ impl SoundService for SoundServiceImpl {
         let volume = sound.volume.unwrap_or(1.0);
 
         tracing::debug!("playing a sound");
-        let mut process =
-            AppContext::just("play-sound", &[&sound.file, volume.to_string().as_str()])?;
+        let mut process = just("play-sound", &[&sound.file, volume.to_string().as_str()])?;
 
         if process.wait(stop).await {
             tracing::debug!("finished playing sound");

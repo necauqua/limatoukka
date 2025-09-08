@@ -54,21 +54,6 @@ impl dyn GateService {
     }
 }
 
-pub struct GateServiceNoop;
-
-#[async_trait]
-impl GateService for GateServiceNoop {
-    async fn gate(&self, _user: &str, _key: &str, _period: Duration) -> Result<bool> {
-        Ok(true)
-    }
-    async fn ungate(&self, _user: &str, _key: &str) -> Result<()> {
-        Ok(())
-    }
-    async fn ungate_all(&self, _user: &str) -> Result<()> {
-        Ok(())
-    }
-}
-
 pub struct GateServiceRedis {
     client: ValkeyClient,
 }
@@ -110,6 +95,26 @@ impl GateService for GateServiceRedis {
         if !keys.is_empty() {
             self.client.del(keys).await?;
         }
+        Ok(())
+    }
+}
+
+pub struct GateServiceNoop;
+
+#[async_trait]
+impl GateService for GateServiceNoop {
+    async fn gate(&self, user: &str, key: &str, period: Duration) -> Result<bool> {
+        tracing::info!(user, key, ?period, "gate");
+        Ok(true)
+    }
+
+    async fn ungate(&self, user: &str, key: &str) -> Result<()> {
+        tracing::info!(user, key, "ungate");
+        Ok(())
+    }
+
+    async fn ungate_all(&self, user: &str) -> Result<()> {
+        tracing::info!(user, "ungate_all");
         Ok(())
     }
 }

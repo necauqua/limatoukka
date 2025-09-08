@@ -7,6 +7,7 @@ use thiserror::Error;
 use crate::{
     commands::{args::Chatter, runner::CommandError},
     context::app::InterruptKind,
+    services::storage_old::Storage,
 };
 
 use super::msg::MessageContext;
@@ -41,8 +42,16 @@ impl EvalContext {
             id: parent.message().sender.id.clone(),
             login: parent.message().sender.login.clone(),
         };
+
+        // FIXME cringetastic hack for tests
+        let vars = if let Some(storage) = parent.service_opt::<Storage>() {
+            storage.read_vars(&owner).await?
+        } else {
+            Default::default()
+        };
+
         Ok(Self {
-            vars: Arc::new(parent.storage().read_vars(&owner).await?),
+            vars: Arc::new(vars),
             shared: Arc::new(EvalContextShared {
                 owner,
                 macro_args: Default::default(),

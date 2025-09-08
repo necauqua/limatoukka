@@ -1,5 +1,6 @@
 use std::{
     any::{Any, TypeId},
+    panic::Location,
     sync::Arc,
 };
 
@@ -9,10 +10,11 @@ pub mod charges;
 pub mod chat_log;
 pub mod gates;
 pub mod messaging;
+pub mod music;
 pub mod noita;
-pub mod storage;
 pub mod sounds;
 pub mod status_wall;
+pub mod storage;
 pub mod storage_old;
 pub mod tts;
 pub mod twitch;
@@ -42,9 +44,11 @@ impl Injector {
             .and_then(|s| s.downcast_ref::<Arc<T>>().cloned())
     }
 
+    #[track_caller]
     pub fn get<T: ?Sized + Send + Sync + 'static>(&self) -> Arc<T> {
+        let loc = Location::caller();
         self.get_opt()
-            .unwrap_or_else(|| panic!("service missing: {}", std::any::type_name::<T>()))
+            .unwrap_or_else(|| panic!("service missing: {} at {loc}", std::any::type_name::<T>(),))
     }
 }
 

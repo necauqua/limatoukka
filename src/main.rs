@@ -20,10 +20,11 @@ use tpn_bot::{
         chat_log::{ChatLogService, ChatLogServiceElastic},
         gates::{GateService, GateServiceRedis},
         messaging::{self, MessagingService},
+        music::{MusicService, MusicServiceImpl},
         noita::{ItemFound, NoitaEvent, NoitaHandle},
-        storage::{StorageService, StorageServiceRedis},
         sounds::{SoundService, SoundServiceImpl},
         status_wall::{StatusService, StatusWall},
+        storage::{StorageService, StorageServiceRedis},
         storage_old::Storage,
         tts::{TtsService, TtsServiceImpl},
         twitch::{TwitchService, TwitchServiceImpl},
@@ -65,6 +66,9 @@ async fn run(config: Config) -> Result<()> {
             .await?,
         ))
         .with::<dyn SoundService>(Arc::new(SoundServiceImpl::default()))
+        .with::<dyn MusicService>(Arc::new(MusicServiceImpl::new(
+            "http://localhost:26538".into(),
+        )))
         .with::<dyn TtsService>(Arc::new(TtsServiceImpl::default()))
         .with::<dyn StatusService>(status_wall.clone())
         // todo make it into a dyn service ofc
@@ -467,7 +471,14 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
             .await?;
         }
         Event::StreamOnlineV1(_) => ctx.send("→ stream start cutoff ←".into()).await?,
-        Event::StreamOfflineV1(_) => ctx.send("→ stream end cutoff ←".into()).await?,
+        Event::StreamOfflineV1(_) => {
+            // todo maybe have some generic "persisted until end of stream" data store
+            ctx.service::<dyn StorageService>()
+                .del("last-pinger")
+                .await?;
+
+            ctx.send("→ stream end cutoff ←".into()).await?
+        }
         event => tracing::info!(?event, "unhandled eventsub event"),
     }
     Ok(())

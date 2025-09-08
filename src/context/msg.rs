@@ -15,7 +15,10 @@ use rustis::{
 use tokio::{sync::oneshot::Receiver, time::sleep};
 
 use crate::{
-    commands::runner::Runner,
+    commands::{
+        CommandResult,
+        runner::{CommandError, Runner},
+    },
     services::{
         gates::GateService,
         messaging::{Message, PermissionLevel},
@@ -118,6 +121,12 @@ impl MessageContext {
         tracing::debug!(reply = message, "replying");
         self.messaging().reply(self.message(), message).await?;
         Ok(())
+    }
+
+    pub async fn fail(&self, message: impl Into<String>) -> CommandResult {
+        let message = message.into();
+        self.reply(message.clone()).await?;
+        Err(CommandError::PreconditionFail(message))
     }
 
     pub async fn reply_buffered(&self, message: String) -> Result<()> {

@@ -1,15 +1,16 @@
 use anyhow::Result;
 use reqwest::Url;
-use serde::Deserialize;
+use std::fmt::Write as _;
 
 use crate::{
     commands::{CommandResult, args::InRange, command, runner::CommandError},
-    context::{app::AppContext, cmd::CommandContext},
+    context::cmd::CommandContext,
     fail,
     services::{
         charges::{Charges, ChargesService},
         gates::GateService,
         messaging::PermissionLevel,
+        music::{AddSongError, MusicService, Song},
         sounds::SoundService,
         storage::StorageService,
         tts::TtsService,
@@ -72,9 +73,9 @@ async fn play_sound(ctx: CommandContext, sound_id: String) -> CommandResult {
 /// Get the title of the song that's currently playing on stream, if any.
 #[command(global_gate = 5s, shortcode = np)]
 async fn now_playing(ctx: CommandContext) -> CommandResult {
-    match AppContext::just("music-np", &[])?.get().await? {
-        Ok(title) => ctx.send(format!("Now playing: {title}")).await?,
-        Err(_) => fail!("Nothing is playing right now"),
+    match ctx.service::<dyn MusicService>().current().await? {
+        Some(title) => ctx.send(format!("Now playing: {title}")).await?,
+        None => ctx.fail("Nothing is playing right now").await?,
     }
     Ok(())
 }
@@ -82,9 +83,10 @@ async fn now_playing(ctx: CommandContext) -> CommandResult {
 /// Skips the song that's currently playing on stream, if any.
 #[command(global_gate = 15s, cost = 1, free_for = Vip)]
 async fn skip(ctx: CommandContext) -> CommandResult {
-    match AppContext::just("music-skip", &[])?.get().await? {
-        Ok(_) => ctx.reply("song skipped Madge".into()).await?,
-        Err(_) => fail!("Nothing is playing right now"),
+    if ctx.service::<dyn MusicService>().skip().await? {
+        ctx.reply("song skipped Madge".into()).await?
+    } else {
+        fail!("Nothing is playing right now")
     }
     Ok(())
 }
@@ -144,7 +146,7 @@ async fn song_request(
         .has("settings:nosr")
         .await?
     {
-        fail!("Song requests are disabled");
+        ctx.fail("Song requests are disabled").await?;
     }
 
     let url_or_id = match extra {
@@ -154,51 +156,116 @@ async fn song_request(
 
     let id = get_youtube_id(&url_or_id)?;
     if id == "dQw4w9WgXcQ" {
-        ctx.reply("At least don't use a dQw link ICANT".into())
-            .await?;
-        return Ok(());
+        ctx.fail("At least don't use a dQw link ICANT").await?;
     }
 
-    let res = AppContext::just("music-queue-add", &[&id])?.check().await?;
-    if res.trim().is_empty() {
-        fail!("Failed to add the song, likely it wasn't found");
-    }
-
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum AddResponse {
-        Success { title: String, author: String },
-        Borked { reason: String },
-        AlreadyInQueue { _already_in_queue: bool },
-    }
-
-    match serde_json::from_str::<AddResponse>(&res)? {
-        AddResponse::Success { title, author } => {
+    match ctx.service::<dyn MusicService>().add(&id).await {
+        Ok(Song { author, title, .. }) => {
+            ctx.service::<dyn StorageService>()
+                .set(&format!("song-requester:{id}"), &ctx.message().sender.name)
+                .await?;
             ctx.send(format!(
                 "Added a song to be played next: {author} - {title}"
             ))
             .await?;
         }
-        AddResponse::Borked { reason } => {
-            ctx.reply(format!("Failed to add song, stated reason: {reason}"))
-                .await?;
-        }
-        AddResponse::AlreadyInQueue { .. } => ctx.reply("already in queue 🤦".into()).await?,
+        Err(AddSongError::Internal(e)) => return Err(CommandError::Internal(e)),
+        Err(e) => ctx.fail(e.to_string()).await?,
     }
     Ok(())
 }
 
-/// Set YouTube Music volume.
+/// List the songs that were requested through `song-request~`.
+#[command(global_gate = 30s)]
+async fn music_queue(ctx: CommandContext, top: Option<u32>) -> CommandResult {
+    let storage = ctx.service::<dyn StorageService>();
+    let queue = ctx.service::<dyn MusicService>().queue().await?;
+    if queue.is_empty() {
+        ctx.send("Queue is empty".into()).await?;
+        // todo could cleanup all song-requester:* keys here somehow
+        return Ok(());
+    }
+
+    let mut response = String::new();
+
+    for Song {
+        author,
+        title,
+        video_id,
+    } in queue.iter().take(top.unwrap_or(999999) as _)
+    {
+        if !response.is_empty() {
+            response.push_str(";\n");
+        }
+
+        let requester = storage
+            .get(&format!("song-requester:{video_id}"))
+            .await?
+            .unwrap_or_default();
+
+        if requester.is_empty() {
+            write!(&mut response, "{author} - {title}").unwrap();
+        } else {
+            write!(
+                &mut response,
+                "{author} - {title} (requested by {requester})",
+            )
+            .unwrap();
+        }
+    }
+
+    ctx.reply(response).await?;
+
+    Ok(())
+}
+
+/// A helper command to help fix potential music queue issues.
+#[command(permission = Moderator)]
+async fn music_queue_reset(ctx: CommandContext) -> CommandResult {
+    ctx.service::<dyn MusicService>().queue_reset().await?;
+    ctx.reply("queue cursor reset".into()).await?;
+
+    Ok(())
+}
+
+/// Get or set the YouTube Music volume.
 #[command(sender_gate = 3s, permission = Vip)]
-async fn volume(_ctx: CommandContext, volume: InRange<0, 100>) -> CommandResult {
-    AppContext::just("music-volume", &[&volume.get().to_string()])?
-        .check()
-        .await?;
+async fn volume(ctx: CommandContext, volume: Option<InRange<0, 100>>) -> CommandResult {
+    let music_service = ctx.service::<dyn MusicService>();
+    match volume {
+        Some(volume) => music_service.set_volume(volume.get()).await?,
+        None => {
+            let volume = music_service.get_volume().await?;
+            ctx.send(format!("Current volume is {volume}%")).await?;
+        }
+    }
+
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
+    use std::{env, sync::Arc};
+
+    use tracing_subscriber::{
+        EnvFilter, Layer as _,
+        fmt::{Layer, time::LocalTime},
+        layer::SubscriberExt,
+        util::SubscriberInitExt,
+    };
+
+    use crate::{
+        commands::{discover_declared_commands, runner::Runner},
+        context::app::AppContext,
+        services::{
+            Injector,
+            gates::GateServiceNoop,
+            messaging::{Message, Sender},
+            status_wall::{StatusService, TestStatusWall},
+            storage::InMemoryStorageService,
+        },
+    };
+
     use super::*;
 
     #[test]
@@ -236,5 +303,59 @@ mod tests {
                 .to_string(),
             "Malformed YouTube URL"
         );
+    }
+
+    #[tokio::test]
+    async fn song_request_extra_param() {
+        // todo huge parts of this test are a common setup type of thing,
+        // tests will look gorgeous after allthat is factored out
+
+        let fmt_layer = Layer::new()
+            .with_timer(LocalTime::rfc_3339())
+            .with_filter(EnvFilter::new(
+                env::var(tracing_subscriber::EnvFilter::DEFAULT_ENV)
+                    .as_deref()
+                    .unwrap_or("tpn_bot=info"),
+            ));
+
+        _ = tracing_subscriber::registry().with(fmt_layer).try_init();
+
+        let storage = Arc::new(InMemoryStorageService::default());
+
+        let ctx = AppContext::new(
+            Injector::new()
+                .with::<dyn StorageService>(storage.clone())
+                .with::<dyn GateService>(Arc::new(GateServiceNoop))
+                .with::<dyn StatusService>(Arc::new(TestStatusWall::default())),
+        );
+
+        let runner = Runner::new(discover_declared_commands());
+
+        runner
+            .process_message(
+                ctx,
+                Message {
+                    id: "mock-msg-id".into(),
+                    source_channel: "mock-channel".into(),
+                    sender: Sender {
+                        id: "mock-sender-id".into(),
+                        name: "mock-name".into(),
+                        level: PermissionLevel::Caster,
+                        login: "mock-login".into(),
+                    },
+                    text: " sr:https://youtu.be/dQw4w9WgXcQ ".into(),
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            storage
+                .get("last-error:mock-sender-id")
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("sr(0:0): At least don't use a dQw link ICANT")
+        )
     }
 }
