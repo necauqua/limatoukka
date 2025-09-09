@@ -4,6 +4,7 @@ use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use serde::Deserialize;
 use thiserror::Error;
+use tokio::sync::Mutex;
 
 use crate::integration::justfile::just;
 
@@ -40,6 +41,7 @@ pub trait MusicService: Send + Sync {
 
 pub struct MusicServiceImpl {
     request_cursor: AtomicU32,
+    add_lock: Mutex<()>,
     volume_endpoint: String,
 }
 
@@ -47,6 +49,7 @@ impl MusicServiceImpl {
     pub fn new(url: String) -> Self {
         Self {
             request_cursor: AtomicU32::new(0),
+            add_lock: Mutex::new(()),
             volume_endpoint: format!("{url}/api/v1/volume"),
         }
     }
@@ -94,6 +97,8 @@ impl MusicService for MusicServiceImpl {
     }
 
     async fn add(&self, id: &str) -> Result<Song, AddSongError> {
+        let _guard = self.add_lock.lock().await;
+
         let cursor = self.request_cursor.load(Ordering::Relaxed);
 
         let res = just("music-queue-add", &[id, &(cursor + 1).to_string()])?
