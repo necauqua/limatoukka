@@ -10,8 +10,8 @@ use crate::{
     fail,
     integration::justfile::just,
     services::{
-        messaging::PermissionLevel, status_wall::StatusService, storage::StorageService,
-        twitch::TwitchService,
+        messaging::PermissionLevel, sounds::SoundService, status_wall::StatusService,
+        storage::StorageService, twitch::TwitchService,
     },
 };
 use humantime_serde::re::humantime;
@@ -30,10 +30,17 @@ async fn ping(ctx: CommandContext) -> CommandResult {
     if !ctx.service::<dyn TwitchService>().is_live().await? {
         fail!("stream is offline lmao")
     }
+
     ctx.service::<dyn StorageService>()
         .set("last-pinger", &ctx.message().sender.name)
         .await?;
+
     ctx.reply("pong!".into()).await?;
+
+    ctx.service::<dyn SoundService>()
+        .play_builtin("PING")
+        .await?;
+
     Ok(())
 }
 
