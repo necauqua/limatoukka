@@ -62,8 +62,6 @@ pub enum CommandTag {
     NoitaControl,
     /// Whether the command is for reading the game state
     NoitaData,
-    /// Whether the command is for controlling OBS
-    OBSControl,
 }
 
 inventory::collect!(NativeCommand);

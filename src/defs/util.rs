@@ -71,24 +71,6 @@ async fn last_error(ctx: CommandContext, chatter: Chatter) -> CommandResult {
     Ok(())
 }
 
-/// Sometimes the capture dies (but the game is fine) because of my brittle scripts.
-///
-/// Try running this first before doing a full restart etc etc.
-#[command(global_gate = 30s, OBSControl)]
-async fn fix_obs_capture() -> CommandResult {
-    AppContext::just_detached("obs-reset-display", &[]).await?;
-    Ok(())
-}
-
-/// The sound setup is the most brittle jank thing actually, and dies most often.
-///
-/// Try running this first before doing a full restart etc etc.
-#[command(global_gate = 30s, OBSControl)]
-async fn fix_obs_sound() -> CommandResult {
-    AppContext::just_detached("sound-setup", &[]).await?;
-    Ok(())
-}
-
 /// Check if noita.exe process is present, aka not dead.
 #[command(sender_gate = 1m, NoitaData)]
 async fn is_game_running(ctx: CommandContext) -> CommandResult {

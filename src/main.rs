@@ -87,7 +87,7 @@ async fn run(config: Config) -> Result<()> {
     let mut commands = discover_declared_commands();
 
     // todo make this less cringe
-    commands.retain(|_, v| !v.is(CommandTag::NoitaControl) && !v.is(CommandTag::OBSControl));
+    commands.retain(|_, v| !v.is(CommandTag::NoitaControl));
 
     let runner = Runner::new(commands);
 

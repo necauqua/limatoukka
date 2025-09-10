@@ -63,10 +63,7 @@ fn main() -> Result<()> {
     let mut categories = HashMap::new();
 
     for cmd in inventory::iter::<NativeCommand> {
-        if cmd.is(CommandTag::Hidden)
-            || cmd.is(CommandTag::NoitaControl)
-            || cmd.is(CommandTag::OBSControl)
-        {
+        if cmd.is(CommandTag::Hidden) || cmd.is(CommandTag::NoitaControl) {
             continue;
         }
         let category = cmd.module_path.rsplit_once("::").unwrap().1.to_owned();
