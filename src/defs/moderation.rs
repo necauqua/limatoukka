@@ -11,7 +11,7 @@ use crate::{
     },
     context::{app::AppContext, cmd::CommandContext},
     fail,
-    services::twitch::TwitchService,
+    services::twitch::TwitchServiceExt,
 };
 
 pub async fn do_banish(
@@ -20,7 +20,7 @@ pub async fn do_banish(
     duration: Option<Duration>,
 ) -> CommandResult {
     if let Some(duration) = duration {
-        ctx.storage()
+        ctx.storage_old()
             .psetex(
                 format!("kick:begone:{chatter}"),
                 duration.as_millis() as _,
@@ -28,7 +28,7 @@ pub async fn do_banish(
             )
             .await?;
     } else {
-        ctx.storage()
+        ctx.storage_old()
             .set(format!("kick:begone:{chatter}"), 1)
             .await?;
     }
@@ -58,7 +58,7 @@ async fn banish(
         fail!("lol. lmao.")
     }
     if ctx
-        .storage()
+        .storage_old()
         .exists(format!("kick:begone:{chatter}"))
         .await?
         != 0
@@ -75,7 +75,12 @@ async fn banish(
 /// realm regardless of their crimes.
 #[command(permission = Moderator)]
 async fn unbanish(ctx: CommandContext, chatter: Required<Chatter>) -> CommandResult {
-    if ctx.storage().del(format!("kick:begone:{chatter}")).await? == 0 {
+    if ctx
+        .storage_old()
+        .del(format!("kick:begone:{chatter}"))
+        .await?
+        == 0
+    {
         ctx.reply("was not there lmao".into()).await?;
         return Ok(());
     }
@@ -96,7 +101,7 @@ async fn unbanish(ctx: CommandContext, chatter: Required<Chatter>) -> CommandRes
 async fn banished(ctx: CommandContext, chatter: Required<Chatter>) -> CommandResult {
     ctx.reply(
         match ctx
-            .storage()
+            .storage_old()
             .pexpiretime(format!("kick:begone:{chatter}"))
             .await?
         {
@@ -120,8 +125,6 @@ async fn banished(ctx: CommandContext, chatter: Required<Chatter>) -> CommandRes
 /// Set the stream title, common moderation command, nothing special here.
 #[command(permission = Moderator, global_gate = 5s)]
 async fn set_title(ctx: CommandContext, title: String) -> CommandResult {
-    ctx.service::<dyn TwitchService>()
-        .set_stream_title(&title)
-        .await?;
+    ctx.twitch().set_stream_title(&title).await?;
     Ok(())
 }

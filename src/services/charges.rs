@@ -11,6 +11,7 @@ use rustis::{
 use crate::{
     commands::args::{ArgError, ArgResult, CommandArg},
     context::cmd::CommandContext,
+    injector_getter,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -102,6 +103,8 @@ pub trait ChargesService: Send + Sync {
     async fn transfer(&self, from_user_id: &str, to_user_id: &str, amount: Charges)
     -> Result<bool>;
 }
+
+injector_getter!(ChargesService::charges);
 
 pub struct ChargesServiceRedis {
     client: ValkeyClient,

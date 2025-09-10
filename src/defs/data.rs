@@ -17,7 +17,9 @@ use crate::{
     commands::{CommandResult, args::RestOfArgs, command, runner::CommandError},
     context::cmd::CommandContext,
     fail,
-    services::noita::{ACTION_FLAGS, ACTION_NAMES, PILLAR_FLAG_NAMES, PILLAR_FLAGS},
+    services::noita::{
+        ACTION_FLAGS, ACTION_NAMES, NoitaHandleExt, PILLAR_FLAG_NAMES, PILLAR_FLAGS,
+    },
 };
 
 fn data_error(thing: &str) -> impl Fn(anyhow::Error) -> CommandError {

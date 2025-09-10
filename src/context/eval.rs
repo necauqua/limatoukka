@@ -97,7 +97,7 @@ impl EvalContext {
         let vars = if self.shared.owner.id == owner.id {
             self.vars.clone()
         } else {
-            Arc::new(self.storage().read_vars(&owner).await?)
+            Arc::new(self.storage_old().read_vars(&owner).await?)
         };
         Ok(Self {
             shared: Arc::new(EvalContextShared {

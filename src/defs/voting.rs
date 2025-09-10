@@ -19,7 +19,7 @@ use crate::{
     config::Voting,
     context::cmd::CommandContext,
     fail,
-    services::status_wall::{EntryKey, StatusService},
+    services::status_wall::{EntryKey, StatusServiceExt},
 };
 
 #[derive(Clone, Copy)]
@@ -62,7 +62,7 @@ struct VoteData<'s> {
 }
 
 async fn vote(ctx: CommandContext, vote: Vote) -> CommandResult {
-    let Some(vote_data) = ctx.storage().get::<_, Option<String>>("vote").await? else {
+    let Some(vote_data) = ctx.storage_old().get::<_, Option<String>>("vote").await? else {
         fail!("no ongoing vote");
     };
     let vote_data: VoteData = serde_json::from_str(&vote_data)?;
@@ -70,7 +70,7 @@ async fn vote(ctx: CommandContext, vote: Vote) -> CommandResult {
     let key = format!("vote:{}:{vote}", vote_data.key);
     let key_inv = format!("vote:{}:{}", vote_data.key, vote.inverse());
 
-    let mut tx = ctx.storage().create_transaction();
+    let mut tx = ctx.storage_old().create_transaction();
     tx.sadd(&key, ctx.sender()).forget();
     tx.srem(&key_inv, ctx.sender()).forget();
     tx.scard(&key).queue();
@@ -90,9 +90,7 @@ async fn vote(ctx: CommandContext, vote: Vote) -> CommandResult {
         ctx.config().vote_min_ratio * 100.0
     );
 
-    ctx.service::<dyn StatusService>()
-        .set_and_bump(vote_data.wall, status)
-        .await;
+    ctx.status().set_and_bump(vote_data.wall, status).await;
 
     Ok(())
 }
@@ -112,7 +110,7 @@ async fn no(ctx: CommandContext) -> CommandResult {
 /// Check if there is an ongoing vote and what it is about.
 #[command(global_gate = 10s)]
 async fn is_vote(ctx: CommandContext) -> CommandResult {
-    let vote = ctx.storage().get::<_, Option<String>>("vote").await?;
+    let vote = ctx.storage_old().get::<_, Option<String>>("vote").await?;
     if let Some(vote) = vote {
         let data: VoteData = serde_json::from_str(&vote)?;
         ctx.reply(format!("Ongoing vote is: {}", data.chat_title))
@@ -134,13 +132,13 @@ async fn vote_trigger<R>(
 where
     R: Future<Output = CommandResult> + Send,
 {
-    if ctx.storage().exists("vote").await? != 0 {
+    if ctx.storage_old().exists("vote").await? != 0 {
         fail!("a vote is ongoing already")
     }
 
     let trig_key = format!("vote:trigger:{key}");
 
-    let mut tx = ctx.storage().create_transaction();
+    let mut tx = ctx.storage_old().create_transaction();
     tx.sadd(&trig_key, ctx.sender()).forget();
     tx.scard(&trig_key).queue();
 
@@ -148,7 +146,7 @@ where
     if triggerers == 1 {
         // fresh trigger
         tracing::info!(trig_key, "vote trigger started");
-        ctx.storage()
+        ctx.storage_old()
             .pexpire(
                 &trig_key,
                 vote_config.trigger_interval.as_millis() as _,
@@ -162,7 +160,7 @@ where
         return Ok(());
     }
 
-    let wall = ctx.service::<dyn StatusService>();
+    let wall = ctx.status();
     let wall_entry = wall.allocate().await;
 
     let data = serde_json::to_string(&VoteData {
@@ -172,14 +170,14 @@ where
         wall: wall_entry.key(),
     })?;
     let ongoing: Option<String> = ctx
-        .storage()
+        .storage_old()
         .set_get_with_options("vote", data, SetCondition::NX, SetExpiration::None, false)
         .await?;
 
     let yes_key = format!("vote:{key}:yes");
     let no_key = format!("vote:{key}:no");
 
-    let mut tx = ctx.storage().create_transaction();
+    let mut tx = ctx.storage_old().create_transaction();
     // only delete the trigger set after we tried to start the vote
     tx.del(&trig_key).forget();
     // cleanup any existing votes just in case idk
@@ -196,7 +194,7 @@ where
         .set_and_bump(html! { "Vote started (type yes~/no~):\n"(wall_title) }.into())
         .await;
 
-    let mut tx = ctx.storage().create_transaction();
+    let mut tx = ctx.storage_old().create_transaction();
     tx.scard(&yes_key).queue();
     tx.scard(&no_key).queue();
     tx.del(yes_key).forget();
@@ -243,7 +241,7 @@ where
 #[command(sender_gate = 5m)]
 async fn votekick(ctx: CommandContext, chatter: Required<Chatter>) -> CommandResult {
     if ctx
-        .storage()
+        .storage_old()
         .exists(format!("kick:begone:{chatter}"))
         .await?
         != 0

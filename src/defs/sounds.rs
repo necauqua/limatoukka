@@ -7,13 +7,13 @@ use crate::{
     context::cmd::CommandContext,
     fail,
     services::{
-        charges::{Charges, ChargesService},
-        gates::GateService,
+        charges::{Charges, ChargesServiceExt},
+        gates::GateServiceExt,
         messaging::PermissionLevel,
-        music::{AddSongError, MusicService, Song},
-        sounds::SoundService,
-        storage::StorageService,
-        tts::TtsService,
+        music::{AddSongError, MusicServiceExt, Song},
+        sounds::SoundServiceExt,
+        storage::StorageServiceExt,
+        tts::TtsServiceExt,
     },
 };
 
@@ -24,9 +24,7 @@ async fn tts(ctx: CommandContext, msg: String) -> CommandResult {
         fail!("message cannot be empty");
     }
 
-    ctx.service::<dyn TtsService>()
-        .tts(&msg, Some(ctx.interrupt_signal()))
-        .await?;
+    ctx.tts().tts(&msg, Some(ctx.interrupt_signal())).await?;
 
     Ok(())
 }
@@ -39,7 +37,7 @@ async fn tts(ctx: CommandContext, msg: String) -> CommandResult {
 /// have their own dynamic cooldowns.
 #[command(sender_gate = 10s, permission = Caster, GlobalMacroExempt)]
 async fn play_sound(ctx: CommandContext, sound_id: String) -> CommandResult {
-    let sound_service = ctx.service::<dyn SoundService>();
+    let sound_service = ctx.sounds();
 
     let Some(s) = sound_service.select(&sound_id).await? else {
         fail!("Sound not found");
@@ -48,7 +46,7 @@ async fn play_sound(ctx: CommandContext, sound_id: String) -> CommandResult {
     let gate_key = format!("play-sound:{}", s.group.as_deref().unwrap_or(&*sound_id));
 
     if ctx.message().sender.level != PermissionLevel::Caster {
-        ctx.service::<dyn GateService>()
+        ctx.gates()
             .command_gates(ctx.sender(), &gate_key, s.global_gate, s.sender_gate)
             .await?;
     }
@@ -58,14 +56,12 @@ async fn play_sound(ctx: CommandContext, sound_id: String) -> CommandResult {
     };
 
     if s.reward != 0 {
-        ctx.service::<dyn ChargesService>()
+        ctx.charges()
             .add(ctx.sender(), Charges::from(s.reward))
             .await?;
     }
 
-    ctx.service::<dyn SoundService>()
-        .play(s, Some(ctx.interrupt_signal()))
-        .await?;
+    sound_service.play(s, Some(ctx.interrupt_signal())).await?;
 
     Ok(())
 }
@@ -73,7 +69,7 @@ async fn play_sound(ctx: CommandContext, sound_id: String) -> CommandResult {
 /// Get the title of the song that's currently playing on stream, if any.
 #[command(global_gate = 5s, shortcode = np)]
 async fn now_playing(ctx: CommandContext) -> CommandResult {
-    match ctx.service::<dyn MusicService>().current().await? {
+    match ctx.music().current().await? {
         Some(title) => ctx.send(format!("Now playing: {title}")).await?,
         None => ctx.fail("Nothing is playing right now").await?,
     }
@@ -83,7 +79,7 @@ async fn now_playing(ctx: CommandContext) -> CommandResult {
 /// Skips the song that's currently playing on stream, if any.
 #[command(global_gate = 15s, cost = 1, free_for = Vip)]
 async fn skip(ctx: CommandContext) -> CommandResult {
-    if ctx.service::<dyn MusicService>().skip().await? {
+    if ctx.music().skip().await? {
         ctx.reply("song skipped Madge".into()).await?
     } else {
         fail!("Nothing is playing right now")
@@ -141,11 +137,7 @@ async fn song_request(
     url_or_id: String,
     extra: Option<String>,
 ) -> CommandResult {
-    if ctx
-        .service::<dyn StorageService>()
-        .has("settings:nosr")
-        .await?
-    {
+    if ctx.storage().has("settings:nosr").await? {
         ctx.fail("Song requests are disabled").await?;
     }
 
@@ -159,9 +151,9 @@ async fn song_request(
         ctx.fail("At least don't use a dQw link ICANT").await?;
     }
 
-    match ctx.service::<dyn MusicService>().add(&id).await {
+    match ctx.music().add(&id).await {
         Ok(Song { author, title, .. }) => {
-            ctx.service::<dyn StorageService>()
+            ctx.storage()
                 .set(&format!("song-requester:{id}"), &ctx.message().sender.name)
                 .await?;
             ctx.send(format!(
@@ -178,8 +170,8 @@ async fn song_request(
 /// List the songs that were requested through `song-request~`.
 #[command(global_gate = 30s)]
 async fn music_queue(ctx: CommandContext, top: Option<u32>) -> CommandResult {
-    let storage = ctx.service::<dyn StorageService>();
-    let queue = ctx.service::<dyn MusicService>().queue().await?;
+    let storage = ctx.storage();
+    let queue = ctx.music().queue().await?;
     if queue.is_empty() {
         ctx.send("Queue is empty".into()).await?;
         // todo could cleanup all song-requester:* keys here somehow
@@ -222,7 +214,7 @@ async fn music_queue(ctx: CommandContext, top: Option<u32>) -> CommandResult {
 /// A helper command to help fix potential music queue issues.
 #[command(permission = Moderator)]
 async fn music_queue_reset(ctx: CommandContext) -> CommandResult {
-    ctx.service::<dyn MusicService>().queue_reset().await?;
+    ctx.music().queue_reset().await?;
     ctx.reply("queue cursor reset".into()).await?;
 
     Ok(())
@@ -231,7 +223,7 @@ async fn music_queue_reset(ctx: CommandContext) -> CommandResult {
 /// Get or set the YouTube Music volume.
 #[command(sender_gate = 3s, permission = Vip)]
 async fn volume(ctx: CommandContext, volume: Option<InRange<0, 100>>) -> CommandResult {
-    let music_service = ctx.service::<dyn MusicService>();
+    let music_service = ctx.music();
     match volume {
         Some(volume) => music_service.set_volume(volume.get()).await?,
         None => {
@@ -259,10 +251,10 @@ mod tests {
         context::app::AppContext,
         services::{
             Injector,
-            gates::GateServiceNoop,
+            gates::{GateService, GateServiceNoop},
             messaging::{Message, Sender},
             status_wall::{StatusService, TestStatusWall},
-            storage::InMemoryStorageService,
+            storage::{InMemoryStorageService, StorageService},
         },
     };
 

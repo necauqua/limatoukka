@@ -19,7 +19,7 @@ use crate::{
     },
     context::cmd::CommandContext,
     fail,
-    services::status_wall::StatusService,
+    services::status_wall::StatusServiceExt,
 };
 
 /// Stores a string as a personal macro.
@@ -35,13 +35,13 @@ async fn macro_record(ctx: CommandContext, name: String, script: RawScript) -> C
     }
     let name = name.to_lowercase();
 
-    let mut tx = ctx.storage().create_transaction();
+    let mut tx = ctx.storage_old().create_transaction();
     let key = format!("macros:{}", ctx.shared.owner);
     tx.hset(&key, (&name, script.stmt.original)).forget();
     tx.hlen(&key).queue();
     let len: usize = tx.execute().await?;
     if len == 1000 {
-        ctx.storage().hdel(key, name).await?;
+        ctx.storage_old().hdel(key, name).await?;
         ctx.reply("too many macros brother, this incident will be investigated Stare".into())
             .await?;
     } else {
@@ -55,7 +55,7 @@ async fn macro_record(ctx: CommandContext, name: String, script: RawScript) -> C
 #[command(shortcode=md)]
 async fn macro_delete(ctx: CommandContext, name: String) -> CommandResult {
     let key = format!("macros:{}", ctx.shared.owner);
-    if ctx.storage().hdel(key, &name).await? == 0 {
+    if ctx.storage_old().hdel(key, &name).await? == 0 {
         fail!("no macro named `{name}`");
     } else {
         ctx.reply_buffered(format!("deleted macro `{name}`"))
@@ -75,7 +75,7 @@ async fn global_macro_record(
         fail!("name or script too long (max 8192 chars)");
     }
     let name = name.to_lowercase();
-    ctx.storage()
+    ctx.storage_old()
         .hset("macros:global", (&name, &script.stmt.original))
         .await?;
     ctx.reply_buffered(format!("recorded global macro `{name}`"))
@@ -86,7 +86,7 @@ async fn global_macro_record(
 /// Deletes a macro created with `global-macro-record~`.
 #[command(permission=Moderator, shortcode=gmd)]
 async fn global_macro_delete(ctx: CommandContext, name: String) -> CommandResult {
-    if ctx.storage().hdel("macros:global", &name).await? == 0 {
+    if ctx.storage_old().hdel("macros:global", &name).await? == 0 {
         fail!("no macro named `{name}`");
     }
     ctx.reply_buffered(format!("deleted global macro `{name}`"))
@@ -100,7 +100,7 @@ async fn macro_get(
     chatter: Chatter,
 ) -> Result<String, CommandError> {
     let script: Option<String> = ctx
-        .storage()
+        .storage_old()
         .hget(format!("macros:{chatter}"), name)
         .await?;
     match script {
@@ -122,7 +122,7 @@ async fn macro_print(ctx: CommandContext, name: String, chatter: Chatter) -> Com
 /// Replies with the stored global macro.
 #[command(sender_gate=5s, shortcode=gmp)]
 async fn global_macro_print(ctx: CommandContext, name: String) -> CommandResult {
-    let script: Option<String> = ctx.storage().hget("macros:global", &name).await?;
+    let script: Option<String> = ctx.storage_old().hget("macros:global", &name).await?;
     let Some(script) = script else {
         fail!("no global macro named `{name}`");
     };
@@ -133,7 +133,7 @@ async fn global_macro_print(ctx: CommandContext, name: String) -> CommandResult 
 /// List macros you/given chatter has recorded.
 #[command(sender_gate=5s, shortcode=ml)]
 async fn macro_list(ctx: CommandContext, chatter: Chatter) -> CommandResult {
-    let keys: Vec<String> = ctx.storage().hkeys(format!("macros:{chatter}")).await?;
+    let keys: Vec<String> = ctx.storage_old().hkeys(format!("macros:{chatter}")).await?;
     ctx.reply(keys.join(", ")).await?;
     Ok(())
 }
@@ -141,7 +141,7 @@ async fn macro_list(ctx: CommandContext, chatter: Chatter) -> CommandResult {
 /// List global macros recorded.
 #[command(sender_gate=5s, shortcode=gml)]
 async fn global_macro_list(ctx: CommandContext) -> CommandResult {
-    let mut keys: Vec<(String, String)> = ctx.storage().hgetall("macros:global").await?;
+    let mut keys: Vec<(String, String)> = ctx.storage_old().hgetall("macros:global").await?;
     keys.sort_unstable_by(|(a, _), (b, _)| a.cmp(b));
 
     // we assume the global macro list will always overflow the single message length
@@ -201,14 +201,14 @@ async fn r#macro(
     rest: RestOfArgs,
 ) -> CommandResult {
     let script: Option<String> = ctx
-        .storage()
+        .storage_old()
         .hget(format!("macros:{chatter}"), &name)
         .await?;
 
     let (script, global) = match script {
         Some(script) => (script, false),
         None => {
-            let script: Option<String> = ctx.storage().hget("macros:global", &name).await?;
+            let script: Option<String> = ctx.storage_old().hget("macros:global", &name).await?;
             if let Some(script) = script {
                 (script, true)
             } else {
@@ -220,7 +220,7 @@ async fn r#macro(
     let args = rest.get(&ctx).await?;
     let stmt = Statement::parse(&script);
 
-    let wall = ctx.service::<dyn StatusService>();
+    let wall = ctx.status();
     let _guard = wall.push(html! {
         span style="color: #E38AF0" { (ctx.message().sender.name) } ": macro:" (name) " " (ctx.nesting_str())
     }).await;
@@ -247,7 +247,7 @@ const REPEAT_LIMIT: u32 = 1000;
 async fn repeat(ctx: CommandContext, times: InRange<0, 1000>, script: RawScript) -> CommandResult {
     let times = times.get();
 
-    let wall = ctx.service::<dyn StatusService>();
+    let wall = ctx.status();
     let entry = wall.allocate().await;
 
     for i in (1..=times).rev() {
@@ -287,7 +287,7 @@ async fn group(
         Some(text) => html! { "group:" span style="color: #CCCCFF" { (text) } },
         None => html! { (ctx.token) },
     };
-    let wall = ctx.service::<dyn StatusService>();
+    let wall = ctx.status();
     let _guard = wall.push(html! {
         span style="color: #E38AF0" { (ctx.message().sender.name) } ": " (name) " " (ctx.nesting_str())
     }).await;
@@ -305,7 +305,7 @@ async fn group(
 /// last-error.
 #[command(NoWall)]
 async fn r#try(ctx: CommandContext, script: Script) -> CommandResult {
-    let wall = ctx.service::<dyn StatusService>();
+    let wall = ctx.status();
     let _guard = wall.push(html! {
         span style="color: #E38AF0" { (ctx.message().sender.name) } ": " (ctx.token) " " (ctx.nesting_str())
     }).await;
@@ -340,7 +340,7 @@ async fn r#try(ctx: CommandContext, script: Script) -> CommandResult {
 /// ```
 #[command(permission=Subscriber, NoWall)]
 async fn r#loop(ctx: CommandContext, script: RawScript) -> CommandResult {
-    let status = ctx.service::<dyn StatusService>().allocate().await;
+    let status = ctx.status().allocate().await;
 
     let mut i = 0;
     loop {
@@ -386,13 +386,13 @@ async fn set(ctx: CommandContext, name: String, value: Option<String>) -> Comman
     }
     let name = name.to_lowercase();
 
-    let mut tx = ctx.storage().create_transaction();
+    let mut tx = ctx.storage_old().create_transaction();
     let key = format!("vars:{}", ctx.shared.owner);
     tx.hset(&key, (&name, &value)).forget();
     tx.hlen(&key).queue();
     let len: usize = tx.execute().await?;
     if len == 1000 {
-        ctx.storage().hdel(key, name).await?;
+        ctx.storage_old().hdel(key, name).await?;
         ctx.reply("too many variables brother, this incident will be investigated Stare".into())
             .await?;
     } else {
@@ -415,7 +415,9 @@ async fn global_set(ctx: CommandContext, name: String, value: Option<String>) ->
     }
     let name = name.to_lowercase();
 
-    ctx.storage().hset("vars:global", (&name, &value)).await?;
+    ctx.storage_old()
+        .hset("vars:global", (&name, &value))
+        .await?;
 
     // only insert into cache if was not set there before
     ctx.vars.entry(name).or_insert(value);
@@ -444,7 +446,7 @@ async fn del(ctx: CommandContext, names: RestOfArgs) -> CommandResult {
     let names = names.get(&ctx).await?;
 
     match ctx
-        .storage()
+        .storage_old()
         .hdel(
             format!("vars:{}", ctx.shared.owner),
             names
@@ -469,7 +471,7 @@ async fn del(ctx: CommandContext, names: RestOfArgs) -> CommandResult {
 #[command(sender_gate=5s)]
 async fn list_vars(ctx: CommandContext) -> CommandResult {
     let keys: Vec<String> = ctx
-        .storage()
+        .storage_old()
         .hkeys(format!("vars:{}", ctx.shared.owner))
         .await?;
     ctx.reply(keys.join(", ")).await?;
@@ -490,7 +492,7 @@ async fn get(ctx: CommandContext, name: String) -> CommandResult {
 /// Clears all of your variables.
 #[command]
 async fn clear(ctx: CommandContext) -> CommandResult {
-    ctx.storage()
+    ctx.storage_old()
         .del(format!("vars:{}", ctx.shared.owner))
         .await?;
 

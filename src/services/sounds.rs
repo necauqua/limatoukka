@@ -7,13 +7,15 @@ use serde::Deserialize;
 use tokio::sync::{Mutex, oneshot::Receiver};
 use tracing::{Span, field::Empty};
 
-use crate::integration::justfile::just;
+use crate::{injector_getter, integration::justfile::just};
 
 #[async_trait]
 pub trait SoundService: Send + Sync {
     async fn select(&self, sound_id: &str) -> Result<Option<SoundEntry>>;
     async fn play(&self, sound: &SoundVariant, stop: Option<Receiver<()>>) -> Result<()>;
 }
+
+injector_getter!(SoundService::sounds);
 
 impl dyn SoundService {
     pub async fn play_builtin(&self, id: &str) -> Result<()> {

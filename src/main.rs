@@ -5,7 +5,7 @@ use futures::{FutureExt, StreamExt};
 use opentelemetry::trace::Status;
 use rustis::{
     client::Client as ValkeyClient,
-    commands::{GenericCommands as _, PubSubCommands, SetCondition, SetExpiration, StringCommands},
+    commands::{PubSubCommands, SetCondition, SetExpiration, StringCommands},
 };
 use tokio::{task::JoinSet, time::sleep};
 use tpn_bot::{
@@ -16,18 +16,18 @@ use tpn_bot::{
     logging,
     services::{
         Injector,
-        charges::{Charges, ChargesService, ChargesServiceRedis},
+        charges::{Charges, ChargesService, ChargesServiceExt, ChargesServiceRedis},
         chat_log::{ChatLogService, ChatLogServiceElastic},
         gates::{GateService, GateServiceRedis},
         messaging::{self, MessagingService},
         music::{MusicService, MusicServiceImpl},
-        noita::{ItemFound, NoitaEvent, NoitaHandle},
-        sounds::{SoundService, SoundServiceImpl},
+        noita::{ItemFound, NoitaEvent, NoitaHandle, NoitaHandleExt},
+        sounds::{SoundService, SoundServiceExt, SoundServiceImpl},
         status_wall::{StatusService, StatusWall},
-        storage::{StorageService, StorageServiceRedis},
+        storage::{StorageService, StorageServiceExt, StorageServiceRedis},
         storage_old::Storage,
-        tts::{TtsService, TtsServiceImpl},
-        twitch::{TwitchService, TwitchServiceImpl},
+        tts::{TtsService, TtsServiceExt, TtsServiceImpl},
+        twitch::{TwitchService, TwitchServiceExt, TwitchServiceImpl},
     },
 };
 
@@ -99,9 +99,9 @@ async fn run(config: Config) -> Result<()> {
     // after eventsub init so we can receive redemptions
     twitch_api.unpause_rewards().await?;
 
-    ctx.storage().publish("bot-restart", "1").await?;
+    ctx.storage_old().publish("bot-restart", "1").await?;
 
-    let mut restart_signal = ctx.storage().subscribe("bot-restart").await?;
+    let mut restart_signal = ctx.storage_old().subscribe("bot-restart").await?;
     let mut tasks = JoinSet::new();
 
     loop {
@@ -112,7 +112,7 @@ async fn run(config: Config) -> Result<()> {
 
                 // I think this is technicaly racey?
                 // but the chance is so slim we dont care ig
-                let mut interrupt_signal = ctx.storage().subscribe("interrupt").await?;
+                let mut interrupt_signal = ctx.storage_old().subscribe("interrupt").await?;
                 let handle = ctx.clone();
                 tokio::spawn(async move {
                     if let Some(chatter_id) = interrupt_signal.next().await {
@@ -129,7 +129,7 @@ async fn run(config: Config) -> Result<()> {
             },
             Some(msg) = incoming.recv() => {
                 let new = ctx
-                    .storage()
+                    .storage_old()
                     .set_with_options(
                         format!("seen:irc:{}", msg.id),
                         "1",
@@ -263,31 +263,31 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
                     true
                 }
                 "Buy 1 charge" => {
-                    ctx.service::<dyn ChargesService>()
+                    ctx.charges()
                         .add(data.user_id.as_str(), Charges::ONE)
                         .await?;
                     true
                 }
                 "Buy 5 charges" => {
-                    ctx.service::<dyn ChargesService>()
+                    ctx.charges()
                         .add(data.user_id.as_str(), Charges::new(5, 0))
                         .await?;
                     true
                 }
                 "Buy 10 charges" => {
-                    ctx.service::<dyn ChargesService>()
+                    ctx.charges()
                         .add(data.user_id.as_str(), Charges::new(10, 0))
                         .await?;
                     true
                 }
                 "Buy 50 charges" => {
-                    ctx.service::<dyn ChargesService>()
+                    ctx.charges()
                         .add(data.user_id.as_str(), Charges::new(50, 0))
                         .await?;
                     true
                 }
                 "Buy 100 charges" => {
-                    ctx.service::<dyn ChargesService>()
+                    ctx.charges()
                         .add(data.user_id.as_str(), Charges::new(100, 0))
                         .await?;
                     true
@@ -295,7 +295,7 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
                 _ => false,
             };
             if fulfilled {
-                ctx.service::<dyn TwitchService>()
+                ctx.twitch()
                     .fulfill_redemption(data.reward.id.as_str(), data.id.as_str())
                     .await?;
             }
@@ -396,9 +396,7 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
                 text = data.message.text,
                 "resub"
             );
-            ctx.service::<dyn TtsService>()
-                .tts(&data.message.text, None)
-                .await?;
+            ctx.tts().tts(&data.message.text, None).await?;
         }
         Event::ChannelCheerV1(Payload {
             message: Message::Notification(data),
@@ -412,9 +410,7 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
                 "cheer"
             );
             if data.bits >= 25 {
-                ctx.service::<dyn TtsService>()
-                    .tts(&data.message, None)
-                    .await?;
+                ctx.tts().tts(&data.message, None).await?;
             }
         }
         Event::ChannelRaidV1(Payload {
@@ -428,7 +424,7 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
                 "raid"
             );
 
-            let sound_service = ctx.service::<dyn SoundService>();
+            let sound_service = ctx.sounds();
             let sound = tokio::spawn(async move { sound_service.play_builtin("RAID").await });
 
             ctx.send(format!(
@@ -437,7 +433,7 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
             ))
             .await?;
 
-            ctx.service::<dyn TwitchService>()
+            ctx.twitch()
                 .shout_out(data.from_broadcaster_user_id.as_str())
                 .await?;
 
@@ -473,9 +469,7 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
         Event::StreamOnlineV1(_) => ctx.send("→ stream start cutoff ←".into()).await?,
         Event::StreamOfflineV1(_) => {
             // todo maybe have some generic "persisted until end of stream" data store
-            ctx.service::<dyn StorageService>()
-                .del("last-pinger")
-                .await?;
+            ctx.storage().del("last-pinger").await?;
 
             ctx.send("→ stream end cutoff ←".into()).await?
         }

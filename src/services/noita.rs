@@ -2,7 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     io,
     sync::{
-        LazyLock,
+        Arc, LazyLock,
         atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant},
@@ -16,7 +16,6 @@ use noita_engine_reader::{
     memory::{MemoryStorage, PadBool, ProcessRef, RawPtr},
     types::components::{DamageModelComponent, ItemActionComponent, ItemComponent},
 };
-use rustis::commands::StringCommands;
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 use thiserror::Error;
 use tokio::{
@@ -28,12 +27,24 @@ use tokio::{
 };
 use tracing::instrument;
 
-use crate::context::app::AppContext;
+use crate::{context::app::AppContext, services::storage::StorageServiceExt};
 
 pub struct NoitaHandle {
     noita: Mutex<Option<Noita>>,
     inventory_open: AtomicBool,
     events: Sender<NoitaEvent>,
+}
+
+pub trait NoitaHandleExt {
+    fn noita(&self) -> Arc<NoitaHandle>;
+}
+
+impl NoitaHandleExt for AppContext {
+    #[inline]
+    #[track_caller]
+    fn noita(&self) -> Arc<NoitaHandle> {
+        self.service()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -89,7 +100,11 @@ impl NoitaHandle {
             .storage()
             .get("best-inventory")
             .await
+            .ok()
+            .flatten()
+            .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or_default();
+
         let mut best_inv = Inventory::from_bits_truncate(best_inv);
 
         let noita = ctx.noita();
@@ -182,7 +197,11 @@ impl NoitaHandle {
                     _ = noita.events.send(E::ItemFound(I::TouchOfGold));
                 }
 
-                if let Err(e) = ctx.storage().set("best-inventory", best_inv.bits()).await {
+                if let Err(e) = ctx
+                    .storage()
+                    .set("best-inventory", &best_inv.bits().to_string())
+                    .await
+                {
                     tracing::error!(error=?e, "failed to save best-inventory");
                 }
             }

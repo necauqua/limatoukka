@@ -21,11 +21,11 @@ use crate::{
     commands::CommandTag,
     context::{app::AppContext, eval::EvalContext, msg::MessageContext},
     services::{
-        charges::{Charges, ChargesService},
-        gates::GateService,
+        charges::{Charges, ChargesServiceExt},
+        gates::GateServiceExt,
         messaging::{Message, PermissionLevel},
-        status_wall::StatusService,
-        storage::StorageService,
+        status_wall::StatusServiceExt,
+        storage::StorageServiceExt,
     },
 };
 
@@ -71,7 +71,7 @@ impl Runner {
             ctx.send("plink".into()).await?;
         }
 
-        let storage = ctx.service::<dyn StorageService>();
+        let storage = ctx.storage();
         if s.level < PermissionLevel::Moderator {
             if storage.has("settings:stop").await? {
                 return Ok(());
@@ -101,7 +101,7 @@ impl Runner {
         match self.eval(eval_ctx, stmt).await {
             Ok(_) | Err(EvalError::Interrupt) => {
                 Span::current().set_status(Status::Ok);
-                ctx.service::<dyn StorageService>().del(&error_key).await?;
+                ctx.storage().del(&error_key).await?;
             }
             Err(EvalError::RecursionLimit) => unreachable!(),
             Err(EvalError::CommandErrors(errors)) => {
@@ -117,9 +117,7 @@ impl Runner {
                     err.push_str(&msg_id);
                     err.push(')');
                 }
-                ctx.service::<dyn StorageService>()
-                    .set(&error_key, &err)
-                    .await?;
+                ctx.storage().set(&error_key, &err).await?;
             }
         }
         Ok(())
@@ -226,7 +224,7 @@ impl Runner {
         }
 
         let res = {
-            let storage = ctx.storage();
+            let storage = ctx.storage_old();
             let mut p = storage.create_pipeline();
             p.hexists(format!("macros:{}", ctx.shared.owner), name)
                 .queue();
@@ -312,7 +310,7 @@ impl Runner {
         }
 
         if level != PermissionLevel::Caster {
-            ctx.service::<dyn GateService>()
+            ctx.gates()
                 .command_gates(ctx.sender(), m.name, m.global_gate, m.sender_gate)
                 .await?;
         }
@@ -323,18 +321,14 @@ impl Runner {
             && let Some(cost) = m.cost
         {
             let cost = cost.into();
-            if !ctx
-                .service::<dyn ChargesService>()
-                .consume(ctx.sender(), cost)
-                .await?
-            {
+            if !ctx.charges().consume(ctx.sender(), cost).await? {
                 return Err(CommandError::NotEnoughCharges { cost });
             }
             refund = Some(cost);
         }
 
         let _guard = if !m.is(CommandTag::NoWall) {
-            let wall = ctx.service::<dyn StatusService>();
+            let wall = ctx.status();
             let guard = wall.push(html! {
                 span style="color: #E38AF0" { (ctx.message().sender.name) } ": " (ctx.token) " " (ctx.nesting_str())
             }).await;
@@ -353,14 +347,12 @@ impl Runner {
             .is_err_and(|e| !matches!(e, CommandError::Interrupt))
         {
             if level != PermissionLevel::Caster {
-                ctx.service::<dyn GateService>()
+                ctx.gates()
                     .command_ungate(ctx.sender(), m.name, m.global_gate, m.sender_gate)
                     .await?;
             }
             if let Some(cost) = refund {
-                ctx.service::<dyn ChargesService>()
-                    .add(ctx.sender(), cost)
-                    .await?;
+                ctx.charges().add(ctx.sender(), cost).await?;
             }
         }
 

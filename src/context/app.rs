@@ -1,4 +1,5 @@
 use std::{
+    ops::Deref,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -14,9 +15,8 @@ use crate::{
     config::Config,
     services::{
         Injector,
-        gates::GateService,
+        gates::GateServiceExt,
         messaging::{MessagingService, MessagingServiceMock},
-        noita::NoitaHandle,
         storage_old::Storage,
     },
 };
@@ -132,7 +132,7 @@ impl AppContext {
         let handle = self.clone();
         let chatter_id = chatter_id.map_or_else(|| "<all>".into(), |s| s.to_owned());
         tokio::spawn(async move {
-            if let Err(error) = handle.storage().publish("interrupt", chatter_id).await {
+            if let Err(error) = handle.storage_old().publish("interrupt", chatter_id).await {
                 tracing::error!(?error, "failed to publish interrupt: {error:?}");
             }
         });
@@ -152,6 +152,14 @@ pub struct AppContext {
     injector: Injector,
 }
 
+impl Deref for AppContext {
+    type Target = Injector;
+
+    fn deref(&self) -> &Self::Target {
+        &self.injector
+    }
+}
+
 impl AppContext {
     pub fn new(injector: Injector) -> Self {
         Self {
@@ -161,7 +169,7 @@ impl AppContext {
                 bot_id: None,
             }),
             messaging: injector
-                .get_opt::<dyn MessagingService>()
+                .service_opt::<dyn MessagingService>()
                 .unwrap_or_else(|| Arc::new(MessagingServiceMock)),
             injector,
         }
@@ -193,20 +201,9 @@ impl AppContext {
         self.inner.bot_id.as_deref()
     }
 
-    #[track_caller]
-    pub fn service<T: ?Sized + Send + Sync + 'static>(&self) -> Arc<T> {
-        self.injector.get::<T>()
-    }
-
-    pub fn service_opt<T: ?Sized + Send + Sync + 'static>(&self) -> Option<Arc<T>> {
-        self.injector.get_opt::<T>()
-    }
-
     /// Returns true once (atomically) in the given period - per key.
     pub async fn gate(&self, key: &str, period: Duration) -> Result<bool> {
-        self.service::<dyn GateService>()
-            .gate(key, "global", period)
-            .await
+        self.gates().gate(key, "global", period).await
     }
 
     pub async fn send(&self, message: String) -> Result<()> {
@@ -219,12 +216,7 @@ impl AppContext {
     }
 
     #[track_caller]
-    pub fn storage(&self) -> Arc<Storage> {
+    pub fn storage_old(&self) -> Arc<Storage> {
         self.service::<Storage>()
-    }
-
-    #[track_caller]
-    pub fn noita(&self) -> Arc<NoitaHandle> {
-        self.service::<NoitaHandle>()
     }
 }

@@ -6,7 +6,7 @@ use serde::Deserialize;
 use thiserror::Error;
 use tokio::sync::Mutex;
 
-use crate::integration::justfile::just;
+use crate::{injector_getter, integration::justfile::just};
 
 #[derive(Debug, Error)]
 pub enum AddSongError {
@@ -31,13 +31,21 @@ pub struct Song {
 #[async_trait]
 pub trait MusicService: Send + Sync {
     async fn get_volume(&self) -> Result<u32>;
+
     async fn set_volume(&self, volume: u32) -> Result<()>;
+
     async fn current(&self) -> Result<Option<String>>;
+
     async fn add(&self, id: &str) -> Result<Song, AddSongError>;
+
     async fn skip(&self) -> Result<bool>;
+
     async fn queue(&self) -> Result<Vec<Song>>;
+
     async fn queue_reset(&self) -> Result<()>;
 }
+
+injector_getter!(MusicService::music);
 
 pub struct MusicServiceImpl {
     request_cursor: AtomicU32,

@@ -18,6 +18,8 @@ use tokio::sync::{
     broadcast::{self, Sender},
 };
 
+use crate::injector_getter;
+
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct EntryKey(usize);
@@ -25,10 +27,15 @@ pub struct EntryKey(usize);
 #[async_trait]
 pub trait StatusService: Send + Sync {
     fn new_key(&self) -> EntryKey;
+
     async fn set(&self, key: EntryKey, text: String) -> Option<String>;
+
     async fn set_and_bump(&self, key: EntryKey, text: String) -> Option<String>;
+
     async fn remove(&self, key: EntryKey) -> Option<String>;
 }
+
+injector_getter!(StatusService::status);
 
 pub struct EntryGuard {
     key: EntryKey,

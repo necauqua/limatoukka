@@ -5,6 +5,8 @@ use elasticsearch::{
 };
 use serde_json::{Value, json};
 
+use crate::injector_getter;
+
 #[derive(Debug, Clone)]
 pub enum Edge<'s> {
     First,
@@ -40,6 +42,8 @@ pub trait ChatLogService: Send + Sync {
     async fn top_n(&self, n: u64, exclude: &[&str]) -> Result<Vec<(String, i64)>>;
     async fn rank(&self, user_id: &str, exclude: &[&str]) -> Result<Rank>;
 }
+
+injector_getter!(ChatLogService::chat_logs);
 
 pub struct ChatLogServiceElastic {
     client: Elasticsearch,

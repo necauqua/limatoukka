@@ -14,7 +14,7 @@ use tokio::task::JoinSet;
 
 use crate::{
     context::cmd::CommandContext,
-    services::{charges::ChargesService, music::MusicService, twitch::TwitchService},
+    services::{charges::ChargesServiceExt, music::MusicServiceExt, twitch::TwitchServiceExt},
 };
 
 use neca_cmd::{
@@ -69,14 +69,11 @@ async fn var_resolvers(ctx: &CommandContext, name: &str) -> anyhow::Result<Optio
         "self" => return Ok(Some(ctx.shared.owner.login.clone())),
         "rand" => return Ok(Some(rand::random_range(0..100_i32).to_string())),
         "volume" => {
-            let volume = ctx.service::<dyn MusicService>().get_volume().await?;
+            let volume = ctx.music().get_volume().await?;
             return Ok(Some(volume.to_string()));
         }
         "balance" => {
-            let balance = ctx
-                .service::<dyn ChargesService>()
-                .get(ctx.sender())
-                .await?;
+            let balance = ctx.charges().get(ctx.sender()).await?;
             return Ok(Some(balance.as_i64().to_string()));
         }
         _ => {}
@@ -501,13 +498,10 @@ impl CommandArg for Chatter {
         let login = login.trim().to_lowercase();
 
         let id = ctx
-            .storage()
+            .storage_old()
             .cache(Duration::from_secs(24 * 60 * 60), "twitch-id")?
             .get(&login, async || {
-                let user_id = ctx
-                    .service::<dyn TwitchService>()
-                    .get_user_id(&login)
-                    .await?;
+                let user_id = ctx.twitch().get_user_id(&login).await?;
                 let Some(user_id) = user_id else {
                     return Err(ArgError::Precondition(format!("user {login} not found")));
                 };

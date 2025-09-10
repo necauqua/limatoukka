@@ -15,7 +15,10 @@ use twitch_irc::{
     message::{Badge, IRCMessage, IRCTags, ServerMessage},
 };
 
-use crate::integration::{justfile::just, twitch_api::TwitchApi};
+use crate::{
+    injector_getter,
+    integration::{justfile::just, twitch_api::TwitchApi},
+};
 
 #[derive(Debug, Clone)]
 pub struct Sender {
@@ -165,6 +168,8 @@ pub trait MessagingService: Send + Sync {
     async fn send(&self, text: String) -> Result<()>;
     async fn reply(&self, message: &Message, text: String) -> Result<()>;
 }
+
+injector_getter!(MessagingService::messaging);
 
 pub struct MessagingServiceTwitch {
     client: TwitchIRCClient<SecureTCPTransport, TwitchApi>,

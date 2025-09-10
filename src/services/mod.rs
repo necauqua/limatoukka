@@ -38,18 +38,43 @@ impl Injector {
         self.services.insert(TypeId::of::<T>(), Box::new(service));
     }
 
-    pub fn get_opt<T: ?Sized + Send + Sync + 'static>(&self) -> Option<Arc<T>> {
+    pub fn service_opt<T: ?Sized + Send + Sync + 'static>(&self) -> Option<Arc<T>> {
         self.services
             .get(&TypeId::of::<T>())
             .and_then(|s| s.downcast_ref::<Arc<T>>().cloned())
     }
 
     #[track_caller]
-    pub fn get<T: ?Sized + Send + Sync + 'static>(&self) -> Arc<T> {
-        let loc = Location::caller();
-        self.get_opt()
-            .unwrap_or_else(|| panic!("service missing: {} at {loc}", std::any::type_name::<T>(),))
+    pub fn service<T: ?Sized + Send + Sync + 'static>(&self) -> Arc<T> {
+        match self.service_opt() {
+            Some(s) => s,
+            None => panic!(
+                "service missing: {} at {}",
+                std::any::type_name::<T>(),
+                Location::caller()
+            ),
+        }
     }
+}
+
+#[macro_export]
+macro_rules! injector_getter {
+    ($service:ident::$name:ident) => {
+        paste::paste! {
+            pub trait [<$service Ext>] {
+                #[doc = concat!("Get the [`", stringify!($service), "`] service from the injector.")]
+                fn $name(&self) -> ::std::sync::Arc<dyn $service>;
+            }
+
+            impl [<$service Ext>] for $crate::services::Injector {
+                #[inline]
+                #[track_caller]
+                fn $name(&self) -> ::std::sync::Arc<dyn $service> {
+                    self.service()
+                }
+            }
+        }
+    };
 }
 
 #[cfg(test)]
@@ -76,7 +101,7 @@ mod tests {
     }
 
     fn test_command(injector: &Injector) -> &str {
-        injector.get::<dyn ServiceA>().meow()
+        injector.service::<dyn ServiceA>().meow()
     }
 
     #[test]

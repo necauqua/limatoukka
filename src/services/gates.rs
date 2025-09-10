@@ -7,7 +7,10 @@ use rustis::{
     commands::{GenericCommands, SetCondition, SetExpiration, StringCommands},
 };
 
-use crate::commands::{CommandResult, runner::CommandError};
+use crate::{
+    commands::{CommandResult, runner::CommandError},
+    injector_getter,
+};
 
 #[async_trait]
 pub trait GateService: Send + Sync {
@@ -15,6 +18,8 @@ pub trait GateService: Send + Sync {
     async fn ungate(&self, user: &str, key: &str) -> Result<()>;
     async fn ungate_all(&self, user: &str) -> Result<()>;
 }
+
+injector_getter!(GateService::gates);
 
 impl dyn GateService {
     pub async fn command_gates(

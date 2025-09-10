@@ -7,7 +7,7 @@ use anyhow::{Result, anyhow};
 use dashmap::DashMap;
 use rustis::{
     client::{BatchPreparedCommand, Client, Transaction},
-    commands::{ExpireOption, GenericCommands, HashCommands, StringCommands},
+    commands::{HashCommands, StringCommands},
 };
 use serde::{Serialize, de::DeserializeOwned};
 
@@ -83,45 +83,6 @@ impl Deref for TransactionRef {
 impl DerefMut for TransactionRef {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.transaction
-    }
-}
-
-pub struct Hold<'s> {
-    storage: &'s Storage,
-    key: String,
-}
-
-impl Hold<'_> {
-    pub async fn down(&self) -> Result<bool> {
-        let mut tx = self.storage.client.create_transaction();
-        tx.incr(&self.key).queue();
-
-        // the unstuck logic, just in case
-        tx.pexpire(&self.key, 60_000, ExpireOption::Nx).forget();
-
-        Ok(tx.execute::<i64>().await? == 1)
-    }
-
-    pub async fn up(&self) -> Result<bool> {
-        let counter = self.storage.decr(&self.key).await?;
-        if counter <= 0 {
-            if counter != 0 {
-                // this means there was an oopsie
-                self.storage.del(&self.key).await?;
-            }
-            Ok(true)
-        } else {
-            Ok(false)
-        }
-    }
-}
-
-impl Storage {
-    pub fn hold<'a>(&'a self, key: &str) -> Result<Hold<'a>> {
-        Ok(Hold {
-            storage: self,
-            key: format!("holds:{key}"),
-        })
     }
 }
 

@@ -10,8 +10,8 @@ use crate::{
     fail,
     integration::justfile::just,
     services::{
-        messaging::PermissionLevel, sounds::SoundService, status_wall::StatusService,
-        storage::StorageService, twitch::TwitchService,
+        messaging::PermissionLevel, sounds::SoundServiceExt, status_wall::StatusServiceExt,
+        storage::StorageServiceExt, twitch::TwitchServiceExt,
     },
 };
 use humantime_serde::re::humantime;
@@ -27,19 +27,17 @@ use tokio::time::sleep;
 /// There is also some magical property to this command..
 #[command(global_gate = 1h, cost = -1)]
 async fn ping(ctx: CommandContext) -> CommandResult {
-    if !ctx.service::<dyn TwitchService>().is_live().await? {
+    if !ctx.twitch().is_live().await? {
         fail!("stream is offline lmao")
     }
 
-    ctx.service::<dyn StorageService>()
+    ctx.storage()
         .set("last-pinger", &ctx.message().sender.name)
         .await?;
 
     ctx.reply("pong!".into()).await?;
 
-    ctx.service::<dyn SoundService>()
-        .play_builtin("PING")
-        .await?;
+    ctx.sounds().play_builtin("PING").await?;
 
     Ok(())
 }
@@ -48,10 +46,7 @@ async fn ping(ctx: CommandContext) -> CommandResult {
 /// current stream.
 #[command(sender_gate = 15s)]
 async fn last_pinger(ctx: CommandContext) -> CommandResult {
-    let pinger = ctx
-        .service::<dyn StorageService>()
-        .get("last-pinger")
-        .await?;
+    let pinger = ctx.storage().get("last-pinger").await?;
 
     match pinger {
         Some(pinger) => ctx.reply(format!("Last ping~ was by {pinger}")).await?,
@@ -80,7 +75,7 @@ async fn echo(ctx: CommandContext, text: String) -> CommandResult {
 #[command(sender_gate = 3s)]
 async fn last_error(ctx: CommandContext, chatter: Chatter) -> CommandResult {
     ctx.reply(
-        ctx.service::<dyn StorageService>()
+        ctx.storage()
             .get(&format!("last-error:{chatter}"))
             .await?
             .unwrap_or_else(|| {
@@ -122,7 +117,7 @@ async fn wait(ctx: CommandContext, duration: HoldTime<500, 300_000>) -> CommandR
         humantime::format_duration(duration)
     );
 
-    let wall = ctx.service::<dyn StatusService>();
+    let wall = ctx.status();
     let entry = wall.allocate().await;
     let inner_ctx = ctx.clone();
     let wall_task = tokio::spawn(async move {
@@ -187,12 +182,10 @@ async fn discard(ctx: CommandContext) -> CommandResult {
 #[command(permission = Moderator)]
 async fn setting(ctx: CommandContext, key: String, value: Option<String>) -> CommandResult {
     if let Some(key) = key.strip_prefix("-") {
-        ctx.service::<dyn StorageService>()
-            .del(&format!("setting:{key}"))
-            .await?;
+        ctx.storage().del(&format!("setting:{key}")).await?;
         ctx.reply(format!("Bot setting '{key}' removed")).await?;
     } else {
-        ctx.service::<dyn StorageService>()
+        ctx.storage()
             .set(&format!("setting:{key}"), value.as_deref().unwrap_or("1"))
             .await?;
         ctx.reply(format!("Bot setting '{key}' set")).await?;
@@ -207,7 +200,7 @@ async fn setting(ctx: CommandContext, key: String, value: Option<String>) -> Com
 #[command(sender_gate = 3s)]
 async fn what_is(ctx: CommandContext, name: String, to: Chatter) -> CommandResult {
     let (personal, global): (Option<String>, Option<String>) = {
-        let storage = ctx.storage();
+        let storage = ctx.storage_old();
         let mut p = storage.create_pipeline();
         p.hget::<_, _, Option<String>>(format!("macros:{to}"), &name)
             .queue();

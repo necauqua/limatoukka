@@ -223,7 +223,7 @@ impl EventSub {
                     }
                     EventsubWebsocketData::Notification { metadata, payload } => {
                         let new = ctx
-                            .storage()
+                            .storage_old()
                             .set_with_options(
                                 format!("seen:eventsub:{}", metadata.message_id),
                                 "1",

@@ -2,12 +2,14 @@ use anyhow::Result;
 use async_trait::async_trait;
 use tokio::sync::{Mutex, oneshot::Receiver};
 
-use crate::integration::justfile::just;
+use crate::{injector_getter, integration::justfile::just};
 
 #[async_trait]
 pub trait TtsService: Send + Sync {
     async fn tts(&self, text: &str, stop: Option<Receiver<()>>) -> Result<()>;
 }
+
+injector_getter!(TtsService::tts);
 
 #[derive(Default)]
 pub struct TtsServiceImpl {

@@ -7,12 +7,18 @@ use rustis::{
 };
 use serde::{Serialize, de::DeserializeOwned};
 
+use crate::injector_getter;
+
 #[async_trait]
 pub trait StorageService: Send + Sync {
     async fn get(&self, key: &str) -> Result<Option<String>>;
+
     async fn set(&self, key: &str, value: &str) -> Result<()>;
+
     async fn del(&self, key: &str) -> Result<bool>;
 }
+
+injector_getter!(StorageService::storage);
 
 impl dyn StorageService {
     pub async fn has(&self, key: &str) -> Result<bool> {

@@ -7,15 +7,15 @@ use crate::{
     context::cmd::CommandContext,
     fail,
     services::{
-        charges::{Charges, ChargesService},
-        gates::GateService,
+        charges::{Charges, ChargesServiceExt},
+        gates::GateServiceExt,
     },
 };
 
 /// Check the current charge balance
 #[command(sender_gate = 3s)]
 async fn balance(ctx: CommandContext, chatter: Chatter) -> CommandResult {
-    let charges = ctx.service::<dyn ChargesService>().get(&chatter.id).await?;
+    let charges = ctx.charges().get(&chatter.id).await?;
 
     let whom = match ctx.is_owner(&chatter) {
         true => "Your",
@@ -30,9 +30,7 @@ async fn balance(ctx: CommandContext, chatter: Chatter) -> CommandResult {
 /// Spend a charge to remove all of your current timeouts.
 #[command(cost = 1)]
 async fn unleash_me(ctx: CommandContext) -> CommandResult {
-    ctx.service::<dyn GateService>()
-        .ungate_all(ctx.sender())
-        .await?;
+    ctx.gates().ungate_all(ctx.sender()).await?;
     Ok(())
 }
 
@@ -55,11 +53,7 @@ async fn transfer(
         (from, to, amount)
     };
 
-    if ctx
-        .service::<dyn ChargesService>()
-        .transfer(from, to, amount)
-        .await?
-    {
+    if ctx.charges().transfer(from, to, amount).await? {
         ctx.reply(format!(
             "Successfully transferred {amount} to {}",
             target.login
@@ -76,9 +70,7 @@ async fn transfer(
 /// The amount can be negative 🙃
 #[command(permission = Caster)]
 async fn award(ctx: CommandContext, target: Chatter, amount: Charges) -> CommandResult {
-    ctx.service::<dyn ChargesService>()
-        .add(&target.id, amount)
-        .await?;
+    ctx.charges().add(&target.id, amount).await?;
 
     ctx.reply(format!("Awarded {amount} to {}", target.login))
         .await?;

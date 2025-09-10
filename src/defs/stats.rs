@@ -6,7 +6,7 @@ use crate::{
     },
     context::cmd::CommandContext,
     fail,
-    services::chat_log::{ChatLogService, Edge, Rank},
+    services::chat_log::{ChatLogServiceExt, Edge, Rank},
 };
 
 /// Count the amount of messages typed by a chatter.
@@ -18,7 +18,7 @@ use crate::{
 #[command(sender_gate = 3s)]
 async fn stat(ctx: CommandContext, chatter: Chatter, word: Option<String>) -> CommandResult {
     let count = ctx
-        .service::<dyn ChatLogService>()
+        .chat_logs()
         .stat(word.as_deref(), Some(&chatter.id))
         .await?;
 
@@ -34,10 +34,7 @@ async fn stat(ctx: CommandContext, chatter: Chatter, word: Option<String>) -> Co
 /// With an argument filters messages by the given word(s), just like `stat`.
 #[command(sender_gate = 3s)]
 async fn stat_global(ctx: CommandContext, word: Option<String>) -> CommandResult {
-    let count = ctx
-        .service::<dyn ChatLogService>()
-        .stat(word.as_deref(), None)
-        .await?;
+    let count = ctx.chat_logs().stat(word.as_deref(), None).await?;
 
     ctx.reply_buffered(format!("count: {count}")).await?;
     Ok(())
@@ -46,11 +43,7 @@ async fn stat_global(ctx: CommandContext, word: Option<String>) -> CommandResult
 /// Get the first message sent by a user (or you) in chat.
 #[command(sender_gate = 3s)]
 async fn first_message(ctx: CommandContext, chatter: Chatter) -> CommandResult {
-    let response = match ctx
-        .service::<dyn ChatLogService>()
-        .edge(&chatter.id, Edge::First)
-        .await?
-    {
+    let response = match ctx.chat_logs().edge(&chatter.id, Edge::First).await? {
         Some(msg) if msg.true_first => format!("Their first message was: {}", msg.message),
         Some(msg) => format!("Their first recorded message was: {}", msg.message),
         None => fail!("they never typed in chat"),
@@ -65,11 +58,7 @@ async fn last_message(ctx: CommandContext, chatter: Chatter) -> CommandResult {
     let edge = Edge::Last {
         exclude_message_id: Some(&ctx.message().id),
     };
-    let response = match ctx
-        .service::<dyn ChatLogService>()
-        .edge(&chatter.id, edge)
-        .await?
-    {
+    let response = match ctx.chat_logs().edge(&chatter.id, edge).await? {
         Some(msg) => format!("Their last message was: {}", msg.message),
         None => fail!("they never typed in chat"),
     };
@@ -85,7 +74,7 @@ async fn top(ctx: CommandContext, n: Option<InRange<1, 15>>) -> CommandResult {
         None => &[],
     };
     ctx.reply(
-        ctx.service::<dyn ChatLogService>()
+        ctx.chat_logs()
             .top_n(n.map_or(5, |n| n.get() as _), exclude)
             .await?
             .into_iter()
@@ -108,21 +97,15 @@ async fn rank(ctx: CommandContext, chatter: Chatter) -> CommandResult {
         Some(bot_id) => &[bot_id],
         None => &[],
     };
-    ctx.reply(
-        match ctx
-            .service::<dyn ChatLogService>()
-            .rank(&chatter.id, exclude)
-            .await?
-        {
-            Rank::Top1 => {
-                format!("{whom} are a top-1 chatter. There is no god up there, other than {whom2}")
-            }
-            Rank::Top1k { pos, to_climb } => {
-                format!("{whom} are a top-{pos} spammer, gz; {to_climb} messages left to climb up")
-            }
-            Rank::Bottom => "Placed >999, not enough spam KEKW".into(),
-        },
-    )
+    ctx.reply(match ctx.chat_logs().rank(&chatter.id, exclude).await? {
+        Rank::Top1 => {
+            format!("{whom} are a top-1 chatter. There is no god up there, other than {whom2}")
+        }
+        Rank::Top1k { pos, to_climb } => {
+            format!("{whom} are a top-{pos} spammer, gz; {to_climb} messages left to climb up")
+        }
+        Rank::Bottom => "Placed >999, not enough spam KEKW".into(),
+    })
     .await?;
     Ok(())
 }
