@@ -1,17 +1,14 @@
 use std::{
+    mem,
     ops::Deref,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicU32, Ordering},
     },
     time::Duration,
 };
 
 use anyhow::{Ok, Result};
-use rustis::{
-    client::BatchPreparedCommand,
-    commands::{GenericCommands, ListCommands},
-};
 use tokio::{sync::oneshot::Receiver, time::sleep};
 
 use crate::{
@@ -28,6 +25,7 @@ struct MessageState {
     interrupt_ticket: InterruptTicket,
     repeats: AtomicU32,
     message: Message,
+    reply_buffer: Mutex<Vec<String>>,
 }
 
 #[derive(Clone)]
@@ -53,6 +51,7 @@ impl MessageContext {
                 interrupt_ticket: parent.interrupt_ticket(&message.sender.id),
                 repeats: AtomicU32::new(0),
                 message,
+                reply_buffer: Mutex::new(Vec::new()),
             }),
             runner,
             parent,
@@ -120,23 +119,23 @@ impl MessageContext {
     }
 
     pub async fn reply_buffered(&self, message: String) -> Result<()> {
-        let state_key = format!("reply_buffered:{}", self.message().sender.id);
-
-        if self.storage_old().rpush(&state_key, &message).await? != 1 {
-            tracing::debug!(message, "adding to existing reply buffer");
-            return Ok(());
+        {
+            let mut buffer = self.state.reply_buffer.lock().unwrap();
+            if buffer.is_empty() {
+                tracing::debug!(message, "new reply buffer");
+            } else {
+                tracing::debug!(message, "adding to existing reply buffer");
+            }
+            buffer.push(message);
+            // meh
+            if buffer.len() == 1 {
+                return Ok(());
+            }
         }
-
-        tracing::debug!(message, "new reply buffer");
 
         sleep(Duration::from_millis(100)).await;
 
-        let messages: Vec<String> = {
-            let mut tx = self.storage_old().create_transaction();
-            tx.lrange::<_, _, Vec<String>>(&state_key, 0, -1).queue();
-            tx.del(&state_key).forget();
-            tx.execute().await?
-        };
+        let messages = mem::take(&mut *self.state.reply_buffer.lock().unwrap());
 
         self.reply(messages.join("; ")).await
     }
