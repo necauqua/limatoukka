@@ -14,7 +14,10 @@ use tokio::task::JoinSet;
 
 use crate::{
     context::cmd::CommandContext,
-    services::{charges::ChargesServiceExt, music::MusicServiceExt, twitch::TwitchServiceExt},
+    services::{
+        caches::CacheServiceExt, charges::ChargesServiceExt, music::MusicServiceExt,
+        twitch::TwitchServiceExt,
+    },
 };
 
 use neca_cmd::{
@@ -498,15 +501,19 @@ impl CommandArg for Chatter {
         let login = login.trim().to_lowercase();
 
         let id = ctx
-            .storage_old()
-            .cache(Duration::from_secs(24 * 60 * 60), "twitch-id")?
-            .get(&login, async || {
-                let user_id = ctx.twitch().get_user_id(&login).await?;
-                let Some(user_id) = user_id else {
-                    return Err(ArgError::Precondition(format!("user {login} not found")));
-                };
-                Ok(user_id)
-            })
+            .caches()
+            .get_cached(
+                "twitch-id",
+                Duration::from_secs(24 * 60 * 60),
+                &login,
+                async || {
+                    let user_id = ctx.twitch().get_user_id(&login).await?;
+                    let Some(user_id) = user_id else {
+                        return Err(ArgError::Precondition(format!("user {login} not found")));
+                    };
+                    Ok(user_id)
+                },
+            )
             .await?;
 
         Ok(Self { id, login })

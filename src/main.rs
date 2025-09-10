@@ -3,10 +3,7 @@ use std::{borrow::Cow, sync::Arc, time::Duration};
 use anyhow::Result;
 use futures::{FutureExt, StreamExt};
 use opentelemetry::trace::Status;
-use rustis::{
-    client::Client as ValkeyClient,
-    commands::{PubSubCommands, SetCondition, SetExpiration, StringCommands},
-};
+use rustis::{client::Client as ValkeyClient, commands::PubSubCommands};
 use tokio::{task::JoinSet, time::sleep};
 use tpn_bot::{
     commands::{CommandTag, discover_declared_commands, runner::Runner},
@@ -16,6 +13,7 @@ use tpn_bot::{
     logging,
     services::{
         Injector,
+        caches::{CacheService, CacheServiceExt, CacheServiceRedis},
         charges::{Charges, ChargesService, ChargesServiceExt, ChargesServiceRedis},
         chat_log::{ChatLogService, ChatLogServiceElastic},
         gates::{GateService, GateServiceRedis},
@@ -54,6 +52,7 @@ async fn run(config: Config) -> Result<()> {
     let services = Injector::new()
         .with::<dyn MessagingService>(messaging.into())
         .with::<dyn StorageService>(Arc::new(StorageServiceRedis::new(valkey.clone())))
+        .with::<dyn CacheService>(Arc::new(CacheServiceRedis::new(valkey.clone())))
         .with::<dyn ChargesService>(Arc::new(ChargesServiceRedis::new(valkey.clone())))
         .with::<dyn GateService>(Arc::new(GateServiceRedis::new(valkey.clone())))
         .with::<dyn TwitchService>(Arc::new(TwitchServiceImpl::new(twitch_api.clone())))
@@ -129,13 +128,12 @@ async fn run(config: Config) -> Result<()> {
             },
             Some(msg) = incoming.recv() => {
                 let new = ctx
-                    .storage_old()
-                    .set_with_options(
-                        format!("seen:irc:{}", msg.id),
+                    .caches()
+                    .set(
+                        "irc-seen",
+                        Duration::from_secs(600),
+                        &msg.id,
                         "1",
-                        SetCondition::NX,
-                        SetExpiration::Ex(600),
-                        false,
                     )
                     .await?;
                 if !new {

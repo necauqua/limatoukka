@@ -6,6 +6,7 @@ use std::{
 
 use dashmap::DashMap;
 
+pub mod caches;
 pub mod charges;
 pub mod chat_log;
 pub mod gates;

@@ -2,7 +2,6 @@ use std::{option::Option::Some, pin::Pin, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use futures::StreamExt;
-use rustis::commands::{SetCondition, SetExpiration, StringCommands};
 use tokio::{
     net::TcpStream,
     sync::{
@@ -21,7 +20,9 @@ use twitch_api::{
     twitch_oauth2::url::Url,
 };
 
-use crate::{context::app::AppContext, integration::twitch_api::TwitchApi};
+use crate::{
+    context::app::AppContext, integration::twitch_api::TwitchApi, services::caches::CacheServiceExt,
+};
 
 pub struct EventSub {
     twitch: TwitchApi,
@@ -223,13 +224,12 @@ impl EventSub {
                     }
                     EventsubWebsocketData::Notification { metadata, payload } => {
                         let new = ctx
-                            .storage_old()
-                            .set_with_options(
-                                format!("seen:eventsub:{}", metadata.message_id),
+                            .caches()
+                            .set(
+                                "eventsub-seen",
+                                Duration::from_secs(600),
+                                &metadata.message_id,
                                 "1",
-                                SetCondition::NX,
-                                SetExpiration::Ex(600),
-                                false,
                             )
                             .await?;
                         if new {

@@ -1,15 +1,12 @@
-use std::{
-    ops::{Deref, DerefMut},
-    time::Duration,
-};
+use std::ops::{Deref, DerefMut};
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use dashmap::DashMap;
 use rustis::{
     client::{BatchPreparedCommand, Client, Transaction},
-    commands::{HashCommands, StringCommands},
+    commands::HashCommands,
 };
-use serde::{Serialize, de::DeserializeOwned};
+use serde::de::DeserializeOwned;
 
 use crate::commands::args::Chatter;
 
@@ -83,58 +80,6 @@ impl Deref for TransactionRef {
 impl DerefMut for TransactionRef {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.transaction
-    }
-}
-
-pub struct Cache<'s> {
-    storage: &'s Storage,
-    ttl: Duration,
-    key: &'static str,
-}
-
-impl Cache<'_> {
-    pub async fn get<T, E>(
-        &self,
-        key: &str,
-        compute: impl AsyncFnOnce() -> Result<T, E>,
-    ) -> Result<T, E>
-    where
-        T: Serialize + DeserializeOwned,
-        E: From<anyhow::Error>,
-    {
-        let full_key = format!("caches:{}:{key}", self.key);
-        match self
-            .storage
-            .client
-            .get::<_, Option<String>>(&full_key)
-            .await
-            .map_err(|e| anyhow!(e))?
-        {
-            Some(value) => Ok(serde_json::from_str(&value).map_err(|e| anyhow!(e))?),
-            None => Ok({
-                let value = compute().await?;
-                self.storage
-                    .client
-                    .psetex(
-                        &full_key,
-                        self.ttl.as_millis() as _,
-                        serde_json::to_string(&value).map_err(|e| anyhow!(e))?,
-                    )
-                    .await
-                    .map_err(|e| anyhow!(e))?;
-                value
-            }),
-        }
-    }
-}
-
-impl Storage {
-    pub fn cache<'a>(&'a self, ttl: Duration, key: &'static str) -> Result<Cache<'a>> {
-        Ok(Cache {
-            storage: self,
-            ttl,
-            key,
-        })
     }
 }
 
