@@ -1,9 +1,9 @@
 use std::{borrow::Cow, sync::Arc, time::Duration};
 
 use anyhow::Result;
-use futures::{FutureExt, StreamExt};
+use futures::FutureExt;
 use opentelemetry::trace::Status;
-use rustis::{client::Client as ValkeyClient, commands::PubSubCommands};
+use rustis::client::Client as ValkeyClient;
 use tokio::{task::JoinSet, time::sleep};
 use tpn_bot::{
     commands::{CommandTag, discover_declared_commands, runner::Runner},
@@ -17,6 +17,7 @@ use tpn_bot::{
         charges::{Charges, ChargesService, ChargesServiceExt, ChargesServiceRedis},
         chat_log::{ChatLogService, ChatLogServiceElastic},
         gates::{GateService, GateServiceRedis},
+        ipc::{IpcService, IpcServiceExt, IpcServiceRedis},
         messaging::{self, MessagingService},
         music::{MusicService, MusicServiceImpl},
         noita::{ItemFound, NoitaEvent, NoitaHandle, NoitaHandleExt},
@@ -53,6 +54,7 @@ async fn run(config: Config) -> Result<()> {
         .with::<dyn MessagingService>(messaging.into())
         .with::<dyn StorageService>(Arc::new(StorageServiceRedis::new(valkey.clone())))
         .with::<dyn CacheService>(Arc::new(CacheServiceRedis::new(valkey.clone())))
+        .with::<dyn IpcService>(Arc::new(IpcServiceRedis::new(valkey.clone())))
         .with::<dyn ChargesService>(Arc::new(ChargesServiceRedis::new(valkey.clone())))
         .with::<dyn GateService>(Arc::new(GateServiceRedis::new(valkey.clone())))
         .with::<dyn TwitchService>(Arc::new(TwitchServiceImpl::new(twitch_api.clone())))
@@ -98,25 +100,27 @@ async fn run(config: Config) -> Result<()> {
     // after eventsub init so we can receive redemptions
     twitch_api.unpause_rewards().await?;
 
-    ctx.storage_old().publish("bot-restart", "1").await?;
+    let ipc = ctx.ipc();
+    ipc.publish("bot-restart", b"1").await?;
 
-    let mut restart_signal = ctx.storage_old().subscribe("bot-restart").await?;
+    let mut restart_signal = ipc.listen("bot-restart");
     let mut tasks = JoinSet::new();
 
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => break,
-            _ = restart_signal.next() => {
+            _ = &mut restart_signal => {
                 tracing::info!("received a restart signal from new instance");
 
                 // I think this is technicaly racey?
                 // but the chance is so slim we dont care ig
-                let mut interrupt_signal = ctx.storage_old().subscribe("interrupt").await?;
+                let ipc = ctx.ipc();
+                let interrupt_signal = async move { ipc.listen("interrupt").await };
                 let handle = ctx.clone();
                 tokio::spawn(async move {
-                    if let Some(chatter_id) = interrupt_signal.next().await {
+                    if let Ok(Some(chatter_id)) = interrupt_signal.await {
                         // eh just panic the task on errors, we're shutting down soon anyway
-                        let chatter_id = String::from_utf8(chatter_id.unwrap().payload).unwrap();
+                        let chatter_id = String::from_utf8(chatter_id).unwrap();
                         tracing::info!("received an interrupt from new instance");
                         handle.interrupt(
                             Some(&*chatter_id).filter(|id| *id != "<all>"),

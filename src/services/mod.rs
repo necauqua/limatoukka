@@ -10,6 +10,7 @@ pub mod caches;
 pub mod charges;
 pub mod chat_log;
 pub mod gates;
+pub mod ipc;
 pub mod messaging;
 pub mod music;
 pub mod noita;

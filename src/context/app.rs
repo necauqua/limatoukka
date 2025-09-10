@@ -8,7 +8,6 @@ use std::{
 };
 
 use anyhow::Result;
-use rustis::commands::PubSubCommands;
 use tokio::sync::Notify;
 
 use crate::{
@@ -16,6 +15,7 @@ use crate::{
     services::{
         Injector,
         gates::GateServiceExt,
+        ipc::IpcServiceExt,
         messaging::{MessagingService, MessagingServiceMock},
         storage_old::Storage,
     },
@@ -129,10 +129,10 @@ impl AppContext {
             }
         }
 
-        let handle = self.clone();
+        let ipc = self.ipc();
         let chatter_id = chatter_id.map_or_else(|| "<all>".into(), |s| s.to_owned());
         tokio::spawn(async move {
-            if let Err(error) = handle.storage_old().publish("interrupt", chatter_id).await {
+            if let Err(error) = ipc.publish("interrupt", chatter_id.as_bytes()).await {
                 tracing::error!(?error, "failed to publish interrupt: {error:?}");
             }
         });
