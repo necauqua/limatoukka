@@ -129,8 +129,11 @@ mission-failed:
   sender-gate: 10m
 
 PING:
-  file: "AUGH.ogg"
-  volume: 0.1
+  variants:
+    - file: "AUGH.ogg"
+      volume: 0.1
+    - file: "undertakers-bell.ogg"
+      volume: 0.1
 
 RAID:
   file: "pipes.ogg"
