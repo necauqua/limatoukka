@@ -10,15 +10,12 @@ use std::{
 use anyhow::Result;
 use tokio::sync::Notify;
 
-use crate::{
-    config::Config,
-    services::{
-        Injector,
-        gates::GateServiceExt,
-        ipc::IpcServiceExt,
-        messaging::{MessagingService, MessagingServiceMock},
-        storage_old::Storage,
-    },
+use crate::services::{
+    Injector,
+    gates::GateServiceExt,
+    ipc::IpcServiceExt,
+    messaging::{MessagingService, MessagingServiceMock},
+    storage_old::Storage,
 };
 
 #[derive(Default)]
@@ -187,10 +184,6 @@ impl AppContext {
             .expect("setting bot id after cloning app context")
             .bot_id = Some(bot_id);
         self
-    }
-
-    pub fn config(&self) -> Arc<Config> {
-        self.service::<Config>()
     }
 
     pub fn caster_id(&self) -> Option<&str> {

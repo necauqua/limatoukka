@@ -31,7 +31,6 @@ pub struct EventSub {
     on_subscribed: Arc<Notify>,
     keepalive_timeout: Duration,
     canary: Pin<Box<Sleep>>,
-    // interests: Vec<Box<dyn AsyncFnOnce(TwitchApi, Transport) -> Result<()>>>,
 }
 
 impl EventSub {
@@ -43,33 +42,8 @@ impl EventSub {
             on_subscribed: Default::default(),
             keepalive_timeout: Duration::from_secs(10),
             canary: Box::pin(tokio::time::sleep(Duration::from_secs(15))),
-            // interests: Vec::new(),
         }
     }
-
-    // pub fn add_interest<E: EventSubscription + Send + Sync + 'static>(
-    //     &mut self,
-    //     instance: E,
-    // ) -> Result<()> {
-    //     self.interests.push(Box::new(move |twitch, transport| {
-    //         Box::pin(async move {
-    //             twitch
-    //                 .caster_call(async |t| {
-    //                     t.helix
-    //                         .create_eventsub_subscription(
-    //                             instance.clone(),
-    //                             transport.clone(),
-    //                             &t.token,
-    //                         )
-    //                         .await
-    //                 })
-    //                 .await?;
-    //             Ok(())
-    //         })
-    //     }));
-
-    //     Ok(())
-    // }
 
     async fn process_welcome_message(&mut self, data: SessionData<'_>) -> Result<()> {
         tracing::info!("got a welcome message");

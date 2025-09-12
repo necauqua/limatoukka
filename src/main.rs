@@ -13,6 +13,7 @@ use tpn_bot::{
     logging,
     services::{
         Injector,
+        bets::{BetsService, BetsServiceRedis},
         caches::{CacheService, CacheServiceExt, CacheServiceRedis},
         charges::{Charges, ChargesService, ChargesServiceExt, ChargesServiceRedis},
         chat_log::{ChatLogService, ChatLogServiceElastic},
@@ -72,12 +73,11 @@ async fn run(config: Config) -> Result<()> {
         )))
         .with::<dyn TtsService>(Arc::new(TtsServiceImpl::default()))
         .with::<dyn StatusService>(status_wall.clone())
+        .with::<dyn BetsService>(Arc::new(BetsServiceRedis::new(valkey.clone())))
         // todo make it into a dyn service ofc
         .with(Arc::new(NoitaHandle::default()))
         // todo most of storage usage should be replaced with separate services
-        .with(Arc::new(Storage::new(valkey.clone())))
-        // config is *only* used in voting, todo remove/refactor it
-        .with(Arc::new(config));
+        .with(Arc::new(Storage::new(valkey.clone())));
 
     let ctx = AppContext::new(services)
         .with_caster_id(twitch_api.caster_id().to_owned())
@@ -91,7 +91,7 @@ async fn run(config: Config) -> Result<()> {
     let runner = Runner::new(commands);
 
     tokio::spawn(eventsub.run(ctx.clone()));
-    tokio::spawn(status_wall.start(&ctx.config().browser_source_bind));
+    tokio::spawn(status_wall.start(&config.browser_source_bind));
     tokio::spawn(NoitaHandle::poll_state_updates(ctx.clone()));
 
     let mut noita_events = ctx.noita().subscribe();
