@@ -128,7 +128,7 @@ impl MessageContext {
             }
             buffer.push(message);
             // meh
-            if buffer.len() == 1 {
+            if buffer.len() > 1 {
                 return Ok(());
             }
         }
