@@ -1,4 +1,4 @@
-use maud::html;
+use maud::{Markup, html};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -6,7 +6,7 @@ use crate::{
     context::cmd::CommandContext,
     fail,
     services::{
-        bets::{BetsServiceExt, Win},
+        bets::{Bet, BetsServiceExt},
         charges::{Charges, ChargesServiceExt},
         status_wall::{EntryKey, StatusServiceExt},
         storage::StorageServiceExt,
@@ -14,11 +14,19 @@ use crate::{
 };
 
 #[derive(Serialize, Deserialize, Debug)]
-struct Bet {
+struct BetSetup {
     premise: String,
     options: Vec<String>,
     closed: bool,
     status_key: EntryKey,
+}
+
+fn render_status(total: u64, premise: &str) -> Markup {
+    html! {
+        span style="color:orange" { "BET OPEN (" (total) " betters):" }
+        br
+        span { (premise) }
+    }
 }
 
 /// Create a new bet. If no options are provided, they default to "believe" and "doubt".
@@ -43,18 +51,8 @@ async fn mkbet(ctx: CommandContext, premise: String, options: RestOfArgs) -> Com
 
     let wall = ctx.status();
     let status_key = wall.new_key();
-    wall.set_and_bump(
-        status_key,
-        html! {
-            span style="color:orange" { "BET OPEN:" }
-            br
-            span { (premise) }
-        }
-        .into(),
-    )
-    .await;
 
-    let bet = Bet {
+    let bet = BetSetup {
         premise,
         options,
         closed: false,
@@ -65,6 +63,9 @@ async fn mkbet(ctx: CommandContext, premise: String, options: RestOfArgs) -> Com
     ctx.send(format!("[!!!] New bet started: {}", bet.premise))
         .await?;
 
+    wall.set_and_bump(status_key, render_status(0, &bet.premise).into())
+        .await;
+
     Ok(())
 }
 
@@ -73,7 +74,7 @@ async fn mkbet(ctx: CommandContext, premise: String, options: RestOfArgs) -> Com
 async fn close(ctx: CommandContext) -> CommandResult {
     let storage = ctx.storage();
 
-    let Some(mut bet) = storage.load::<Bet>("bet:current").await? else {
+    let Some(mut bet) = storage.load::<BetSetup>("bet:current").await? else {
         fail!("There is no active bet");
     };
     if bet.closed {
@@ -83,9 +84,54 @@ async fn close(ctx: CommandContext) -> CommandResult {
     bet.closed = true;
     storage.save("bet:current", &bet).await?;
 
+    ctx.send("[!!!] Bet is now closed".into()).await?;
+
     ctx.status().remove(bet.status_key).await;
 
-    ctx.send("[!!!] Bet is now closed".into()).await?;
+    Ok(())
+}
+
+/// Reopen a closed bet, allowing new bets to be placed.
+#[command (permission = Caster)]
+async fn reopen(ctx: CommandContext) -> CommandResult {
+    let storage = ctx.storage();
+
+    let Some(mut bet) = storage.load::<BetSetup>("bet:current").await? else {
+        fail!("There is no active bet");
+    };
+    if !bet.closed {
+        fail!("Bet is already open");
+    }
+
+    bet.closed = false;
+    storage.save("bet:current", &bet).await?;
+
+    ctx.send("[!!!] Bet was reopened".into()).await?;
+
+    let total = ctx.bets().bet_count("current").await?.unwrap_or_default();
+    ctx.status()
+        .set_and_bump(bet.status_key, render_status(total, &bet.premise).into())
+        .await;
+
+    Ok(())
+}
+
+/// Show the current active bet.
+#[command(sender_gate = 10s)]
+async fn is_bet(ctx: CommandContext) -> CommandResult {
+    let Some(bet) = ctx.storage().load::<BetSetup>("bet:current").await? else {
+        ctx.fail("There is no active bet").await?;
+        return Ok(());
+    };
+
+    ctx.send(format!(
+        "Current bet ({}!): {} (options: {}) ({} bets placed)",
+        if bet.closed { "closed" } else { "open" },
+        bet.premise,
+        bet.options.join(", "),
+        ctx.bets().bet_count("current").await?.unwrap_or_default(),
+    ))
+    .await?;
 
     Ok(())
 }
@@ -95,7 +141,7 @@ async fn close(ctx: CommandContext) -> CommandResult {
 /// If you dont wager anything, you will still win 1⚡︎ if you were correct.
 #[command(sender_gate = 5s)]
 async fn bet(ctx: CommandContext, option: String, wager: Option<Charges>) -> CommandResult {
-    let Some(bet) = ctx.storage().load::<Bet>("bet:current").await? else {
+    let Some(bet) = ctx.storage().load::<BetSetup>("bet:current").await? else {
         fail!("There is no active bet");
     };
     if bet.closed {
@@ -116,33 +162,42 @@ async fn bet(ctx: CommandContext, option: String, wager: Option<Charges>) -> Com
         );
     }
 
-    // todo fix double-charging lmao
+    let bets = ctx.bets();
+
+    if let (Some(prev), _) = bets.remove_bet("current", ctx.sender()).await?
+        && prev.amount != 0
+    {
+        ctx.charges().add(ctx.sender(), prev.amount.into()).await?;
+    }
+
     if let Some(wager) = wager
         && !ctx.charges().consume(ctx.sender(), wager).await?
     {
         fail!("poor");
     }
 
+    let wager = Bet {
+        option,
+        amount: wager.map_or(0, |c| c.as_i64() as _),
+    };
+
     let total = ctx
         .bets()
-        .place_bet(
-            "current",
-            ctx.sender(),
-            &option,
-            wager.map_or(0, |c| c.as_i64()),
-        )
+        .place_bet("current", ctx.sender(), &wager)
         .await?;
 
+    ctx.reply(match wager.amount {
+        0 => format!("bet on '{}' accepted", wager.option),
+        _ => format!(
+            "accepted {} for as a bet on '{}'",
+            Charges::from(wager.amount),
+            wager.option,
+        ),
+    })
+    .await?;
+
     ctx.status()
-        .set_and_bump(
-            bet.status_key,
-            html! {
-                span style="color:orange" { "BET OPEN (" (total) " betters):" }
-                br
-                span { (bet.premise) }
-            }
-            .into(),
-        )
+        .set_and_bump(bet.status_key, render_status(total, &bet.premise).into())
         .await;
 
     Ok(())
@@ -151,31 +206,58 @@ async fn bet(ctx: CommandContext, option: String, wager: Option<Charges>) -> Com
 /// Remove your bet from the current active bet, refunding your wager.
 #[command(sender_gate = 5s)]
 async fn unbet(ctx: CommandContext) -> CommandResult {
-    let Some(bet) = ctx.storage().load::<Bet>("bet:current").await? else {
+    let Some(bet) = ctx.storage().load::<BetSetup>("bet:current").await? else {
         fail!("There is no active bet");
     };
     if bet.closed {
         fail!("Bet is closed");
     }
 
-    let (_option, refund, betters) = ctx.bets().remove_bet("current", ctx.sender()).await?;
-    if refund > 0 {
-        ctx.charges()
-            .add(ctx.sender(), Charges::from(refund))
-            .await?;
-    }
+    let (wager, total) = ctx.bets().remove_bet("current", ctx.sender()).await?;
+
+    ctx.reply(match wager {
+        Some(wager) if wager.amount != 0 => {
+            // refund
+            ctx.charges().add(ctx.sender(), wager.amount.into()).await?;
+
+            format!(
+                "removed your '{}' bet (refunded {})",
+                wager.option,
+                Charges::from(wager.amount)
+            )
+        }
+        Some(wager) => format!("removed your '{}' bet", wager.option),
+        None => "you did not bet".into(),
+    })
+    .await?;
 
     ctx.status()
-        .set_and_bump(
-            bet.status_key,
-            html! {
-                span style="color:orange" { "BET OPEN (" (betters) " betters):" }
-                br
-                span { (bet.premise) }
-            }
-            .into(),
-        )
+        .set_and_bump(bet.status_key, render_status(total, &bet.premise).into())
         .await;
+
+    Ok(())
+}
+
+/// Cancel the current bet, refunding all wagers.
+#[command(permission = Caster)]
+async fn cancel_bet(ctx: CommandContext) -> CommandResult {
+    let storage = ctx.storage();
+
+    let Some(bet) = storage.load::<BetSetup>("bet:current").await? else {
+        fail!("There is no active bet");
+    };
+
+    for (user_id, bet) in ctx.bets().finalize("current").await? {
+        if bet.amount != 0 {
+            ctx.charges().add(&user_id, bet.amount.into()).await?;
+        }
+    }
+
+    storage.del("bet:current").await?;
+
+    ctx.send("[!!!] Bet cancelled".into()).await?;
+
+    ctx.status().remove(bet.status_key).await;
 
     Ok(())
 }
@@ -192,10 +274,9 @@ async fn rollback(ctx: CommandContext) -> CommandResult {
         fail!("No bet to rollback");
     };
 
-    for (user_id, amount) in &wins {
-        ctx.charges()
-            .consume(user_id, Charges::from(*amount))
-            .await?;
+    let charges = ctx.charges();
+    for (user_id, amount) in wins {
+        charges.subtract(&user_id, amount.into()).await?;
     }
 
     storage.save("bet:current", &bet).await?;
@@ -208,8 +289,8 @@ async fn rollback(ctx: CommandContext) -> CommandResult {
 
 #[derive(Serialize, Deserialize, Debug)]
 struct LastBet {
-    bet: Bet,
-    wins: Vec<(String, i64)>,
+    bet: BetSetup,
+    wins: Vec<(String, u64)>,
 }
 
 /// Settle the current bet, paying out the users who bet on the given option.
@@ -217,7 +298,7 @@ struct LastBet {
 async fn settle(ctx: CommandContext, option: String) -> CommandResult {
     let storage = ctx.storage();
 
-    let Some(bet) = storage.load::<Bet>("bet:current").await? else {
+    let Some(bet) = storage.load::<BetSetup>("bet:current").await? else {
         fail!("There is no active bet");
     };
     if !bet.options.iter().any(|o| o.eq_ignore_ascii_case(&option)) {
@@ -227,27 +308,52 @@ async fn settle(ctx: CommandContext, option: String) -> CommandResult {
         );
     }
 
-    let bet_result = ctx.bets().settle("current", &option).await?;
+    let bets = ctx.bets().finalize("current").await?;
 
-    let charges = ctx.charges();
-    let mut wins = vec![];
-    for Win { user_id, amount } in &bet_result.winners {
-        let amount = *amount.max(&1000);
-        charges.add(user_id, Charges::from(amount)).await?;
-        wins.push((user_id.clone(), amount));
+    let mut wins = Vec::new();
+
+    let mut total_pool = 0;
+    let mut winner_pool = 0;
+    let mut losers = 0;
+    for (user_id, bet) in bets {
+        total_pool += bet.amount;
+        if bet.option.eq_ignore_ascii_case(&option) {
+            winner_pool += bet.amount;
+            wins.push((user_id, bet.amount));
+        } else {
+            losers += 1;
+        }
     }
 
-    ctx.status().remove(bet.status_key).await;
+    // huh
+    if winner_pool != 0 {
+        for win in &mut wins {
+            win.1 = (win.1 * total_pool / winner_pool).max(1000);
+        }
+    } else {
+        for win in &mut wins {
+            win.1 = 1000;
+        }
+    }
+
+    let last_bet = LastBet { bet, wins };
+
+    let charges = ctx.charges();
+    for (user_id, amount) in &last_bet.wins {
+        charges.add(user_id, (*amount).into()).await?;
+    }
+
+    ctx.status().remove(last_bet.bet.status_key).await;
 
     // for rollbacks
-    storage.save("last-bet", &LastBet { bet, wins }).await?;
+    storage.save("last-bet", &last_bet).await?;
     storage.del("bet:current").await?;
 
     ctx.send(format!(
         "[!!!] Bet settled! ↑{}/{}↓ (total pool {})",
-        bet_result.winners.len(),
-        bet_result.losers,
-        Charges::from(bet_result.total_pool),
+        last_bet.wins.len(),
+        losers,
+        Charges::from(total_pool),
     ))
     .await?;
 

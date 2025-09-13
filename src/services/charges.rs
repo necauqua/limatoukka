@@ -29,6 +29,12 @@ impl Charges {
     }
 }
 
+impl From<u64> for Charges {
+    fn from(value: u64) -> Self {
+        Self(value as _)
+    }
+}
+
 impl From<i64> for Charges {
     fn from(value: i64) -> Self {
         Self(value)
@@ -97,9 +103,15 @@ impl CommandArg for Charges {
 #[async_trait]
 pub trait ChargesService: Send + Sync {
     async fn get(&self, user_id: &str) -> Result<Charges>;
+
     async fn set(&self, user_id: &str, amount: Charges) -> Result<()>;
+
     async fn add(&self, user_id: &str, amount: Charges) -> Result<Charges>;
+
+    async fn subtract(&self, user_id: &str, amount: Charges) -> Result<Charges>;
+
     async fn consume(&self, user_id: &str, amount: Charges) -> Result<bool>;
+
     async fn transfer(&self, from_user_id: &str, to_user_id: &str, amount: Charges)
     -> Result<bool>;
 }
@@ -140,6 +152,14 @@ impl ChargesService for ChargesServiceRedis {
         Ok(self
             .client
             .incrby(key(user_id), amount.as_i64())
+            .await?
+            .into())
+    }
+
+    async fn subtract(&self, user_id: &str, amount: Charges) -> Result<Charges> {
+        Ok(self
+            .client
+            .decrby(key(user_id), amount.as_i64())
             .await?
             .into())
     }

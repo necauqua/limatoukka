@@ -8,30 +8,21 @@ use serde::{Deserialize, Serialize};
 
 use crate::injector_getter;
 
-pub struct Win {
-    pub user_id: String,
-    pub amount: i64,
-}
-
-pub struct BetResult {
-    pub winners: Vec<Win>,
-    pub total_pool: i64,
-    pub losers: usize,
+#[derive(Serialize, Deserialize)]
+pub struct Bet {
+    pub option: String,
+    pub amount: u64,
 }
 
 #[async_trait]
 pub trait BetsService: Send + Sync {
-    async fn place_bet(
-        &self,
-        bet_id: &str,
-        user_id: &str,
-        option: &str,
-        amount: i64,
-    ) -> Result<usize>;
+    async fn place_bet(&self, bet_id: &str, user_id: &str, bet: &Bet) -> Result<u64>;
 
-    async fn remove_bet(&self, bet_id: &str, user_id: &str) -> Result<(String, i64, usize)>;
+    async fn remove_bet(&self, bet_id: &str, user_id: &str) -> Result<(Option<Bet>, u64)>;
 
-    async fn settle(&self, bet_id: &str, winning_option: &str) -> Result<BetResult>;
+    async fn bet_count(&self, bet_id: &str) -> Result<Option<u64>>;
+
+    async fn finalize(&self, bet_id: &str) -> Result<Vec<(String, Bet)>>;
 }
 
 injector_getter!(BetsService::bets);
@@ -46,87 +37,61 @@ impl BetsServiceRedis {
     }
 }
 
-#[derive(Serialize, Deserialize)]
-struct SingleBet {
-    option: String,
-    amount: i64,
-}
-
 #[async_trait]
 impl BetsService for BetsServiceRedis {
-    async fn place_bet(
-        &self,
-        bet_id: &str,
-        user_id: &str,
-        option: &str,
-        amount: i64,
-    ) -> Result<usize> {
+    async fn place_bet(&self, bet_id: &str, user_id: &str, bet: &Bet) -> Result<u64> {
         let key = format!("bet:{bet_id}");
 
-        let bet = serde_json::to_string(&SingleBet {
-            option: option.into(),
-            amount,
-        })?;
-
         let mut t = self.client.create_transaction();
-        t.hset(&key, (user_id, bet)).forget();
+        t.hset(&key, (user_id, serde_json::to_string(bet)?))
+            .forget();
         t.hlen(key).queue();
 
         Ok(t.execute().await?)
     }
 
-    async fn remove_bet(&self, bet_id: &str, user_id: &str) -> Result<(String, i64, usize)> {
+    async fn remove_bet(&self, bet_id: &str, user_id: &str) -> Result<(Option<Bet>, u64)> {
         let key = format!("bet:{bet_id}");
 
         let mut t = self.client.create_transaction();
-        t.hget::<_, _, String>(&key, user_id).queue();
+        t.hget::<_, _, Option<String>>(&key, user_id).queue();
         t.hdel(&key, user_id).forget();
         t.hlen(key).queue();
 
-        let (bet, len): (String, usize) = t.execute().await?;
-
-        let bet: SingleBet = serde_json::from_str(&bet)?;
-        Ok((bet.option, bet.amount, len))
+        let (bet, len): (Option<String>, _) = t.execute().await?;
+        let bet: Option<Bet> = bet.map(|b| serde_json::from_str(&b)).transpose()?;
+        Ok((bet, len))
     }
 
-    async fn settle(&self, bet_id: &str, winning_option: &str) -> Result<BetResult> {
+    async fn bet_count(&self, bet_id: &str) -> Result<Option<u64>> {
+        let key = format!("bet:{bet_id}");
+
+        let mut t = self.client.create_transaction();
+        t.exists(&key).queue();
+        t.hlen(key).queue();
+
+        let (exists, len): (u64, _) = t.execute().await?;
+        match exists {
+            0 => Ok(None),
+            _ => Ok(Some(len)),
+        }
+    }
+
+    async fn finalize(&self, bet_id: &str) -> Result<Vec<(String, Bet)>> {
         let key = format!("bet:{bet_id}");
 
         let mut t = self.client.create_transaction();
         t.hgetall::<_, _, _, Vec<(String, String)>>(&key).queue();
         t.del(&key).forget();
-
         let bets: Vec<(String, String)> = t.execute().await?;
 
-        let mut winners = Vec::new();
-        let mut total_pool = 0;
-        let mut winner_pool = 0;
-        let mut losers = 0;
-        for (user_id, bet_json) in bets {
-            let bet: SingleBet = serde_json::from_str(&bet_json)?;
-            total_pool += bet.amount;
-            if bet.option.eq_ignore_ascii_case(winning_option) {
-                winner_pool += bet.amount;
-                winners.push(Win {
-                    user_id,
-                    amount: bet.amount,
-                });
-            } else {
-                losers += 1;
-            }
-        }
+        let bets = bets
+            .into_iter()
+            .try_fold(Vec::new(), |mut acc, (user_id, bet_json)| {
+                acc.push((user_id, serde_json::from_str(&bet_json)?));
+                anyhow::Ok(acc)
+            })?;
 
-        // huh
-        if winner_pool != 0 {
-            for win in &mut winners {
-                win.amount = (win.amount * total_pool) / winner_pool;
-            }
-        }
-
-        Ok(BetResult {
-            winners,
-            total_pool,
-            losers,
-        })
+        Ok(bets)
     }
 }
