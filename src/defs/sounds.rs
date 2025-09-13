@@ -131,6 +131,10 @@ fn get_youtube_id(raw: &str) -> Result<String, CommandError> {
 /// Note that the song will be added to the front of the queue - this is
 /// because usually the queue is full of songs from my stream playlist and the
 /// point of the command is to show me a song you think I wont insta-skip :)
+///
+/// The `extra` parameter is used to allow specifying full URLs without quotes.
+/// For example, `sr:https://youtu.be/dQw4w9WgXcQ` <- here the first argument
+/// is actually `"https"` and the `extra` is `"//youtu.be/dQw4w9WgXcQ"`.
 #[command(sender_gate = 1m, shortcode=sr)]
 async fn song_request(
     ctx: CommandContext,
