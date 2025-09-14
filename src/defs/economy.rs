@@ -9,6 +9,9 @@ use crate::{
     services::{
         charges::{Charges, ChargesServiceExt},
         gates::GateServiceExt,
+        sounds::SoundServiceExt,
+        storage::StorageServiceExt,
+        twitch::TwitchServiceExt,
     },
 };
 
@@ -75,5 +78,74 @@ async fn award(ctx: CommandContext, target: Chatter, amount: Charges) -> Command
     ctx.reply(format!("Awarded {amount} to {}", target.login))
         .await?;
 
+    Ok(())
+}
+
+/// Respond with "pong!".
+///
+/// I heard that scarcity creates value, so getting a pong is very _cool_ and
+/// _pog_, because only one person can get it in an hour.
+///
+/// Ping fails if you were the last person to do it!
+///
+/// There is also some magical property to this command..
+#[command(global_gate = 1h, cost = -1)]
+async fn ping(ctx: CommandContext) -> CommandResult {
+    if !ctx.twitch().is_live().await? {
+        fail!("stream is offline lmao")
+    }
+
+    let storage = ctx.storage();
+    let pinger = &ctx.message().sender;
+
+    let prev: Option<(String, String)> = storage.load("last-pinger").await?;
+    if let Some((prev_id, _)) = prev
+        && prev_id == pinger.id
+    {
+        fail!(
+            "You were the last person to ping~! Wait for someone else to ping~ before you can ping~ again."
+        );
+    }
+
+    storage
+        .save("last-pinger", &(&pinger.id, &pinger.login))
+        .await?;
+
+    // Xeanthorn
+    if ctx.sender() == "132627333" {
+        ctx.reply("ICMP Echo Reply".into()).await?;
+    } else if rand::random_ratio(1, 100) {
+        ctx.charges().add(ctx.sender(), Charges::ONE).await?;
+        ctx.reply("ICMP Echo Reply".into()).await?;
+    } else {
+        ctx.reply("pong!".into()).await?;
+    }
+
+    ctx.sounds().play_builtin("PING").await?;
+
+    Ok(())
+}
+
+/// Get the name of the last person who got the `ping~` command during the
+/// current stream.
+#[command(sender_gate = 15s)]
+async fn last_pinger(ctx: CommandContext) -> CommandResult {
+    let pinger: Option<(String, String)> = ctx.storage().load("last-pinger").await?;
+
+    match pinger {
+        Some((_, pinger)) => ctx.reply(format!("Last ping~ was by {pinger}")).await?,
+        None => ctx.reply("No one has pinged yet".into()).await?,
+    }
+
+    Ok(())
+}
+
+/// Say hi to the stream!
+#[command(sender_gate = 12h, cost = -0.2)]
+async fn hello(ctx: CommandContext) -> CommandResult {
+    if !ctx.twitch().is_live().await? {
+        fail!("stream is offline lmao")
+    }
+    ctx.reply("hiii".into()).await?;
     Ok(())
 }

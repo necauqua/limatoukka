@@ -276,7 +276,7 @@ async fn rollback(ctx: CommandContext) -> CommandResult {
 
     let charges = ctx.charges();
     for (user_id, amount) in wins {
-        charges.subtract(&user_id, amount.into()).await?;
+        charges.add(&user_id, -Charges::from(amount)).await?;
     }
 
     storage.save("bet:current", &bet).await?;

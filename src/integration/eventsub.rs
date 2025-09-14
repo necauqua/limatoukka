@@ -323,21 +323,6 @@ mod tests {
     async fn do_bootstrap_rewards() -> Result<()> {
         let twitch = TwitchApi::new(&Config::load()?).await?;
 
-        let created_hello = twitch
-            .create_reward(
-                CreateCustomRewardBody::builder()
-                    .title("hello there")
-                    .prompt(Some("hiii".into()))
-                    .cost(1)
-                    .background_color(Some("#3F3F3F".into()))
-                    .is_max_per_user_per_stream_enabled(true)
-                    .max_per_user_per_stream(1)
-                    .build(),
-            )
-            .await?;
-
-        dbg!(created_hello);
-
         let buy1 = twitch
             .create_reward(
                 CreateCustomRewardBody::builder()

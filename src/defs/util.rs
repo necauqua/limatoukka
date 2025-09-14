@@ -7,54 +7,15 @@ use crate::{
         command,
     },
     context::{app::InterruptKind, cmd::CommandContext},
-    fail,
     integration::justfile::just,
     services::{
-        messaging::PermissionLevel, sounds::SoundServiceExt, status_wall::StatusServiceExt,
-        storage::StorageServiceExt, twitch::TwitchServiceExt,
+        messaging::PermissionLevel, status_wall::StatusServiceExt, storage::StorageServiceExt,
     },
 };
 use humantime_serde::re::humantime;
 use maud::html;
 use rustis::{client::BatchPreparedCommand, commands::HashCommands};
 use tokio::time::sleep;
-
-/// Respond with "pong!".
-///
-/// I heard that scarcity creates value, so getting a pong is very _cool_ and
-/// _pog_, because only one person can get it in an hour.
-///
-/// There is also some magical property to this command..
-#[command(global_gate = 1h, cost = -1)]
-async fn ping(ctx: CommandContext) -> CommandResult {
-    if !ctx.twitch().is_live().await? {
-        fail!("stream is offline lmao")
-    }
-
-    ctx.storage()
-        .set("last-pinger", &ctx.message().sender.name)
-        .await?;
-
-    ctx.reply("pong!".into()).await?;
-
-    ctx.sounds().play_builtin("PING").await?;
-
-    Ok(())
-}
-
-/// Get the name of the last person who got the `ping~` command during the
-/// current stream.
-#[command(sender_gate = 15s)]
-async fn last_pinger(ctx: CommandContext) -> CommandResult {
-    let pinger = ctx.storage().get("last-pinger").await?;
-
-    match pinger {
-        Some(pinger) => ctx.reply(format!("Last ping~ was by {pinger}")).await?,
-        None => ctx.reply("No one has pinged yet".into()).await?,
-    }
-
-    Ok(())
-}
 
 /// A building block for basic static text commands.
 ///

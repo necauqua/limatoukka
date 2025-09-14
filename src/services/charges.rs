@@ -1,4 +1,4 @@
-use std::{borrow::Cow, fmt::Display, str::FromStr};
+use std::{borrow::Cow, fmt::Display, ops::Neg, str::FromStr};
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -18,14 +18,22 @@ use crate::{
 pub struct Charges(i64);
 
 impl Charges {
-    pub const ONE: Self = Self(1000);
+    pub const ONE: Self = Self::whole(1);
 
-    pub fn new(whole: u32, fraction: u32) -> Self {
-        Self(whole as i64 * 1000 + fraction as i64)
+    pub const fn whole(whole: i64) -> Self {
+        Self(whole * 1000)
     }
 
-    pub fn as_i64(&self) -> i64 {
+    pub const fn as_i64(&self) -> i64 {
         self.0
+    }
+}
+
+impl Neg for Charges {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        Self(-self.0)
     }
 }
 
@@ -41,26 +49,37 @@ impl From<i64> for Charges {
     }
 }
 
+// bare numbers default to i32 in Rust apparently
+impl From<i32> for Charges {
+    fn from(value: i32) -> Self {
+        Self(value as _)
+    }
+}
+
 impl Display for Charges {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let whole = self.0 / 1000;
+        let sig = match self.0.cmp(&0) {
+            std::cmp::Ordering::Less => "-",
+            _ => "",
+        };
+        let whole = (self.0 / 1000).abs();
         let fraction = (self.0 % 1000).abs();
         if fraction == 0 {
-            write!(f, "{whole}⚡︎")
+            write!(f, "{sig}{whole}⚡︎")
         } else if fraction < 10 {
-            write!(f, "{whole}.00{fraction}⚡︎")
+            write!(f, "{sig}{whole}.00{fraction}⚡︎")
         } else if fraction < 100 {
             if fraction % 10 == 0 {
-                write!(f, "{whole}.{}⚡︎", fraction / 10)
+                write!(f, "{sig}{whole}.0{}⚡︎", fraction / 10)
             } else {
-                write!(f, "{whole}.{fraction}⚡︎")
+                write!(f, "{sig}{whole}.0{fraction}⚡︎")
             }
         } else if fraction % 100 == 0 {
-            write!(f, "{whole}.{}⚡︎", fraction / 100)
+            write!(f, "{sig}{whole}.{}⚡︎", fraction / 100)
         } else if fraction % 10 == 0 {
-            write!(f, "{whole}.{}⚡︎", fraction / 10)
+            write!(f, "{sig}{whole}.{}⚡︎", fraction / 10)
         } else {
-            write!(f, "{whole}.{fraction}⚡︎")
+            write!(f, "{sig}{whole}.{fraction}⚡︎")
         }
     }
 }
@@ -108,8 +127,6 @@ pub trait ChargesService: Send + Sync {
 
     async fn add(&self, user_id: &str, amount: Charges) -> Result<Charges>;
 
-    async fn subtract(&self, user_id: &str, amount: Charges) -> Result<Charges>;
-
     async fn consume(&self, user_id: &str, amount: Charges) -> Result<bool>;
 
     async fn transfer(&self, from_user_id: &str, to_user_id: &str, amount: Charges)
@@ -152,14 +169,6 @@ impl ChargesService for ChargesServiceRedis {
         Ok(self
             .client
             .incrby(key(user_id), amount.as_i64())
-            .await?
-            .into())
-    }
-
-    async fn subtract(&self, user_id: &str, amount: Charges) -> Result<Charges> {
-        Ok(self
-            .client
-            .decrby(key(user_id), amount.as_i64())
             .await?
             .into())
     }
@@ -220,5 +229,48 @@ impl ChargesService for ChargesServiceRedis {
                     .args(amount.as_i64()),
             )
             .await?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn charges_display() {
+        assert_eq!(Charges::from(0).to_string(), "0⚡︎");
+        assert_eq!(Charges::from(1).to_string(), "0.001⚡︎");
+        assert_eq!(Charges::from(10).to_string(), "0.01⚡︎");
+        assert_eq!(Charges::from(100).to_string(), "0.1⚡︎");
+        assert_eq!(Charges::from(1000).to_string(), "1⚡︎");
+        assert_eq!(Charges::from(1234).to_string(), "1.234⚡︎");
+        assert_eq!(Charges::from(1200).to_string(), "1.2⚡︎");
+        assert_eq!(Charges::from(1230).to_string(), "1.23⚡︎");
+
+        assert_eq!(Charges::from(-1).to_string(), "-0.001⚡︎");
+        assert_eq!(Charges::from(-10).to_string(), "-0.01⚡︎");
+        assert_eq!(Charges::from(-100).to_string(), "-0.1⚡︎");
+        assert_eq!(Charges::from(-1000).to_string(), "-1⚡︎");
+        assert_eq!(Charges::from(-1234).to_string(), "-1.234⚡︎");
+        assert_eq!(Charges::from(-1200).to_string(), "-1.2⚡︎");
+        assert_eq!(Charges::from(-1230).to_string(), "-1.23⚡︎");
+
+        assert_eq!(Charges::from(10000).to_string(), "10⚡︎");
+        assert_eq!(Charges::from(-10000).to_string(), "-10⚡︎");
+
+        assert_eq!(Charges::from(i64::MAX).to_string(), "9223372036854775.807⚡︎");
+        assert_eq!(
+            Charges::from(i64::MIN).to_string(),
+            "-9223372036854775.808⚡︎"
+        );
+
+        assert_eq!(
+            Charges::from(i64::MAX / 1000 * 1000).to_string(),
+            "9223372036854775⚡︎"
+        );
+        assert_eq!(
+            Charges::from(-i64::MAX / 1000 * 1000).to_string(),
+            "-9223372036854775⚡︎"
+        );
     }
 }

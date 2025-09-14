@@ -284,12 +284,13 @@ fn parse_charges(input: &syn::Expr) -> proc_macro2::TokenStream {
     let input = input.to_token_stream().to_string().replace(' ', "");
     let mut parts = input.splitn(2, '.');
     let whole = parts.next().unwrap();
+    let (neg, whole) = match whole.strip_prefix("-") {
+        Some(whole) => (true, whole),
+        None => (false, whole),
+    };
     let fraction = parts.next().unwrap_or("0");
-    let whole: i64 = match whole.parse() {
-        Ok(n) => n,
-        _ => {
-            return quote_spanned!(input.span() => compile_error!("cost must be a number"));
-        }
+    let Ok(whole) = whole.parse::<i64>() else {
+        return quote_spanned!(input.span() => compile_error!("cost must be a number"));
     };
     let fraction: i64 = match (fraction.len(), fraction.parse()) {
         (1, Ok(n)) => n * 100,
@@ -302,6 +303,6 @@ fn parse_charges(input: &syn::Expr) -> proc_macro2::TokenStream {
             return quote_spanned!(input.span() => compile_error!("cost can have at most 3 decimal places"));
         }
     };
-    let total = whole * 1000 + fraction;
+    let total = if neg { -1 } else { 1 } * (whole * 1000 + fraction);
     quote!(#total)
 }

@@ -272,25 +272,25 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
                 }
                 "Buy 5 charges" => {
                     ctx.charges()
-                        .add(data.user_id.as_str(), Charges::new(5, 0))
+                        .add(data.user_id.as_str(), Charges::whole(5))
                         .await?;
                     true
                 }
                 "Buy 10 charges" => {
                     ctx.charges()
-                        .add(data.user_id.as_str(), Charges::new(10, 0))
+                        .add(data.user_id.as_str(), Charges::whole(10))
                         .await?;
                     true
                 }
                 "Buy 50 charges" => {
                     ctx.charges()
-                        .add(data.user_id.as_str(), Charges::new(50, 0))
+                        .add(data.user_id.as_str(), Charges::whole(50))
                         .await?;
                     true
                 }
                 "Buy 100 charges" => {
                     ctx.charges()
-                        .add(data.user_id.as_str(), Charges::new(100, 0))
+                        .add(data.user_id.as_str(), Charges::whole(100))
                         .await?;
                     true
                 }
