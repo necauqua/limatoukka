@@ -1,6 +1,5 @@
 use std::{
     any::Any,
-    collections::HashMap,
     fmt::{self, Display},
     sync::Arc,
     time::Duration,
@@ -11,14 +10,16 @@ use humantime_serde::re::humantime;
 use maud::html;
 use neca_cmd::{Command, Statement, Token, param::Param};
 use opentelemetry::trace::Status;
-use rustis::{client::BatchPreparedCommand, commands::HashCommands};
 use thiserror::Error;
 use tokio::task::JoinSet;
 use tracing::{Instrument, Span, debug_span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::{
-    commands::CommandTag,
+    commands::{
+        CommandTag,
+        backend::{MacroResolution, RunnerBackend},
+    },
     context::{app::AppContext, eval::EvalContext, msg::MessageContext},
     services::{
         charges::{Charges, ChargesServiceExt},
@@ -41,20 +42,20 @@ macro_rules! fail {
     };
 }
 
-struct Inner {
-    commands: HashMap<String, Arc<NativeCommand>>,
-}
-
 #[derive(Clone)]
 pub struct Runner {
-    inner: Arc<Inner>,
+    backend: Arc<dyn RunnerBackend>,
 }
 
 impl Runner {
-    pub fn new(commands: HashMap<String, Arc<NativeCommand>>) -> Self {
+    pub fn new(backend: impl RunnerBackend + 'static) -> Self {
         Self {
-            inner: Arc::new(Inner { commands }),
+            backend: Arc::new(backend),
         }
+    }
+
+    pub fn backend(&self) -> &dyn RunnerBackend {
+        &*self.backend
     }
 }
 
@@ -133,15 +134,17 @@ impl Runner {
         let mut errors = vec![];
         let mut groups = vec![];
 
-        for (seq, group) in stmt.parallel.iter().enumerate() {
+        for (seq, group) in stmt.parallel.into_iter().enumerate() {
             let mut prepared = vec![];
-            for (idx, cmd_expr) in group.iter().enumerate() {
-                match self
-                    .prepare_command(&ctx, cmd_expr.clone(), Location::new(seq, idx))
-                    .await
-                {
+            for (idx, mut cmd_expr) in group.into_iter().enumerate() {
+                let loc = Location::new(seq, idx);
+                match self.prepare_command(&ctx, &mut cmd_expr, loc.clone()).await {
                     Ok(p) => prepared.push(p),
-                    Err(e) => errors.push(e),
+                    Err(error) => errors.push(ContextualCommandError {
+                        error,
+                        token: cmd_expr.token,
+                        loc,
+                    }),
                 }
             }
             groups.push(prepared);
@@ -179,69 +182,60 @@ impl Runner {
     async fn prepare_command(
         &self,
         ctx: &EvalContext,
-        mut command: Command,
-        pos: Location,
-    ) -> Result<(CommandContext, CommandFuture), ContextualCommandError> {
+        command: &mut Command,
+        loc: Location,
+    ) -> Result<(CommandContext, CommandFuture), CommandError> {
         let mut token = command.token.clone();
         token.name.make_ascii_lowercase();
 
-        let found = match self.lookup(ctx, &token.name, &mut command).await {
+        let owner = &ctx.shared.owner.id;
+
+        let found = match self.lookup(owner, &token.name, command).await? {
             Some(r) => Some(r),
             None => match token.split_inline_number() {
                 Some((name, n)) => {
                     command.params.push_front(Param::simple(n.to_owned()));
-                    self.lookup(ctx, name, &mut command).await
+                    self.lookup(owner, name, command).await?
                 }
                 None => None,
             },
         };
         let Some(meta) = found else {
-            return Err(ContextualCommandError::new(
-                CommandError::NotFound,
-                command.token,
-                pos,
-            ));
+            return Err(CommandError::NotFound);
         };
 
-        let cmd_ctx = CommandContext::new(ctx.clone(), meta.clone(), token, pos.clone());
+        let cmd_ctx = CommandContext::new(ctx.clone(), meta.clone(), token, loc.clone());
 
-        let fut = (meta.action)(cmd_ctx.clone(), Args::new(command.params));
+        let fut = (meta.action)(
+            cmd_ctx.clone(),
+            Args::new(std::mem::take(&mut command.params)),
+        );
         Ok((cmd_ctx, fut))
-    }
-
-    pub fn get_command_meta(&self, name: &str) -> Option<&NativeCommand> {
-        self.inner.commands.get(name).map(|meta| meta.as_ref())
     }
 
     async fn lookup(
         &self,
-        ctx: &EvalContext,
+        owner: &str,
         name: &str,
         expr: &mut Command,
-    ) -> Option<Arc<NativeCommand>> {
-        if let Some(reg) = self.inner.commands.get(name).cloned() {
-            return Some(reg);
+    ) -> Result<Option<Arc<NativeCommand>>> {
+        if let Some(meta) = self.backend.get_native_command(name).await? {
+            return Ok(Some(meta.clone()));
         }
 
-        let res = {
-            let storage = ctx.storage_old();
-            let mut p = storage.create_pipeline();
-            p.hexists(format!("macros:{}", ctx.shared.owner), name)
-                .queue();
-            p.hexists("macros:global", name).queue();
-            p.execute().await
-        };
-
-        if let Ok((personal, global)) = res
-            && (personal || global)
-            && let Some(meta) = self.inner.commands.get("macro").cloned()
-        {
-            // empty string for current username, to allow macro params to immediately follow
-            expr.params.push_front(Param::default());
-            expr.params.push_front(Param::simple(name.to_owned()));
-            return Some(meta);
-        }
-        None
+        Ok(match self.backend.resolve_macro(owner, name).await? {
+            MacroResolution::None => None,
+            _ => {
+                if let Some(meta) = self.backend.get_native_command("macro").await? {
+                    // empty string for current username, to allow macro params to immediately follow
+                    expr.params.push_front(Param::default());
+                    expr.params.push_front(Param::simple(name.to_owned()));
+                    Some(meta)
+                } else {
+                    None
+                }
+            }
+        })
     }
 
     async fn run_command_sequence(
@@ -459,17 +453,21 @@ impl Display for Location {
 pub struct ContextualCommandError {
     pub error: CommandError,
     pub token: Token,
-    pub pos: Location,
+    pub loc: Location,
 }
 
 impl ContextualCommandError {
     pub fn new(error: CommandError, token: Token, pos: Location) -> Self {
-        Self { error, token, pos }
+        Self {
+            error,
+            token,
+            loc: pos,
+        }
     }
 }
 
 impl Display for ContextualCommandError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}({}): {}", self.token, self.pos, self.error)
+        write!(f, "{}({}): {}", self.token, self.loc, self.error)
     }
 }

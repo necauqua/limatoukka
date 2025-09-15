@@ -15,7 +15,6 @@ use crate::services::{
     gates::GateServiceExt,
     ipc::IpcServiceExt,
     messaging::{MessagingService, MessagingServiceMock},
-    storage_old::Storage,
 };
 
 #[derive(Default)]
@@ -206,10 +205,5 @@ impl AppContext {
 
     pub fn messaging(&self) -> &dyn MessagingService {
         &*self.messaging
-    }
-
-    #[track_caller]
-    pub fn storage_old(&self) -> Arc<Storage> {
-        self.service::<Storage>()
     }
 }

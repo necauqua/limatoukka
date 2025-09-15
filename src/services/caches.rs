@@ -1,7 +1,8 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
+use dashmap::DashMap;
 use rustis::{
     client::Client as ValkeyClient,
     commands::{SetCondition, SetExpiration, StringCommands},
@@ -46,6 +47,36 @@ impl dyn CacheService {
         .await?;
 
         Ok(value)
+    }
+}
+
+#[derive(Default)]
+pub struct CacheServiceInMemory {
+    memory: DashMap<String, (String, Instant)>,
+}
+
+#[async_trait]
+impl CacheService for CacheServiceInMemory {
+    async fn set(&self, cache: &str, ttl: Duration, key: &str, value: &str) -> Result<bool> {
+        let full_key = format!("{cache}:{key}");
+        let now = Instant::now();
+        if self.get(cache, key).await?.is_some() {
+            return Ok(false);
+        }
+        self.memory.insert(full_key, (value.to_string(), now + ttl));
+        Ok(true)
+    }
+
+    async fn get(&self, cache: &str, key: &str) -> Result<Option<String>> {
+        let full_key = format!("{cache}:{key}");
+        let Some(entry) = self.memory.get(&full_key) else {
+            return Ok(None);
+        };
+        if Instant::now() < entry.1 {
+            return Ok(Some(entry.0.clone()));
+        }
+        self.memory.remove(&full_key);
+        Ok(None)
     }
 }
 

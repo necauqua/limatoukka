@@ -251,7 +251,7 @@ mod tests {
     };
 
     use crate::{
-        commands::{discover_declared_commands, runner::Runner},
+        commands::{backend::RunnerBackendStatic, discover_declared_commands, runner::Runner},
         context::app::AppContext,
         services::{
             Injector,
@@ -325,7 +325,7 @@ mod tests {
                 .with::<dyn StatusService>(Arc::new(TestStatusWall::default())),
         );
 
-        let runner = Runner::new(discover_declared_commands());
+        let runner = Runner::new(RunnerBackendStatic::new(discover_declared_commands()));
 
         runner
             .process_message(

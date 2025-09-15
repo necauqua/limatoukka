@@ -6,7 +6,9 @@ use opentelemetry::trace::Status;
 use rustis::client::Client as ValkeyClient;
 use tokio::{task::JoinSet, time::sleep};
 use tpn_bot::{
-    commands::{CommandTag, discover_declared_commands, runner::Runner},
+    commands::{
+        CommandTag, backend::RunnerBackendRedis, discover_declared_commands, runner::Runner,
+    },
     config::Config,
     context::app::{AppContext, InterruptKind},
     integration::{eventsub::EventSub, twitch_api::TwitchApi},
@@ -25,7 +27,6 @@ use tpn_bot::{
         sounds::{SoundService, SoundServiceExt, SoundServiceImpl},
         status_wall::{StatusService, StatusWall},
         storage::{StorageService, StorageServiceExt, StorageServiceRedis},
-        storage_old::Storage,
         tts::{TtsService, TtsServiceExt, TtsServiceImpl},
         twitch::{TwitchService, TwitchServiceExt, TwitchServiceImpl},
     },
@@ -75,9 +76,7 @@ async fn run(config: Config) -> Result<()> {
         .with::<dyn StatusService>(status_wall.clone())
         .with::<dyn BetsService>(Arc::new(BetsServiceRedis::new(valkey.clone())))
         // todo make it into a dyn service ofc
-        .with(Arc::new(NoitaHandle::default()))
-        // todo most of storage usage should be replaced with separate services
-        .with(Arc::new(Storage::new(valkey.clone())));
+        .with(Arc::new(NoitaHandle::default()));
 
     let ctx = AppContext::new(services)
         .with_caster_id(twitch_api.caster_id().to_owned())
@@ -88,7 +87,10 @@ async fn run(config: Config) -> Result<()> {
     // todo make this less cringe
     commands.retain(|_, v| !v.is(CommandTag::NoitaControl));
 
-    let runner = Runner::new(commands);
+    let runner = Runner::new(RunnerBackendRedis::new(
+        valkey.clone(),
+        discover_declared_commands(),
+    ));
 
     tokio::spawn(eventsub.run(ctx.clone()));
     tokio::spawn(status_wall.start(&config.browser_source_bind));

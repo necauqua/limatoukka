@@ -1,7 +1,6 @@
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use humantime_serde::re::humantime;
-use rustis::commands::{GenericCommands, StringCommands};
 
 use crate::{
     commands::{
@@ -9,37 +8,12 @@ use crate::{
         args::{Chatter, Required},
         command,
     },
-    context::{app::AppContext, cmd::CommandContext},
-    fail,
-    services::twitch::TwitchServiceExt,
+    context::cmd::CommandContext,
+    services::{
+        banishes::{BanishServiceExt, BanishStatus},
+        twitch::TwitchServiceExt,
+    },
 };
-
-pub async fn do_banish(
-    ctx: &AppContext,
-    chatter: &Required<Chatter>,
-    duration: Option<Duration>,
-) -> CommandResult {
-    if let Some(duration) = duration {
-        ctx.storage_old()
-            .psetex(
-                format!("kick:begone:{chatter}"),
-                duration.as_millis() as _,
-                1,
-            )
-            .await?;
-    } else {
-        ctx.storage_old()
-            .set(format!("kick:begone:{chatter}"), 1)
-            .await?;
-    }
-    tracing::info!(
-        id = chatter.id,
-        login = chatter.login,
-        ?duration,
-        "sent to shadow realm"
-    );
-    Ok(())
-}
 
 /// Instantly banish a user to the shadow realm.
 ///
@@ -51,22 +25,20 @@ async fn banish(
     duration: Option<Duration>,
 ) -> CommandResult {
     if ctx.caster_id() == Some(&*chatter.id) {
-        ctx.reply("🤨".into()).await?;
-        return Ok(());
+        ctx.fail("🤨").await?;
     }
     if ctx.bot_id() == Some(&*chatter.id) {
-        fail!("lol. lmao.")
+        ctx.fail("lol. lmao.").await?;
     }
-    if ctx
-        .storage_old()
-        .exists(format!("kick:begone:{chatter}"))
-        .await?
-        != 0
-    {
-        ctx.reply("already banished".into()).await?;
-        return Ok(());
+    if !ctx.banishes().banish(&chatter.id, duration).await? {
+        ctx.fail("already banished").await?;
     }
-    do_banish(&ctx, &chatter, duration).await?;
+    tracing::info!(
+        id = chatter.id,
+        login = chatter.login,
+        ?duration,
+        "sent to shadow realm"
+    );
     ctx.reply("whoosh!".into()).await?;
     Ok(())
 }
@@ -75,14 +47,8 @@ async fn banish(
 /// realm regardless of their crimes.
 #[command(permission = Moderator)]
 async fn unbanish(ctx: CommandContext, chatter: Required<Chatter>) -> CommandResult {
-    if ctx
-        .storage_old()
-        .del(format!("kick:begone:{chatter}"))
-        .await?
-        == 0
-    {
-        ctx.reply("was not there lmao".into()).await?;
-        return Ok(());
+    if !ctx.banishes().unbanish(&chatter.id).await? {
+        ctx.fail("was not there lmao").await?;
     }
     tracing::info!(
         id = chatter.id,
@@ -99,25 +65,13 @@ async fn unbanish(ctx: CommandContext, chatter: Required<Chatter>) -> CommandRes
 /// ¯\\\_(ツ)_/¯.
 #[command(sender_gate = 15s)]
 async fn banished(ctx: CommandContext, chatter: Required<Chatter>) -> CommandResult {
-    ctx.reply(
-        match ctx
-            .storage_old()
-            .pexpiretime(format!("kick:begone:{chatter}"))
-            .await?
-        {
-            -2 => "They're good".into(),
-            -1 => "In the shadow realm xdd".into(),
-            time => {
-                let now = SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .unwrap()
-                    .as_millis();
-                let left = Duration::from_millis((time - now as i64).unsigned_abs());
-                let left = humantime::format_duration(left);
-                format!("still {left} to go welp")
-            }
-        },
-    )
+    ctx.reply(match ctx.banishes().status(&chatter.id).await? {
+        BanishStatus::Good => "They're good".into(),
+        BanishStatus::Banished => "In the shadow realm xdd".into(),
+        BanishStatus::Temporary(time) => {
+            format!("still {} to go welp", humantime::format_duration(time))
+        }
+    })
     .await?;
     Ok(())
 }

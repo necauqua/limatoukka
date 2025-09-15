@@ -4,6 +4,7 @@ use crate::{
     commands::{
         CommandResult, CommandTag,
         args::{Chatter, HoldTime, Required},
+        backend::MacroResolution,
         command,
     },
     context::{app::InterruptKind, cmd::CommandContext},
@@ -14,7 +15,6 @@ use crate::{
 };
 use humantime_serde::re::humantime;
 use maud::html;
-use rustis::{client::BatchPreparedCommand, commands::HashCommands};
 use tokio::time::sleep;
 
 /// A building block for basic static text commands.
@@ -160,61 +160,39 @@ async fn setting(ctx: CommandContext, key: String, value: Option<String>) -> Com
 /// `what-is:command:their-name~` to figure out what it was.
 #[command(sender_gate = 3s)]
 async fn what_is(ctx: CommandContext, name: String, to: Chatter) -> CommandResult {
-    let (personal, global): (Option<String>, Option<String>) = {
-        let storage = ctx.storage_old();
-        let mut p = storage.create_pipeline();
-        p.hget::<_, _, Option<String>>(format!("macros:{to}"), &name)
-            .queue();
-        p.hget::<_, _, Option<String>>("macros:global", &name)
-            .queue();
-        p.execute().await?
-    };
-
-    if let Some(script) = personal {
-        let whom = match to.id == ctx.shared.owner.id {
-            true => "your",
-            false => "their",
-        };
-        ctx.reply(format!("`{name}` is one of {whom} macros: {script}"))
-            .await?;
-    } else if let Some(script) = global {
-        ctx.reply(format!("`{name}` is a global macro: {script}"))
-            .await?;
-    } else if let Some(command) = ctx
-        .runner()
-        .get_command_meta(&name)
-        .filter(|c| !c.is(CommandTag::Hidden))
+    if let Some(meta) = ctx.runner().backend().get_native_command(&name).await?
+        && !meta.is(CommandTag::Hidden)
     {
         let mut s = String::new();
 
-        match command.shortcode {
+        match meta.shortcode {
             Some(shortcode) => {
-                write!(&mut s, "`{}` (shortcode `{shortcode}`)", command.name)
+                write!(&mut s, "`{}` (shortcode `{shortcode}`)", meta.name)
             }
-            None => write!(&mut s, "`{}`", command.name),
+            None => write!(&mut s, "`{}`", meta.name),
         }
         .unwrap();
 
         s.push_str(" is a ");
-        if command.permission != PermissionLevel::Viewer {
-            s.push_str(&format!("{:?}", command.permission).to_lowercase());
+        if meta.permission != PermissionLevel::Viewer {
+            s.push_str(&format!("{:?}", meta.permission).to_lowercase());
             s.push_str("-level ");
         }
         s.push_str("command");
 
-        if let Some(gate) = command.sender_gate {
+        if let Some(gate) = meta.sender_gate {
             write!(&mut s, ", sender gate {}", humantime::format_duration(gate)).unwrap();
         }
-        if let Some(gate) = command.global_gate {
+        if let Some(gate) = meta.global_gate {
             write!(&mut s, ", global gate {}", humantime::format_duration(gate)).unwrap();
         }
 
-        let required = command
+        let required = meta
             .args
             .iter()
             .filter(|a| (a.optional)().is_none())
             .count();
-        let all = command.args.len();
+        let all = meta.args.len();
 
         if all == 0 {
             s.push_str(". Takes no arguments");
@@ -229,9 +207,26 @@ async fn what_is(ctx: CommandContext, name: String, to: Chatter) -> CommandResul
         }
 
         ctx.reply(s).await?;
-    } else {
-        ctx.reply(format!("`{name}` is not a macro or command"))
-            .await?;
+        return Ok(());
+    }
+
+    match ctx.runner().backend().resolve_macro(&to.id, &name).await? {
+        MacroResolution::Personal(script) => {
+            let whom = match to.id == ctx.shared.owner.id {
+                true => "your",
+                false => "their",
+            };
+            ctx.reply(format!("`{name}` is one of {whom} macros: {script}"))
+                .await?;
+        }
+        MacroResolution::Global(script) => {
+            ctx.reply(format!("`{name}` is a global macro: {script}"))
+                .await?;
+        }
+        _ => {
+            ctx.reply(format!("`{name}` is not a macro or command"))
+                .await?;
+        }
     }
 
     Ok(())

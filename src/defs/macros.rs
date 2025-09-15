@@ -5,15 +5,12 @@ use std::{
 
 use maud::html;
 use neca_cmd::Statement;
-use rustis::{
-    client::BatchPreparedCommand,
-    commands::{GenericCommands, HashCommands},
-};
 
 use crate::{
     commands::{
         CommandResult,
         args::{Chatter, InRange, RawScript, RestOfArgs, Script},
+        backend::{CreateMacroError, MacroResolution, SetVarError},
         command,
         runner::{CommandError, EvalError},
     },
@@ -35,31 +32,39 @@ async fn macro_record(ctx: CommandContext, name: String, script: RawScript) -> C
     }
     let name = name.to_lowercase();
 
-    let mut tx = ctx.storage_old().create_transaction();
-    let key = format!("macros:{}", ctx.shared.owner);
-    tx.hset(&key, (&name, script.stmt.original)).forget();
-    tx.hlen(&key).queue();
-    let len: usize = tx.execute().await?;
-    if len == 1000 {
-        ctx.storage_old().hdel(key, name).await?;
-        ctx.reply("too many macros brother, this incident will be investigated Stare".into())
-            .await?;
-    } else {
-        ctx.reply_buffered(format!("recorded macro `{name}`"))
-            .await?;
+    match ctx
+        .runner()
+        .backend()
+        .create_macro(&ctx.shared.owner.id, &name, &script.stmt.original)
+        .await
+    {
+        Ok(()) => Ok(()),
+        Err(CreateMacroError::TooManyMacros) => {
+            ctx.fail("too many macros brother, this incident will be investigated Stare")
+                .await?;
+            Ok(())
+        }
+        Err(CreateMacroError::Internal(e)) => {
+            ctx.reply_buffered(format!("recorded macro `{name}`"))
+                .await?;
+            Err(CommandError::Internal(e))
+        }
     }
-    Ok(())
 }
 
 /// Deletes a macro created with `macro-record~`.
 #[command(shortcode=md)]
 async fn macro_delete(ctx: CommandContext, name: String) -> CommandResult {
-    let key = format!("macros:{}", ctx.shared.owner);
-    if ctx.storage_old().hdel(key, &name).await? == 0 {
-        fail!("no macro named `{name}`");
-    } else {
+    if ctx
+        .runner()
+        .backend()
+        .delete_macro(&ctx.shared.owner.id, &name)
+        .await?
+    {
         ctx.reply_buffered(format!("deleted macro `{name}`"))
             .await?;
+    } else {
+        fail!("no macro named `{name}`");
     }
     Ok(())
 }
@@ -75,8 +80,9 @@ async fn global_macro_record(
         fail!("name or script too long (max 8192 chars)");
     }
     let name = name.to_lowercase();
-    ctx.storage_old()
-        .hset("macros:global", (&name, &script.stmt.original))
+    ctx.runner()
+        .backend()
+        .create_global_macro(&name, &script.stmt.original)
         .await?;
     ctx.reply_buffered(format!("recorded global macro `{name}`"))
         .await?;
@@ -86,7 +92,7 @@ async fn global_macro_record(
 /// Deletes a macro created with `global-macro-record~`.
 #[command(permission=Moderator, shortcode=gmd)]
 async fn global_macro_delete(ctx: CommandContext, name: String) -> CommandResult {
-    if ctx.storage_old().hdel("macros:global", &name).await? == 0 {
+    if !ctx.runner().backend().delete_global_macro(&name).await? {
         fail!("no macro named `{name}`");
     }
     ctx.reply_buffered(format!("deleted global macro `{name}`"))
@@ -99,11 +105,7 @@ async fn macro_get(
     name: &str,
     chatter: Chatter,
 ) -> Result<String, CommandError> {
-    let script: Option<String> = ctx
-        .storage_old()
-        .hget(format!("macros:{chatter}"), name)
-        .await?;
-    match script {
+    match ctx.runner().backend().get_macro(&chatter.id, name).await? {
         Some(script) => Ok(script),
         None => fail!("no macro named `{name}`"),
     }
@@ -122,27 +124,34 @@ async fn macro_print(ctx: CommandContext, name: String, chatter: Chatter) -> Com
 /// Replies with the stored global macro.
 #[command(sender_gate=5s, shortcode=gmp)]
 async fn global_macro_print(ctx: CommandContext, name: String) -> CommandResult {
-    let script: Option<String> = ctx.storage_old().hget("macros:global", &name).await?;
-    let Some(script) = script else {
-        fail!("no global macro named `{name}`");
-    };
-    ctx.reply(script).await?;
-    Ok(())
+    match ctx.runner().backend().get_global_macro(&name).await? {
+        Some(script) => Ok(ctx.reply(script).await?),
+        None => fail!("no global macro named `{name}`"),
+    }
 }
 
 /// List macros you/given chatter has recorded.
 #[command(sender_gate=5s, shortcode=ml)]
 async fn macro_list(ctx: CommandContext, chatter: Chatter) -> CommandResult {
-    let keys: Vec<String> = ctx.storage_old().hkeys(format!("macros:{chatter}")).await?;
-    ctx.reply(keys.join(", ")).await?;
+    ctx.reply(
+        ctx.runner()
+            .backend()
+            .list_macros(&chatter.id)
+            .await?
+            .into_iter()
+            .map(|(k, _)| k) // todo: maybe render it like gml~ if it overflows a message
+            .collect::<Vec<_>>()
+            .join(", "),
+    )
+    .await?;
     Ok(())
 }
 
 /// List global macros recorded.
 #[command(sender_gate=5s, shortcode=gml)]
 async fn global_macro_list(ctx: CommandContext) -> CommandResult {
-    let mut keys: Vec<(String, String)> = ctx.storage_old().hgetall("macros:global").await?;
-    keys.sort_unstable_by(|(a, _), (b, _)| a.cmp(b));
+    let mut macros = ctx.runner().backend().list_global_macros().await?;
+    macros.sort_unstable_by(|(a, _), (b, _)| a.cmp(b));
 
     // we assume the global macro list will always overflow the single message length
     // and be rendered as HTML lmao
@@ -156,7 +165,7 @@ async fn global_macro_list(ctx: CommandContext) -> CommandResult {
                 th { "Global Macro" }
                 th { "What it does" }
             }
-            @for (name, script) in keys {
+            @for (name, script) in macros {
                 tr {
                     td { (name) }
                     td { (script) }
@@ -200,21 +209,15 @@ async fn r#macro(
     chatter: Chatter,
     rest: RestOfArgs,
 ) -> CommandResult {
-    let script: Option<String> = ctx
-        .storage_old()
-        .hget(format!("macros:{chatter}"), &name)
-        .await?;
-
-    let (script, global) = match script {
-        Some(script) => (script, false),
-        None => {
-            let script: Option<String> = ctx.storage_old().hget("macros:global", &name).await?;
-            if let Some(script) = script {
-                (script, true)
-            } else {
-                fail!("no macro named `{name}`")
-            }
-        }
+    let (script, global) = match ctx
+        .runner()
+        .backend()
+        .resolve_macro(&chatter.id, &name)
+        .await?
+    {
+        MacroResolution::Personal(script) => (script, false),
+        MacroResolution::Global(script) => (script, true),
+        MacroResolution::None => fail!("no macro named `{name}`"),
     };
 
     let args = rest.get(&ctx).await?;
@@ -386,19 +389,25 @@ async fn set(ctx: CommandContext, name: String, value: Option<String>) -> Comman
     }
     let name = name.to_lowercase();
 
-    let mut tx = ctx.storage_old().create_transaction();
-    let key = format!("vars:{}", ctx.shared.owner);
-    tx.hset(&key, (&name, &value)).forget();
-    tx.hlen(&key).queue();
-    let len: usize = tx.execute().await?;
-    if len == 1000 {
-        ctx.storage_old().hdel(key, name).await?;
-        ctx.reply("too many variables brother, this incident will be investigated Stare".into())
+    match ctx
+        .runner()
+        .backend()
+        .set_var(&ctx.shared.owner.id, &name, &value)
+        .await
+    {
+        Ok(_) => {
+            ctx.vars.insert(name, value);
+            Ok(())
+        }
+        Err(SetVarError::TooManyVars) => {
+            ctx.reply(
+                "too many variables brother, this incident will be investigated Stare".into(),
+            )
             .await?;
-    } else {
-        ctx.vars.insert(name, value);
+            Ok(())
+        }
+        Err(SetVarError::Internal(e)) => Err(CommandError::Internal(e)),
     }
-    Ok(())
 }
 
 /// A moderator-only version of `set~` that sets a global variable instead of a
@@ -415,9 +424,7 @@ async fn global_set(ctx: CommandContext, name: String, value: Option<String>) ->
     }
     let name = name.to_lowercase();
 
-    ctx.storage_old()
-        .hset("vars:global", (&name, &value))
-        .await?;
+    ctx.runner().backend().set_global_var(&name, &value).await?;
 
     // only insert into cache if was not set there before
     ctx.vars.entry(name).or_insert(value);
@@ -444,24 +451,23 @@ async fn del(ctx: CommandContext, names: RestOfArgs) -> CommandResult {
         fail!("no names given");
     }
     let names = names.get(&ctx).await?;
+    let names = names
+        .iter()
+        .filter_map(|n| n.as_deref())
+        .collect::<Vec<_>>(); // ugh
 
     match ctx
-        .storage_old()
-        .hdel(
-            format!("vars:{}", ctx.shared.owner),
-            names
-                .iter()
-                .filter_map(|n| n.as_deref())
-                .collect::<Vec<_>>(), // ugh
-        )
+        .runner()
+        .backend()
+        .del_vars(&ctx.shared.owner.id, &names)
         .await?
     {
         // 0 => fail!("no vars deleted"),
         0 | 1 => {}
         n => ctx.reply(format!("{n} vars deleted")).await?,
     }
-    for name in names.into_iter().flatten() {
-        ctx.vars.remove(&name);
+    for name in names {
+        ctx.vars.remove(name);
     }
 
     Ok(())
@@ -470,9 +476,10 @@ async fn del(ctx: CommandContext, names: RestOfArgs) -> CommandResult {
 /// Lists all of your variables.
 #[command(sender_gate=5s)]
 async fn list_vars(ctx: CommandContext) -> CommandResult {
-    let keys: Vec<String> = ctx
-        .storage_old()
-        .hkeys(format!("vars:{}", ctx.shared.owner))
+    let keys = ctx
+        .runner()
+        .backend()
+        .list_vars(&ctx.shared.owner.id)
         .await?;
     ctx.reply(keys.join(", ")).await?;
     Ok(())
@@ -492,8 +499,9 @@ async fn get(ctx: CommandContext, name: String) -> CommandResult {
 /// Clears all of your variables.
 #[command]
 async fn clear(ctx: CommandContext) -> CommandResult {
-    ctx.storage_old()
-        .del(format!("vars:{}", ctx.shared.owner))
+    ctx.runner()
+        .backend()
+        .clear_vars(&ctx.shared.owner.id)
         .await?;
 
     ctx.vars.clear();

@@ -260,7 +260,6 @@ enum MessageResult {
 mod tests {
     use std::env;
 
-    use rustis::commands::ConnectionCommands;
     use tracing_subscriber::{
         EnvFilter, Layer as _,
         fmt::{Layer, time::LocalTime},
@@ -271,7 +270,10 @@ mod tests {
 
     use crate::{
         config::Config,
-        services::{Injector, storage_old::Storage},
+        services::{
+            Injector,
+            caches::{CacheService, CacheServiceInMemory},
+        },
     };
 
     use super::*;
@@ -299,10 +301,10 @@ mod tests {
 
         let config = Config::load()?;
         let eventsub = EventSub::new(TwitchApi::new(&config).await?);
-        let valkey = rustis::client::Client::connect(&*config.valkey).await?;
-        valkey.select(1).await?;
 
-        let ctx = AppContext::new(Injector::new().with(Arc::new(Storage::new(valkey))));
+        let ctx = AppContext::new(
+            Injector::new().with::<dyn CacheService>(Arc::new(CacheServiceInMemory::default())),
+        );
 
         let mut rx = eventsub.subscribe();
         tokio::spawn(async move {

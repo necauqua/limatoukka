@@ -6,6 +6,7 @@ use std::{
 
 use dashmap::DashMap;
 
+pub mod banishes;
 pub mod bets;
 pub mod caches;
 pub mod charges;
@@ -18,7 +19,6 @@ pub mod noita;
 pub mod sounds;
 pub mod status_wall;
 pub mod storage;
-pub mod storage_old;
 pub mod tts;
 pub mod twitch;
 

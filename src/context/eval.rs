@@ -7,7 +7,6 @@ use thiserror::Error;
 use crate::{
     commands::{args::Chatter, runner::CommandError},
     context::app::InterruptKind,
-    services::storage_old::Storage,
 };
 
 use super::msg::MessageContext;
@@ -19,7 +18,7 @@ pub struct EvalContextShared {
 
 #[derive(Clone)]
 pub struct EvalContext {
-    pub shared: Arc<EvalContextShared>,
+    pub shared: Arc<EvalContextShared>, // todo make this private lol
     pub vars: Arc<DashMap<String, String>>,
     pub in_global_macro: bool,
     pub macro_depth: u32,
@@ -43,15 +42,8 @@ impl EvalContext {
             login: parent.message().sender.login.clone(),
         };
 
-        // FIXME cringetastic hack for tests
-        let vars = if let Some(storage) = parent.service_opt::<Storage>() {
-            storage.read_vars(&owner).await?
-        } else {
-            Default::default()
-        };
-
         Ok(Self {
-            vars: Arc::new(vars),
+            vars: Arc::new(parent.runner().backend().load_vars(&owner.id).await?),
             shared: Arc::new(EvalContextShared {
                 owner,
                 macro_args: Default::default(),
@@ -97,7 +89,7 @@ impl EvalContext {
         let vars = if self.shared.owner.id == owner.id {
             self.vars.clone()
         } else {
-            Arc::new(self.storage_old().read_vars(&owner).await?)
+            Arc::new(self.runner().backend().load_vars(&owner.id).await?)
         };
         Ok(Self {
             shared: Arc::new(EvalContextShared {
