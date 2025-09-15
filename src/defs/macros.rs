@@ -38,17 +38,17 @@ async fn macro_record(ctx: CommandContext, name: String, script: RawScript) -> C
         .create_macro(&ctx.shared.owner.id, &name, &script.stmt.original)
         .await
     {
-        Ok(()) => Ok(()),
+        Ok(()) => {
+            ctx.reply_buffered(format!("recorded macro `{name}`"))
+                .await?;
+            Ok(())
+        }
         Err(CreateMacroError::TooManyMacros) => {
             ctx.fail("too many macros brother, this incident will be investigated Stare")
                 .await?;
             Ok(())
         }
-        Err(CreateMacroError::Internal(e)) => {
-            ctx.reply_buffered(format!("recorded macro `{name}`"))
-                .await?;
-            Err(CommandError::Internal(e))
-        }
+        Err(CreateMacroError::Internal(e)) => Err(CommandError::Internal(e)),
     }
 }
 
