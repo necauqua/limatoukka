@@ -90,10 +90,13 @@ impl FromStr for Charges {
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         let mut parts = input.splitn(2, '.');
         let whole = parts.next().unwrap();
+        let (neg, whole) = match whole.strip_prefix("-") {
+            Some(whole) => (true, whole),
+            None => (false, whole),
+        };
         let fraction = parts.next().unwrap_or("0");
-        let whole: i64 = match whole.parse() {
-            Ok(n) => n,
-            _ => return Err("charge amount must be a number"),
+        let Ok(whole) = whole.parse::<i64>() else {
+            return Err("charge amount must be a number");
         };
         let fraction: i64 = match (fraction.len(), fraction.parse()) {
             (1, Ok(n)) => n * 100,
@@ -102,7 +105,7 @@ impl FromStr for Charges {
             (_, Err(_)) => return Err("charge amount must be a number"),
             _ => return Err("charge amount can have at most 3 decimal places"),
         };
-        Ok(Self(whole * 1000 + fraction))
+        Ok(Self(if neg { -1 } else { 1 } * (whole * 1000 + fraction)))
     }
 }
 
