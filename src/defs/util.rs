@@ -4,7 +4,7 @@ use crate::{
     commands::{
         CommandResult, CommandTag,
         args::{Chatter, HoldTime, Required},
-        backend::MacroResolution,
+        backend::{VarResolution, VarType},
         command,
     },
     context::{app::InterruptKind, cmd::CommandContext},
@@ -40,7 +40,7 @@ async fn last_error(ctx: CommandContext, chatter: Chatter) -> CommandResult {
             .get(&format!("last-error:{chatter}"))
             .await?
             .unwrap_or_else(|| {
-                let whom = match ctx.is_owner(&chatter) {
+                let whom = match ctx.owner() == chatter.id {
                     true => "your",
                     false => "their",
                 };
@@ -210,8 +210,13 @@ async fn what_is(ctx: CommandContext, name: String, to: Chatter) -> CommandResul
         return Ok(());
     }
 
-    match ctx.runner().backend().resolve_macro(&to.id, &name).await? {
-        MacroResolution::Personal(script) => {
+    match ctx
+        .runner()
+        .backend()
+        .resolve(VarType::Macro, &to.id, &name)
+        .await?
+    {
+        VarResolution::Personal(script) => {
             let whom = match to.id == ctx.shared.owner.id {
                 true => "your",
                 false => "their",
@@ -219,7 +224,7 @@ async fn what_is(ctx: CommandContext, name: String, to: Chatter) -> CommandResul
             ctx.reply(format!("`{name}` is one of {whom} macros: {script}"))
                 .await?;
         }
-        MacroResolution::Global(script) => {
+        VarResolution::Global(script) => {
             ctx.reply(format!("`{name}` is a global macro: {script}"))
                 .await?;
         }

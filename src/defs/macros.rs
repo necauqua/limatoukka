@@ -3,6 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use anyhow::anyhow;
 use maud::html;
 use neca_cmd::Statement;
 
@@ -10,7 +11,7 @@ use crate::{
     commands::{
         CommandResult,
         args::{Chatter, InRange, RawScript, RestOfArgs, Script},
-        backend::{CreateMacroError, MacroResolution, SetVarError},
+        backend::{SetVarError, VarResolution, VarScope, VarType},
         command,
         runner::{CommandError, EvalError},
     },
@@ -35,7 +36,12 @@ async fn macro_record(ctx: CommandContext, name: String, script: RawScript) -> C
     match ctx
         .runner()
         .backend()
-        .create_macro(&ctx.shared.owner.id, &name, &script.stmt.original)
+        .set(
+            VarType::Macro,
+            VarScope::Personal(ctx.owner()),
+            &name,
+            &script.stmt.original,
+        )
         .await
     {
         Ok(()) => {
@@ -43,12 +49,12 @@ async fn macro_record(ctx: CommandContext, name: String, script: RawScript) -> C
                 .await?;
             Ok(())
         }
-        Err(CreateMacroError::TooManyMacros) => {
+        Err(SetVarError::TooManyVars) => {
             ctx.fail("too many macros brother, this incident will be investigated Stare")
                 .await?;
             Ok(())
         }
-        Err(CreateMacroError::Internal(e)) => Err(CommandError::Internal(e)),
+        Err(SetVarError::Internal(e)) => Err(CommandError::Internal(e)),
     }
 }
 
@@ -58,8 +64,13 @@ async fn macro_delete(ctx: CommandContext, name: String) -> CommandResult {
     if ctx
         .runner()
         .backend()
-        .delete_macro(&ctx.shared.owner.id, &name)
+        .delete(
+            VarType::Macro,
+            VarScope::Personal(ctx.owner()),
+            &[&name],
+        )
         .await?
+        != 0
     {
         ctx.reply_buffered(format!("deleted macro `{name}`"))
             .await?;
@@ -80,19 +91,39 @@ async fn global_macro_record(
         fail!("name or script too long (max 8192 chars)");
     }
     let name = name.to_lowercase();
-    ctx.runner()
+    match ctx
+        .runner()
         .backend()
-        .create_global_macro(&name, &script.stmt.original)
-        .await?;
-    ctx.reply_buffered(format!("recorded global macro `{name}`"))
-        .await?;
-    Ok(())
+        .set(
+            VarType::Macro,
+            VarScope::Global,
+            &name,
+            &script.stmt.original,
+        )
+        .await
+    {
+        Ok(()) => {
+            ctx.reply_buffered(format!("recorded global macro `{name}`"))
+                .await?;
+            Ok(())
+        }
+        Err(SetVarError::TooManyVars) => Err(CommandError::Internal(anyhow!(
+            "too many vars at the global scope, this should not happen"
+        ))),
+        Err(SetVarError::Internal(e)) => Err(CommandError::Internal(e)),
+    }
 }
 
 /// Deletes a macro created with `global-macro-record~`.
 #[command(permission=Moderator, shortcode=gmd)]
 async fn global_macro_delete(ctx: CommandContext, name: String) -> CommandResult {
-    if !ctx.runner().backend().delete_global_macro(&name).await? {
+    if ctx
+        .runner()
+        .backend()
+        .delete(VarType::Macro, VarScope::Global, &[&name])
+        .await?
+        != 0
+    {
         fail!("no macro named `{name}`");
     }
     ctx.reply_buffered(format!("deleted global macro `{name}`"))
@@ -105,7 +136,12 @@ async fn macro_get(
     name: &str,
     chatter: Chatter,
 ) -> Result<String, CommandError> {
-    match ctx.runner().backend().get_macro(&chatter.id, name).await? {
+    match ctx
+        .runner()
+        .backend()
+        .get(VarType::Macro, VarScope::Personal(&chatter.id), name)
+        .await?
+    {
         Some(script) => Ok(script),
         None => fail!("no macro named `{name}`"),
     }
@@ -124,7 +160,12 @@ async fn macro_print(ctx: CommandContext, name: String, chatter: Chatter) -> Com
 /// Replies with the stored global macro.
 #[command(sender_gate=5s, shortcode=gmp)]
 async fn global_macro_print(ctx: CommandContext, name: String) -> CommandResult {
-    match ctx.runner().backend().get_global_macro(&name).await? {
+    match ctx
+        .runner()
+        .backend()
+        .get(VarType::Macro, VarScope::Global, &name)
+        .await?
+    {
         Some(script) => Ok(ctx.reply(script).await?),
         None => fail!("no global macro named `{name}`"),
     }
@@ -136,7 +177,7 @@ async fn macro_list(ctx: CommandContext, chatter: Chatter) -> CommandResult {
     ctx.reply(
         ctx.runner()
             .backend()
-            .list_macros(&chatter.id)
+            .list(VarType::Macro, VarScope::Personal(&chatter.id))
             .await?
             .into_iter()
             .map(|(k, _)| k) // todo: maybe render it like gml~ if it overflows a message
@@ -150,7 +191,11 @@ async fn macro_list(ctx: CommandContext, chatter: Chatter) -> CommandResult {
 /// List global macros recorded.
 #[command(sender_gate=5s, shortcode=gml)]
 async fn global_macro_list(ctx: CommandContext) -> CommandResult {
-    let mut macros = ctx.runner().backend().list_global_macros().await?;
+    let mut macros = ctx
+        .runner()
+        .backend()
+        .list(VarType::Macro, VarScope::Global)
+        .await?;
     macros.sort_unstable_by(|(a, _), (b, _)| a.cmp(b));
 
     // we assume the global macro list will always overflow the single message length
@@ -212,12 +257,12 @@ async fn r#macro(
     let (script, global) = match ctx
         .runner()
         .backend()
-        .resolve_macro(&chatter.id, &name)
+        .resolve(VarType::Macro, &chatter.id, &name)
         .await?
     {
-        MacroResolution::Personal(script) => (script, false),
-        MacroResolution::Global(script) => (script, true),
-        MacroResolution::None => fail!("no macro named `{name}`"),
+        VarResolution::Personal(script) => (script, false),
+        VarResolution::Global(script) => (script, true),
+        VarResolution::None => fail!("no macro named `{name}`"),
     };
 
     let args = rest.get(&ctx).await?;
@@ -392,7 +437,12 @@ async fn set(ctx: CommandContext, name: String, value: Option<String>) -> Comman
     match ctx
         .runner()
         .backend()
-        .set_var(&ctx.shared.owner.id, &name, &value)
+        .set(
+            VarType::Var,
+            VarScope::Personal(ctx.owner()),
+            &name,
+            &value,
+        )
         .await
     {
         Ok(_) => {
@@ -424,12 +474,22 @@ async fn global_set(ctx: CommandContext, name: String, value: Option<String>) ->
     }
     let name = name.to_lowercase();
 
-    ctx.runner().backend().set_global_var(&name, &value).await?;
-
-    // only insert into cache if was not set there before
-    ctx.vars.entry(name).or_insert(value);
-
-    Ok(())
+    match ctx
+        .runner()
+        .backend()
+        .set(VarType::Var, VarScope::Global, &name, &value)
+        .await
+    {
+        Ok(_) => {
+            // only insert into cache if was not set there before
+            ctx.vars.entry(name).or_insert(value);
+            Ok(())
+        }
+        Err(SetVarError::TooManyVars) => Err(CommandError::Internal(anyhow!(
+            "too many vars at the global scope, this should not happen"
+        ))),
+        Err(SetVarError::Internal(e)) => Err(CommandError::Internal(e)),
+    }
 }
 
 /// Similar to `set~`, but the text is only stored for the chat message being executed.
@@ -459,7 +519,7 @@ async fn del(ctx: CommandContext, names: RestOfArgs) -> CommandResult {
     match ctx
         .runner()
         .backend()
-        .del_vars(&ctx.shared.owner.id, &names)
+        .delete(VarType::Var, VarScope::Personal(ctx.owner()), &names)
         .await?
     {
         // 0 => fail!("no vars deleted"),
@@ -479,9 +539,14 @@ async fn list_vars(ctx: CommandContext) -> CommandResult {
     let keys = ctx
         .runner()
         .backend()
-        .list_vars(&ctx.shared.owner.id)
-        .await?;
+        .list(VarType::Var, VarScope::Personal(ctx.owner()))
+        .await?
+        .into_iter()
+        .map(|(k, _)| k)
+        .collect::<Vec<_>>();
+
     ctx.reply(keys.join(", ")).await?;
+
     Ok(())
 }
 
@@ -501,7 +566,7 @@ async fn get(ctx: CommandContext, name: String) -> CommandResult {
 async fn clear(ctx: CommandContext) -> CommandResult {
     ctx.runner()
         .backend()
-        .clear_vars(&ctx.shared.owner.id)
+        .clear(VarType::Var, VarScope::Personal(ctx.owner()))
         .await?;
 
     ctx.vars.clear();

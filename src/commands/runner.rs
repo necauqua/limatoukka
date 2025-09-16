@@ -18,7 +18,7 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 use crate::{
     commands::{
         CommandTag,
-        backend::{MacroResolution, RunnerBackend},
+        backend::{RunnerBackend, VarResolution, VarType},
     },
     context::{app::AppContext, eval::EvalContext, msg::MessageContext},
     services::{
@@ -188,7 +188,7 @@ impl Runner {
         let mut token = command.token.clone();
         token.name.make_ascii_lowercase();
 
-        let owner = &ctx.shared.owner.id;
+        let owner = ctx.owner();
 
         let found = match self.lookup(owner, &token.name, command).await? {
             Some(r) => Some(r),
@@ -223,19 +223,25 @@ impl Runner {
             return Ok(Some(meta.clone()));
         }
 
-        Ok(match self.backend.resolve_macro(owner, name).await? {
-            MacroResolution::None => None,
-            _ => {
-                if let Some(meta) = self.backend.get_native_command("macro").await? {
-                    // empty string for current username, to allow macro params to immediately follow
-                    expr.params.push_front(Param::default());
-                    expr.params.push_front(Param::simple(name.to_owned()));
-                    Some(meta)
-                } else {
-                    None
+        Ok(
+            match self
+                .backend
+                .resolve(VarType::Macro, owner, name)
+                .await?
+            {
+                VarResolution::None => None,
+                _ => {
+                    if let Some(meta) = self.backend.get_native_command("macro").await? {
+                        // empty string for current username, to allow macro params to immediately follow
+                        expr.params.push_front(Param::default());
+                        expr.params.push_front(Param::simple(name.to_owned()));
+                        Some(meta)
+                    } else {
+                        None
+                    }
                 }
-            }
-        })
+            },
+        )
     }
 
     async fn run_command_sequence(

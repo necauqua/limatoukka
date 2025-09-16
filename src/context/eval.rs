@@ -56,8 +56,8 @@ impl EvalContext {
         })
     }
 
-    pub fn is_owner(&self, chatter: &Chatter) -> bool {
-        self.shared.owner.id == chatter.id
+    pub fn owner(&self) -> &str {
+        &self.shared.owner.id
     }
 
     pub fn nesting_str(&self) -> String {
