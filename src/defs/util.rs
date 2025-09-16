@@ -162,6 +162,8 @@ async fn setting(ctx: CommandContext, key: String, value: Option<String>) -> Com
 /// `what-is:command:their-name~` to figure out what it was.
 #[command(sender_gate = 3s)]
 async fn what_is(ctx: CommandContext, name: String, to: Chatter) -> CommandResult {
+    let name = name.to_lowercase();
+
     if let Some(meta) = ctx.runner().get_command(&name)
         && !meta.is(CommandTag::Hidden)
     {

@@ -62,6 +62,8 @@ async fn macro_record(ctx: CommandContext, name: String, script: RawScript) -> C
 /// Deletes a macro created with `macro-record~`.
 #[command(shortcode=md)]
 async fn macro_delete(ctx: CommandContext, name: String) -> CommandResult {
+    let name = name.to_lowercase();
+
     if ctx
         .vars()
         .delete(VarType::Macro, VarScope::Personal(ctx.owner()), &[&name])
@@ -112,6 +114,8 @@ async fn global_macro_record(
 /// Deletes a macro created with `global-macro-record~`.
 #[command(permission=Moderator, shortcode=gmd)]
 async fn global_macro_delete(ctx: CommandContext, name: String) -> CommandResult {
+    let name = name.to_lowercase();
+
     if ctx
         .vars()
         .delete(VarType::Macro, VarScope::Global, &[&name])
@@ -146,6 +150,7 @@ async fn macro_get(
 /// public here.
 #[command(sender_gate=5s, shortcode=mp)]
 async fn macro_print(ctx: CommandContext, name: String, chatter: Chatter) -> CommandResult {
+    let name = name.to_lowercase();
     ctx.reply(macro_get(&ctx, &name, chatter).await?).await?;
     Ok(())
 }
@@ -153,6 +158,8 @@ async fn macro_print(ctx: CommandContext, name: String, chatter: Chatter) -> Com
 /// Replies with the stored global macro.
 #[command(sender_gate=5s, shortcode=gmp)]
 async fn global_macro_print(ctx: CommandContext, name: String) -> CommandResult {
+    let name = name.to_lowercase();
+
     match ctx
         .vars()
         .get(VarType::Macro, VarScope::Global, &name)
@@ -217,6 +224,7 @@ async fn yoink(
     chatter: Chatter,
     rename: Option<String>,
 ) -> CommandResult {
+    let name = name.to_lowercase();
     let script = macro_get(&ctx, &name, chatter).await?;
     macro_record(
         ctx,
@@ -241,6 +249,8 @@ async fn r#macro(
     chatter: Chatter,
     rest: RestOfArgs,
 ) -> CommandResult {
+    let name = name.to_lowercase();
+
     let (script, global) = match ctx
         .vars()
         .resolve(VarType::Macro, &chatter.id, &name)
