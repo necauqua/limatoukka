@@ -4,13 +4,15 @@ use crate::{
     commands::{
         CommandResult, CommandTag,
         args::{Chatter, HoldTime, Required},
-        backend::{VarResolution, VarType},
         command,
     },
     context::{app::InterruptKind, cmd::CommandContext},
     integration::justfile::just,
     services::{
-        messaging::PermissionLevel, status_wall::StatusServiceExt, storage::StorageServiceExt,
+        messaging::PermissionLevel,
+        status_wall::StatusServiceExt,
+        storage::StorageServiceExt,
+        variables::{VarResolution, VarType, VariableStorageExt},
     },
 };
 use humantime_serde::re::humantime;
@@ -160,7 +162,7 @@ async fn setting(ctx: CommandContext, key: String, value: Option<String>) -> Com
 /// `what-is:command:their-name~` to figure out what it was.
 #[command(sender_gate = 3s)]
 async fn what_is(ctx: CommandContext, name: String, to: Chatter) -> CommandResult {
-    if let Some(meta) = ctx.runner().backend().get_native_command(&name).await?
+    if let Some(meta) = ctx.runner().get_command(&name)
         && !meta.is(CommandTag::Hidden)
     {
         let mut s = String::new();
@@ -210,12 +212,7 @@ async fn what_is(ctx: CommandContext, name: String, to: Chatter) -> CommandResul
         return Ok(());
     }
 
-    match ctx
-        .runner()
-        .backend()
-        .resolve(VarType::Macro, &to.id, &name)
-        .await?
-    {
+    match ctx.vars().resolve(VarType::Macro, &to.id, &name).await? {
         VarResolution::Personal(script) => {
             let whom = match to.id == ctx.shared.owner.id {
                 true => "your",

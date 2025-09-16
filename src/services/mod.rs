@@ -21,6 +21,7 @@ pub mod status_wall;
 pub mod storage;
 pub mod tts;
 pub mod twitch;
+pub mod variables;
 
 #[derive(Default, Clone)]
 pub struct Injector {

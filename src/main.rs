@@ -6,15 +6,14 @@ use opentelemetry::trace::Status;
 use rustis::client::Client as ValkeyClient;
 use tokio::{task::JoinSet, time::sleep};
 use tpn_bot::{
-    commands::{
-        CommandTag, backend::RunnerBackendRedis, discover_declared_commands, runner::Runner,
-    },
+    commands::{CommandTag, discover_declared_commands, runner::Runner},
     config::Config,
     context::app::{AppContext, InterruptKind},
     integration::{eventsub::EventSub, twitch_api::TwitchApi},
     logging,
     services::{
         Injector,
+        banishes::{BanishService, BanishServiceRedis},
         bets::{BetsService, BetsServiceRedis},
         caches::{CacheService, CacheServiceExt, CacheServiceRedis},
         charges::{Charges, ChargesService, ChargesServiceExt, ChargesServiceRedis},
@@ -29,6 +28,7 @@ use tpn_bot::{
         storage::{StorageService, StorageServiceExt, StorageServiceRedis},
         tts::{TtsService, TtsServiceExt, TtsServiceImpl},
         twitch::{TwitchService, TwitchServiceExt, TwitchServiceImpl},
+        variables::{VariableStorage, VariableStorageRedis},
     },
 };
 
@@ -55,8 +55,10 @@ async fn run(config: Config) -> Result<()> {
     let services = Injector::new()
         .with::<dyn MessagingService>(messaging.into())
         .with::<dyn StorageService>(Arc::new(StorageServiceRedis::new(valkey.clone())))
+        .with::<dyn VariableStorage>(Arc::new(VariableStorageRedis::new(valkey.clone())))
         .with::<dyn CacheService>(Arc::new(CacheServiceRedis::new(valkey.clone())))
         .with::<dyn IpcService>(Arc::new(IpcServiceRedis::new(valkey.clone())))
+        .with::<dyn BanishService>(Arc::new(BanishServiceRedis::new(valkey.clone())))
         .with::<dyn ChargesService>(Arc::new(ChargesServiceRedis::new(valkey.clone())))
         .with::<dyn GateService>(Arc::new(GateServiceRedis::new(valkey.clone())))
         .with::<dyn TwitchService>(Arc::new(TwitchServiceImpl::new(twitch_api.clone())))
@@ -87,10 +89,7 @@ async fn run(config: Config) -> Result<()> {
     // todo make this less cringe
     commands.retain(|_, v| !v.is(CommandTag::NoitaControl));
 
-    let runner = Runner::new(RunnerBackendRedis::new(
-        valkey.clone(),
-        discover_declared_commands(),
-    ));
+    let runner = Runner::new(discover_declared_commands(), &ctx);
 
     tokio::spawn(eventsub.run(ctx.clone()));
     tokio::spawn(status_wall.start(&config.browser_source_bind));

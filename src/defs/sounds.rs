@@ -251,14 +251,16 @@ mod tests {
     };
 
     use crate::{
-        commands::{backend::RunnerBackendStatic, discover_declared_commands, runner::Runner},
+        commands::{discover_declared_commands, runner::Runner},
         context::app::AppContext,
         services::{
             Injector,
+            banishes::{BanishService, BanishServiceMock},
             gates::{GateService, GateServiceNoop},
             messaging::{Message, Sender},
             status_wall::{StatusService, TestStatusWall},
             storage::{InMemoryStorageService, StorageService},
+            variables::{VariableStorage, VariableStorageMock},
         },
     };
 
@@ -321,11 +323,13 @@ mod tests {
         let ctx = AppContext::new(
             Injector::new()
                 .with::<dyn StorageService>(storage.clone())
+                .with::<dyn VariableStorage>(Arc::new(VariableStorageMock))
                 .with::<dyn GateService>(Arc::new(GateServiceNoop))
+                .with::<dyn BanishService>(Arc::new(BanishServiceMock))
                 .with::<dyn StatusService>(Arc::new(TestStatusWall::default())),
         );
 
-        let runner = Runner::new(RunnerBackendStatic::new(discover_declared_commands()));
+        let runner = Runner::new(discover_declared_commands(), &ctx);
 
         runner
             .process_message(

@@ -16,6 +16,12 @@ pub enum BanishStatus {
     Banished,
 }
 
+impl BanishStatus {
+    pub fn is_banished(&self) -> bool {
+        !matches!(self, BanishStatus::Good)
+    }
+}
+
 #[async_trait]
 pub trait BanishService: Send + Sync {
     async fn banish(&self, user_id: &str, duration: Option<Duration>) -> Result<bool>;
@@ -78,5 +84,22 @@ impl BanishService for BanishServiceRedis {
             }
         };
         Ok(res)
+    }
+}
+
+pub struct BanishServiceMock;
+
+#[async_trait]
+impl BanishService for BanishServiceMock {
+    async fn banish(&self, _user_id: &str, _duration: Option<Duration>) -> Result<bool> {
+        Ok(true)
+    }
+
+    async fn unbanish(&self, _user_id: &str) -> Result<bool> {
+        Ok(true)
+    }
+
+    async fn status(&self, _user_id: &str) -> Result<BanishStatus> {
+        Ok(BanishStatus::Good)
     }
 }

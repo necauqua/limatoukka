@@ -10,7 +10,6 @@ use std::{
 use args::Args;
 
 pub mod args;
-pub mod backend;
 pub mod runner;
 
 use runner::CommandError;

@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, sync::Arc};
+use std::borrow::Cow;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -9,7 +9,7 @@ use rustis::{
 };
 use thiserror::Error;
 
-use crate::commands::NativeCommand;
+use crate::injector_getter;
 
 #[derive(Error, Debug)]
 pub enum SetVarError {
@@ -45,9 +45,7 @@ pub enum VarResolution {
 }
 
 #[async_trait]
-pub trait RunnerBackend: Send + Sync {
-    async fn get_native_command(&self, command: &str) -> Result<Option<Arc<NativeCommand>>>;
-
+pub trait VariableStorage: Send + Sync {
     async fn set(
         &self,
         tpe: VarType,
@@ -69,74 +67,15 @@ pub trait RunnerBackend: Send + Sync {
     async fn load_vars(&self, owner: &str) -> Result<DashMap<String, String>>;
 }
 
-pub struct RunnerBackendRedis {
+injector_getter!(VariableStorage::vars);
+
+pub struct VariableStorageRedis {
     client: ValkeyClient,
-    commands: HashMap<String, Arc<NativeCommand>>,
 }
 
-impl RunnerBackendRedis {
-    pub fn new(client: ValkeyClient, commands: HashMap<String, Arc<NativeCommand>>) -> Self {
-        Self { client, commands }
-    }
-}
-
-pub struct RunnerBackendStatic {
-    commands: HashMap<String, Arc<NativeCommand>>,
-}
-
-impl RunnerBackendStatic {
-    pub fn new(commands: HashMap<String, Arc<NativeCommand>>) -> Self {
-        Self { commands }
-    }
-}
-
-#[async_trait]
-impl RunnerBackend for RunnerBackendStatic {
-    // todo separate this away
-    async fn get_native_command(&self, command: &str) -> Result<Option<Arc<NativeCommand>>> {
-        Ok(self.commands.get(command).cloned())
-    }
-
-    async fn set(
-        &self,
-        _tpe: VarType,
-        _scope: VarScope<'_>,
-        _name: &str,
-        _value: &str,
-    ) -> Result<(), SetVarError> {
-        Err(SetVarError::Internal(anyhow::anyhow!(
-            "Cannot create macros or set vars with static backend"
-        )))
-    }
-
-    async fn get(
-        &self,
-        _tpe: VarType,
-        _scope: VarScope<'_>,
-        _name: &str,
-    ) -> Result<Option<String>> {
-        Ok(None)
-    }
-
-    async fn resolve(&self, _tpe: VarType, _owner: &str, _name: &str) -> Result<VarResolution> {
-        Ok(VarResolution::None)
-    }
-
-    async fn delete(&self, _tpe: VarType, _scope: VarScope<'_>, _names: &[&str]) -> Result<usize> {
-        Ok(0)
-    }
-
-    async fn list(&self, _tpe: VarType, _scope: VarScope<'_>) -> Result<Vec<(String, String)>> {
-        Ok(vec![])
-    }
-
-    async fn clear(&self, _tpe: VarType, _scope: VarScope<'_>) -> Result<()> {
-        Ok(())
-    }
-
-    // todo make this leak obsolete and remove it
-    async fn load_vars(&self, _owner: &str) -> Result<DashMap<String, String>> {
-        Ok(DashMap::new())
+impl VariableStorageRedis {
+    pub fn new(client: ValkeyClient) -> Self {
+        Self { client }
     }
 }
 
@@ -150,11 +89,7 @@ fn key(tpe: VarType, scope: VarScope) -> Cow<'static, str> {
 }
 
 #[async_trait]
-impl RunnerBackend for RunnerBackendRedis {
-    async fn get_native_command(&self, command: &str) -> Result<Option<Arc<NativeCommand>>> {
-        Ok(self.commands.get(command).cloned())
-    }
-
+impl VariableStorage for VariableStorageRedis {
     async fn set(
         &self,
         tpe: VarType,
@@ -230,5 +165,52 @@ impl RunnerBackend for RunnerBackendRedis {
         let (globals, vars): (Pairs, Pairs) = pp.execute().await?;
 
         Ok(globals.into_iter().chain(vars.into_iter()).collect())
+    }
+}
+
+pub struct VariableStorageMock;
+
+#[async_trait]
+impl VariableStorage for VariableStorageMock {
+    async fn set(
+        &self,
+        _tpe: VarType,
+        _scope: VarScope<'_>,
+        _name: &str,
+        _value: &str,
+    ) -> Result<(), SetVarError> {
+        Err(SetVarError::Internal(anyhow::anyhow!(
+            "Cannot create macros or set vars with mock storage"
+        )))
+    }
+
+    async fn get(
+        &self,
+        _tpe: VarType,
+        _scope: VarScope<'_>,
+        _name: &str,
+    ) -> Result<Option<String>> {
+        Ok(None)
+    }
+
+    async fn resolve(&self, _tpe: VarType, _owner: &str, _name: &str) -> Result<VarResolution> {
+        Ok(VarResolution::None)
+    }
+
+    async fn delete(&self, _tpe: VarType, _scope: VarScope<'_>, _names: &[&str]) -> Result<usize> {
+        Ok(0)
+    }
+
+    async fn list(&self, _tpe: VarType, _scope: VarScope<'_>) -> Result<Vec<(String, String)>> {
+        Ok(vec![])
+    }
+
+    async fn clear(&self, _tpe: VarType, _scope: VarScope<'_>) -> Result<()> {
+        Ok(())
+    }
+
+    // todo make this leak obsolete and remove it
+    async fn load_vars(&self, _owner: &str) -> Result<DashMap<String, String>> {
+        Ok(DashMap::new())
     }
 }

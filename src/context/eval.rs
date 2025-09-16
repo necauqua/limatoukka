@@ -7,6 +7,7 @@ use thiserror::Error;
 use crate::{
     commands::{args::Chatter, runner::CommandError},
     context::app::InterruptKind,
+    services::variables::VariableStorageExt,
 };
 
 use super::msg::MessageContext;
@@ -43,7 +44,7 @@ impl EvalContext {
         };
 
         Ok(Self {
-            vars: Arc::new(parent.runner().backend().load_vars(&owner.id).await?),
+            vars: Arc::new(parent.vars().load_vars(&owner.id).await?),
             shared: Arc::new(EvalContextShared {
                 owner,
                 macro_args: Default::default(),
@@ -89,7 +90,7 @@ impl EvalContext {
         let vars = if self.shared.owner.id == owner.id {
             self.vars.clone()
         } else {
-            Arc::new(self.runner().backend().load_vars(&owner.id).await?)
+            Arc::new(self.vars().load_vars(&owner.id).await?)
         };
         Ok(Self {
             shared: Arc::new(EvalContextShared {

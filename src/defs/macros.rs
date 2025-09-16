@@ -11,13 +11,15 @@ use crate::{
     commands::{
         CommandResult,
         args::{Chatter, InRange, RawScript, RestOfArgs, Script},
-        backend::{SetVarError, VarResolution, VarScope, VarType},
         command,
         runner::{CommandError, EvalError},
     },
     context::cmd::CommandContext,
     fail,
-    services::status_wall::StatusServiceExt,
+    services::{
+        status_wall::StatusServiceExt,
+        variables::{SetVarError, VarResolution, VarScope, VarType, VariableStorageExt},
+    },
 };
 
 /// Stores a string as a personal macro.
@@ -34,8 +36,7 @@ async fn macro_record(ctx: CommandContext, name: String, script: RawScript) -> C
     let name = name.to_lowercase();
 
     match ctx
-        .runner()
-        .backend()
+        .vars()
         .set(
             VarType::Macro,
             VarScope::Personal(ctx.owner()),
@@ -62,13 +63,8 @@ async fn macro_record(ctx: CommandContext, name: String, script: RawScript) -> C
 #[command(shortcode=md)]
 async fn macro_delete(ctx: CommandContext, name: String) -> CommandResult {
     if ctx
-        .runner()
-        .backend()
-        .delete(
-            VarType::Macro,
-            VarScope::Personal(ctx.owner()),
-            &[&name],
-        )
+        .vars()
+        .delete(VarType::Macro, VarScope::Personal(ctx.owner()), &[&name])
         .await?
         != 0
     {
@@ -92,8 +88,7 @@ async fn global_macro_record(
     }
     let name = name.to_lowercase();
     match ctx
-        .runner()
-        .backend()
+        .vars()
         .set(
             VarType::Macro,
             VarScope::Global,
@@ -118,8 +113,7 @@ async fn global_macro_record(
 #[command(permission=Moderator, shortcode=gmd)]
 async fn global_macro_delete(ctx: CommandContext, name: String) -> CommandResult {
     if ctx
-        .runner()
-        .backend()
+        .vars()
         .delete(VarType::Macro, VarScope::Global, &[&name])
         .await?
         != 0
@@ -137,8 +131,7 @@ async fn macro_get(
     chatter: Chatter,
 ) -> Result<String, CommandError> {
     match ctx
-        .runner()
-        .backend()
+        .vars()
         .get(VarType::Macro, VarScope::Personal(&chatter.id), name)
         .await?
     {
@@ -161,8 +154,7 @@ async fn macro_print(ctx: CommandContext, name: String, chatter: Chatter) -> Com
 #[command(sender_gate=5s, shortcode=gmp)]
 async fn global_macro_print(ctx: CommandContext, name: String) -> CommandResult {
     match ctx
-        .runner()
-        .backend()
+        .vars()
         .get(VarType::Macro, VarScope::Global, &name)
         .await?
     {
@@ -175,8 +167,7 @@ async fn global_macro_print(ctx: CommandContext, name: String) -> CommandResult 
 #[command(sender_gate=5s, shortcode=ml)]
 async fn macro_list(ctx: CommandContext, chatter: Chatter) -> CommandResult {
     ctx.reply(
-        ctx.runner()
-            .backend()
+        ctx.vars()
             .list(VarType::Macro, VarScope::Personal(&chatter.id))
             .await?
             .into_iter()
@@ -191,11 +182,7 @@ async fn macro_list(ctx: CommandContext, chatter: Chatter) -> CommandResult {
 /// List global macros recorded.
 #[command(sender_gate=5s, shortcode=gml)]
 async fn global_macro_list(ctx: CommandContext) -> CommandResult {
-    let mut macros = ctx
-        .runner()
-        .backend()
-        .list(VarType::Macro, VarScope::Global)
-        .await?;
+    let mut macros = ctx.vars().list(VarType::Macro, VarScope::Global).await?;
     macros.sort_unstable_by(|(a, _), (b, _)| a.cmp(b));
 
     // we assume the global macro list will always overflow the single message length
@@ -255,8 +242,7 @@ async fn r#macro(
     rest: RestOfArgs,
 ) -> CommandResult {
     let (script, global) = match ctx
-        .runner()
-        .backend()
+        .vars()
         .resolve(VarType::Macro, &chatter.id, &name)
         .await?
     {
@@ -435,14 +421,8 @@ async fn set(ctx: CommandContext, name: String, value: Option<String>) -> Comman
     let name = name.to_lowercase();
 
     match ctx
-        .runner()
-        .backend()
-        .set(
-            VarType::Var,
-            VarScope::Personal(ctx.owner()),
-            &name,
-            &value,
-        )
+        .vars()
+        .set(VarType::Var, VarScope::Personal(ctx.owner()), &name, &value)
         .await
     {
         Ok(_) => {
@@ -475,8 +455,7 @@ async fn global_set(ctx: CommandContext, name: String, value: Option<String>) ->
     let name = name.to_lowercase();
 
     match ctx
-        .runner()
-        .backend()
+        .vars()
         .set(VarType::Var, VarScope::Global, &name, &value)
         .await
     {
@@ -517,8 +496,7 @@ async fn del(ctx: CommandContext, names: RestOfArgs) -> CommandResult {
         .collect::<Vec<_>>(); // ugh
 
     match ctx
-        .runner()
-        .backend()
+        .vars()
         .delete(VarType::Var, VarScope::Personal(ctx.owner()), &names)
         .await?
     {
@@ -537,8 +515,7 @@ async fn del(ctx: CommandContext, names: RestOfArgs) -> CommandResult {
 #[command(sender_gate=5s)]
 async fn list_vars(ctx: CommandContext) -> CommandResult {
     let keys = ctx
-        .runner()
-        .backend()
+        .vars()
         .list(VarType::Var, VarScope::Personal(ctx.owner()))
         .await?
         .into_iter()
@@ -564,8 +541,7 @@ async fn get(ctx: CommandContext, name: String) -> CommandResult {
 /// Clears all of your variables.
 #[command]
 async fn clear(ctx: CommandContext) -> CommandResult {
-    ctx.runner()
-        .backend()
+    ctx.vars()
         .clear(VarType::Var, VarScope::Personal(ctx.owner()))
         .await?;
 

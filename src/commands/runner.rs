@@ -1,5 +1,6 @@
 use std::{
     any::Any,
+    collections::HashMap,
     fmt::{self, Display},
     sync::Arc,
     time::Duration,
@@ -16,17 +17,17 @@ use tracing::{Instrument, Span, debug_span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::{
-    commands::{
-        CommandTag,
-        backend::{RunnerBackend, VarResolution, VarType},
-    },
+    commands::CommandTag,
     context::{app::AppContext, eval::EvalContext, msg::MessageContext},
     services::{
+        Injector,
+        banishes::BanishService,
         charges::{Charges, ChargesServiceExt},
         gates::GateServiceExt,
         messaging::{Message, PermissionLevel},
         status_wall::StatusServiceExt,
-        storage::StorageServiceExt,
+        storage::StorageService,
+        variables::{VarResolution, VarType, VariableStorage},
     },
 };
 
@@ -44,18 +45,20 @@ macro_rules! fail {
 
 #[derive(Clone)]
 pub struct Runner {
-    backend: Arc<dyn RunnerBackend>,
+    commands: HashMap<String, Arc<NativeCommand>>,
+    vars: Arc<dyn VariableStorage>,
+    storage: Arc<dyn StorageService>,
+    banishes: Arc<dyn BanishService>,
 }
 
 impl Runner {
-    pub fn new(backend: impl RunnerBackend + 'static) -> Self {
+    pub fn new(commands: HashMap<String, Arc<NativeCommand>>, injector: &Injector) -> Self {
         Self {
-            backend: Arc::new(backend),
+            commands,
+            vars: injector.service(),
+            storage: injector.service(),
+            banishes: injector.service(),
         }
-    }
-
-    pub fn backend(&self) -> &dyn RunnerBackend {
-        &*self.backend
     }
 }
 
@@ -72,16 +75,16 @@ impl Runner {
             ctx.send("plink".into()).await?;
         }
 
-        let storage = ctx.storage();
         if s.level < PermissionLevel::Moderator {
-            if storage.has("settings:stop").await? {
+            if self.storage.has("settings:stop").await? {
                 return Ok(());
             }
-            if storage.has(&format!("settings:banished:{}", s.id)).await? {
+            if self.banishes.status(&s.id).await?.is_banished() {
                 return Ok(());
             }
-        } else if storage
-            .has(&format!("settings:turbo-banished:{}", s.id))
+        } else if self
+            .storage
+            .has(&format!("settings:turbo-banished:{}", s.login))
             .await?
         {
             return Ok(());
@@ -102,7 +105,7 @@ impl Runner {
         match self.eval(eval_ctx, stmt).await {
             Ok(_) | Err(EvalError::Interrupt) => {
                 Span::current().set_status(Status::Ok);
-                ctx.storage().del(&error_key).await?;
+                self.storage.del(&error_key).await?;
             }
             Err(EvalError::RecursionLimit) => unreachable!(),
             Err(EvalError::CommandErrors(errors)) => {
@@ -118,7 +121,7 @@ impl Runner {
                     err.push_str(&msg_id);
                     err.push(')');
                 }
-                ctx.storage().set(&error_key, &err).await?;
+                self.storage.set(&error_key, &err).await?;
             }
         }
         Ok(())
@@ -213,29 +216,29 @@ impl Runner {
         Ok((cmd_ctx, fut))
     }
 
+    pub fn get_command(&self, name: &str) -> Option<Arc<NativeCommand>> {
+        self.commands.get(name).cloned()
+    }
+
     async fn lookup(
         &self,
         owner: &str,
         name: &str,
         expr: &mut Command,
     ) -> Result<Option<Arc<NativeCommand>>> {
-        if let Some(meta) = self.backend.get_native_command(name).await? {
+        if let Some(meta) = self.get_command(name) {
             return Ok(Some(meta.clone()));
         }
 
         Ok(
-            match self
-                .backend
-                .resolve(VarType::Macro, owner, name)
-                .await?
-            {
+            match self.vars.resolve(VarType::Macro, owner, name).await? {
                 VarResolution::None => None,
                 _ => {
-                    if let Some(meta) = self.backend.get_native_command("macro").await? {
+                    if let Some(q) = self.get_command("macro") {
                         // empty string for current username, to allow macro params to immediately follow
                         expr.params.push_front(Param::default());
                         expr.params.push_front(Param::simple(name.to_owned()));
-                        Some(meta)
+                        Some(q)
                     } else {
                         None
                     }
