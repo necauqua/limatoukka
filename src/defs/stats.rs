@@ -89,7 +89,7 @@ async fn top(ctx: CommandContext, n: Option<InRange<1, 15>>) -> CommandResult {
 /// Get the place of the chatter (or you) in the "leaderboard" of how many messages they ~~spammed~~ sent
 #[command(sender_gate = 1m)]
 async fn rank(ctx: CommandContext, chatter: Chatter) -> CommandResult {
-    let (whom, whom2) = match ctx.owner() == chatter.id {
+    let (whom, whom2) = match ctx.owner() == &chatter {
         true => ("You", "you"),
         false => ("They", "them"),
     };

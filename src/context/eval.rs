@@ -7,25 +7,25 @@ use thiserror::Error;
 use crate::{
     commands::{args::Chatter, runner::CommandError},
     context::app::InterruptKind,
-    services::variables::VariableStorageExt,
 };
 
 use super::msg::MessageContext;
 
-pub struct EvalContextShared {
-    pub owner: Chatter,
-    pub macro_args: VecDeque<Option<String>>,
+struct Inner {
+    owner: Chatter,
+    macro_args: VecDeque<Option<String>>,
 }
 
 #[derive(Clone)]
 pub struct EvalContext {
-    pub shared: Arc<EvalContextShared>, // todo make this private lol
-    pub vars: Arc<DashMap<String, String>>,
+    parent: MessageContext,
+    inner: Arc<Inner>,
+    // separate Arc from inner because it's shared with nested eval contexts (see nest_macro)
+    locals: Arc<DashMap<String, String>>,
     pub in_global_macro: bool,
     pub macro_depth: u32,
     pub repeat_i: Option<NonZero<u32>>,
     pub depth: u32,
-    parent: MessageContext,
 }
 
 impl Deref for EvalContext {
@@ -42,23 +42,42 @@ impl EvalContext {
             id: parent.message().sender.id.clone(),
             login: parent.message().sender.login.clone(),
         };
-
         Ok(Self {
-            vars: Arc::new(parent.vars().load_vars(&owner.id).await?),
-            shared: Arc::new(EvalContextShared {
+            parent,
+            inner: Arc::new(Inner {
                 owner,
                 macro_args: Default::default(),
             }),
+            locals: Default::default(),
             in_global_macro: false,
             macro_depth: 0,
             repeat_i: None,
             depth: 0,
-            parent,
         })
     }
 
-    pub fn owner(&self) -> &str {
-        &self.shared.owner.id
+    pub fn owner(&self) -> &Chatter {
+        &self.inner.owner
+    }
+
+    pub fn macro_arg(&self, i: usize) -> Option<&str> {
+        self.inner.macro_args.get(i).and_then(|s| s.as_deref())
+    }
+
+    pub fn set_local(&self, name: String, value: String) {
+        self.locals.insert(name, value);
+    }
+
+    pub fn remove_local(&self, name: &str) {
+        self.locals.remove(name);
+    }
+
+    pub fn clear_locals(&self) {
+        self.locals.clear();
+    }
+
+    pub fn local_var(&self, name: &str) -> Option<String> {
+        self.locals.get(name).map(|v| v.value().clone())
     }
 
     pub fn nesting_str(&self) -> String {
@@ -85,24 +104,20 @@ impl EvalContext {
         &self,
         owner: Chatter,
         is_global: bool,
-        args: VecDeque<Option<String>>,
+        macro_args: VecDeque<Option<String>>,
     ) -> Result<Self> {
-        let vars = if self.shared.owner.id == owner.id {
-            self.vars.clone()
-        } else {
-            Arc::new(self.vars().load_vars(&owner.id).await?)
+        let locals = match self.inner.owner == owner {
+            true => self.locals.clone(),
+            false => Default::default(),
         };
         Ok(Self {
-            shared: Arc::new(EvalContextShared {
-                owner,
-                macro_args: args,
-            }),
-            vars,
+            parent: self.parent.clone(),
+            inner: Arc::new(Inner { owner, macro_args }),
+            locals,
             in_global_macro: self.in_global_macro || is_global,
             macro_depth: self.macro_depth + (!is_global) as u32,
             repeat_i: self.repeat_i,
             depth: self.depth + 1,
-            parent: self.parent.clone(),
         })
     }
 

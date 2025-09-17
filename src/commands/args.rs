@@ -15,8 +15,11 @@ use tokio::task::JoinSet;
 use crate::{
     context::cmd::CommandContext,
     services::{
-        caches::CacheServiceExt, charges::ChargesServiceExt, music::MusicServiceExt,
+        caches::CacheServiceExt,
+        charges::ChargesServiceExt,
+        music::MusicServiceExt,
         twitch::TwitchServiceExt,
+        variables::{VarType, VariableStorageExt},
     },
 };
 
@@ -69,7 +72,7 @@ async fn var_resolvers(ctx: &CommandContext, name: &str) -> anyhow::Result<Optio
                 return Ok(Some(i.to_string()));
             }
         }
-        "self" => return Ok(Some(ctx.shared.owner.login.clone())),
+        "self" => return Ok(Some(ctx.owner().login.clone())),
         "rand" => return Ok(Some(rand::random_range(0..100_i32).to_string())),
         "volume" => {
             let volume = ctx.music().get_volume().await?;
@@ -81,15 +84,22 @@ async fn var_resolvers(ctx: &CommandContext, name: &str) -> anyhow::Result<Optio
         }
         _ => {}
     }
-    if let Some(arg) = name.parse::<u32>().ok().filter(|n| *n != 0).and_then(|n| {
-        ctx.shared
-            .macro_args
-            .get((n - 1) as _)
-            .and_then(|opt| opt.as_ref())
-    }) {
-        return Ok(Some(arg.clone()));
+    if let Some(arg) = name
+        .parse::<u32>()
+        .ok()
+        .filter(|n| *n != 0)
+        .and_then(|n| ctx.macro_arg((n - 1) as _))
+    {
+        return Ok(Some(arg.to_owned()));
     }
-    Ok(ctx.vars.get(name).map(|v| v.clone()))
+    if let Some(local) = ctx.local_var(name) {
+        return Ok(Some(local));
+    }
+    Ok(ctx
+        .vars()
+        .resolve(VarType::Var, &ctx.owner().id, name)
+        .await?
+        .into_option())
 }
 
 async fn expand(ctx: &CommandContext, param: Param) -> anyhow::Result<CompactString> {
@@ -479,10 +489,16 @@ impl<const A: u32, const B: u32> CommandArg for InRange<A, B> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq)]
 pub struct Chatter {
     pub id: String,
     pub login: String,
+}
+
+impl PartialEq for Chatter {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
 }
 
 // most often used as part of a redis key
@@ -496,7 +512,7 @@ impl Display for Chatter {
 impl CommandArg for Chatter {
     async fn parse_opt(ctx: &CommandContext, arg: Option<CompactString>) -> ArgResult<Self> {
         let Some(login) = arg else {
-            return Ok(ctx.shared.owner.clone());
+            return Ok(ctx.owner().clone());
         };
         let login = login.trim().to_lowercase();
 

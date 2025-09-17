@@ -193,12 +193,12 @@ impl Runner {
 
         let owner = ctx.owner();
 
-        let found = match self.lookup(owner, &token.name, command).await? {
+        let found = match self.lookup(&owner.id, &token.name, command).await? {
             Some(r) => Some(r),
             None => match token.split_inline_number() {
                 Some((name, n)) => {
                     command.params.push_front(Param::simple(n.to_owned()));
-                    self.lookup(owner, name, command).await?
+                    self.lookup(&owner.id, name, command).await?
                 }
                 None => None,
             },

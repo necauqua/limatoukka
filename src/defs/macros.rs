@@ -39,7 +39,7 @@ async fn macro_record(ctx: CommandContext, name: String, script: RawScript) -> C
         .vars()
         .set(
             VarType::Macro,
-            VarScope::Personal(ctx.owner()),
+            VarScope::Personal(&ctx.owner().id),
             &name,
             &script.stmt.original,
         )
@@ -66,7 +66,11 @@ async fn macro_delete(ctx: CommandContext, name: String) -> CommandResult {
 
     if ctx
         .vars()
-        .delete(VarType::Macro, VarScope::Personal(ctx.owner()), &[&name])
+        .delete(
+            VarType::Macro,
+            VarScope::Personal(&ctx.owner().id),
+            &[&name],
+        )
         .await?
         != 0
     {
@@ -432,18 +436,18 @@ async fn set(ctx: CommandContext, name: String, value: Option<String>) -> Comman
 
     match ctx
         .vars()
-        .set(VarType::Var, VarScope::Personal(ctx.owner()), &name, &value)
+        .set(
+            VarType::Var,
+            VarScope::Personal(&ctx.owner().id),
+            &name,
+            &value,
+        )
         .await
     {
-        Ok(_) => {
-            ctx.vars.insert(name, value);
-            Ok(())
-        }
+        Ok(()) => Ok(()),
         Err(SetVarError::TooManyVars) => {
-            ctx.reply(
-                "too many variables brother, this incident will be investigated Stare".into(),
-            )
-            .await?;
+            ctx.fail("too many variables brother, this incident will be investigated Stare")
+                .await?;
             Ok(())
         }
         Err(SetVarError::Internal(e)) => Err(CommandError::Internal(e)),
@@ -469,11 +473,7 @@ async fn global_set(ctx: CommandContext, name: String, value: Option<String>) ->
         .set(VarType::Var, VarScope::Global, &name, &value)
         .await
     {
-        Ok(_) => {
-            // only insert into cache if was not set there before
-            ctx.vars.entry(name).or_insert(value);
-            Ok(())
-        }
+        Ok(()) => Ok(()),
         Err(SetVarError::TooManyVars) => Err(CommandError::Internal(anyhow!(
             "too many vars at the global scope, this should not happen"
         ))),
@@ -488,8 +488,7 @@ async fn r#let(ctx: CommandContext, name: String, value: Option<String>) -> Comm
     if name.len() > 8192 || value.len() > 8192 {
         fail!("name or value too long (max 8192 chars)");
     }
-    let name = name.to_lowercase();
-    ctx.vars.insert(name, value);
+    ctx.set_local(name.to_lowercase(), value);
     Ok(())
 }
 
@@ -507,7 +506,7 @@ async fn del(ctx: CommandContext, names: RestOfArgs) -> CommandResult {
 
     match ctx
         .vars()
-        .delete(VarType::Var, VarScope::Personal(ctx.owner()), &names)
+        .delete(VarType::Var, VarScope::Personal(&ctx.owner().id), &names)
         .await?
     {
         // 0 => fail!("no vars deleted"),
@@ -515,7 +514,7 @@ async fn del(ctx: CommandContext, names: RestOfArgs) -> CommandResult {
         n => ctx.reply(format!("{n} vars deleted")).await?,
     }
     for name in names {
-        ctx.vars.remove(name);
+        ctx.remove_local(name);
     }
 
     Ok(())
@@ -526,7 +525,7 @@ async fn del(ctx: CommandContext, names: RestOfArgs) -> CommandResult {
 async fn list_vars(ctx: CommandContext) -> CommandResult {
     let keys = ctx
         .vars()
-        .list(VarType::Var, VarScope::Personal(ctx.owner()))
+        .list(VarType::Var, VarScope::Personal(&ctx.owner().id))
         .await?
         .into_iter()
         .map(|(k, _)| k)
@@ -540,8 +539,19 @@ async fn list_vars(ctx: CommandContext) -> CommandResult {
 /// A debug command that replies with the value of the given variable.
 #[command(sender_gate=5s)]
 async fn get(ctx: CommandContext, name: String) -> CommandResult {
-    ctx.reply(match ctx.vars.get(&name) {
-        Some(value) => format!("{name} = {}", *value),
+    let name = name.to_lowercase();
+
+    let var = match ctx.local_var(&name) {
+        Some(value) => Some(value),
+        None => ctx
+            .vars()
+            .resolve(VarType::Var, &ctx.owner().id, &name)
+            .await?
+            .into_option(),
+    };
+
+    ctx.reply(match var {
+        Some(value) => format!("{name} = {value}"),
         None => format!("no variable named `{name}`"),
     })
     .await?;
@@ -552,10 +562,10 @@ async fn get(ctx: CommandContext, name: String) -> CommandResult {
 #[command]
 async fn clear(ctx: CommandContext) -> CommandResult {
     ctx.vars()
-        .clear(VarType::Var, VarScope::Personal(ctx.owner()))
+        .clear(VarType::Var, VarScope::Personal(&ctx.owner().id))
         .await?;
 
-    ctx.vars.clear();
+    ctx.clear_locals();
 
     Ok(())
 }

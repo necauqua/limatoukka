@@ -44,6 +44,16 @@ pub enum VarResolution {
     Global(String),
 }
 
+impl VarResolution {
+    pub fn into_option(self) -> Option<String> {
+        match self {
+            VarResolution::None => None,
+            VarResolution::Personal(s) => Some(s),
+            VarResolution::Global(s) => Some(s),
+        }
+    }
+}
+
 #[async_trait]
 pub trait VariableStorage: Send + Sync {
     async fn set(
