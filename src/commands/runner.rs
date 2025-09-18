@@ -25,6 +25,7 @@ use crate::{
         charges::{Charges, ChargesServiceExt},
         gates::GateServiceExt,
         messaging::{Message, PermissionLevel},
+        stats::StatsServiceExt,
         status_wall::StatusServiceExt,
         storage::StorageService,
         variables::{VarResolution, VarType, VariableStorage},
@@ -341,6 +342,14 @@ impl Runner {
         };
 
         tracing::trace!("running: {}", ctx.token);
+        let stats = ctx.stats();
+        stats
+            .record(ctx.sender(), &format!("command:{}", &ctx.token.name))
+            .await?;
+        stats.record(ctx.sender(), "commands").await?;
+        stats
+            .record(ctx.sender(), &format!("symbol:{:?}", ctx.token.symbol))
+            .await?;
 
         let res = fut.await;
 

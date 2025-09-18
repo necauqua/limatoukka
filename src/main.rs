@@ -24,6 +24,7 @@ use tpn_bot::{
         music::{MusicService, MusicServiceImpl},
         noita::{ItemFound, NoitaEvent, NoitaHandle, NoitaHandleExt},
         sounds::{SoundService, SoundServiceExt, SoundServiceImpl},
+        stats::{StatsService, StatsServiceRedis},
         status_wall::{StatusService, StatusWall},
         storage::{StorageService, StorageServiceExt, StorageServiceRedis},
         tts::{TtsService, TtsServiceExt, TtsServiceImpl},
@@ -57,6 +58,7 @@ async fn run(config: Config) -> Result<()> {
         .with::<dyn StorageService>(Arc::new(StorageServiceRedis::new(valkey.clone())))
         .with::<dyn VariableStorage>(Arc::new(VariableStorageRedis::new(valkey.clone())))
         .with::<dyn CacheService>(Arc::new(CacheServiceRedis::new(valkey.clone())))
+        .with::<dyn StatsService>(Arc::new(StatsServiceRedis::new(valkey.clone())))
         .with::<dyn IpcService>(Arc::new(IpcServiceRedis::new(valkey.clone())))
         .with::<dyn BanishService>(Arc::new(BanishServiceRedis::new(valkey.clone())))
         .with::<dyn ChargesService>(Arc::new(ChargesServiceRedis::new(valkey.clone())))

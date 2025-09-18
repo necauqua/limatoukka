@@ -17,6 +17,7 @@ pub mod messaging;
 pub mod music;
 pub mod noita;
 pub mod sounds;
+pub mod stats;
 pub mod status_wall;
 pub mod storage;
 pub mod tts;

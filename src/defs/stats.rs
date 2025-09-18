@@ -6,7 +6,10 @@ use crate::{
     },
     context::cmd::CommandContext,
     fail,
-    services::chat_log::{ChatLogServiceExt, Edge, Rank},
+    services::{
+        chat_log::{ChatLogServiceExt, Edge, Rank},
+        stats::StatsServiceExt,
+    },
 };
 
 /// Count the amount of messages typed by a chatter.
@@ -107,5 +110,29 @@ async fn rank(ctx: CommandContext, chatter: Chatter) -> CommandResult {
         Rank::Bottom => "Placed >999, not enough spam KEKW".into(),
     })
     .await?;
+    Ok(())
+}
+
+/// Get the amount of times you or some other chatter has successfully(!) used
+/// the given command (does not work with shortcodes, use the full command
+/// name).
+///
+/// Note that the accurate counting only started since the introduction of this
+/// command (with ping~ manually backfilled from chat logs of bot replies).
+#[command(sender_gate = 15s)]
+async fn command_stat(ctx: CommandContext, name: String, chatter: Chatter) -> CommandResult {
+    let name = name.to_lowercase();
+    match ctx
+        .stats()
+        .get(&chatter.id, &format!("command:{name}"))
+        .await?
+    {
+        0 => ctx.reply(format!("never ran the {name} command")).await?,
+        1 => ctx.reply(format!("ran the {name} command 1 time")).await?,
+        count => {
+            ctx.reply(format!("ran the {name} command {count} times"))
+                .await?
+        }
+    }
     Ok(())
 }
