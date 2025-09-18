@@ -35,7 +35,7 @@ async fn echo(ctx: CommandContext, text: String) -> CommandResult {
 /// Last error message is set when you run invalid commands, or if the command
 /// execution managed to crash somehow. In the latter case, you'll be given the
 /// message id - please send it to me to look at logs and fix the issue.
-#[command(sender_gate = 3s)]
+#[command(sender_gate = 3s, shortcode=le)]
 async fn last_error(ctx: CommandContext, chatter: Chatter) -> CommandResult {
     ctx.reply(
         ctx.storage()
