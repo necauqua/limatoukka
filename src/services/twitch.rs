@@ -2,6 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use futures::TryStreamExt;
 use twitch_api::helix::{
+    ClientRequestError, HelixRequestGetError,
     channels::{
         ModifyChannelInformation, ModifyChannelInformationBody, ModifyChannelInformationRequest,
     },
@@ -52,11 +53,23 @@ impl TwitchService for TwitchServiceImpl {
     }
 
     async fn get_user_id(&self, login: &str) -> Result<Option<String>> {
-        let user = self
+        match self
             .0
             .call(async |t| t.helix.get_user_from_login(login, &t.token).await)
-            .await?;
-        Ok(user.map(|u| u.id.take()))
+            .await
+        {
+            Ok(user) => Ok(user.map(|u| u.id.take())),
+            Err(e) => match e.downcast_ref::<ClientRequestError<reqwest::Error>>() {
+                Some(ClientRequestError::HelixRequestGetError(HelixRequestGetError::Error {
+                    message,
+                    ..
+                })) => {
+                    tracing::warn!(message, "twitch returned error");
+                    Ok(None)
+                }
+                _ => Err(e),
+            },
+        }
     }
 
     async fn set_stream_title(&self, title: &str) -> Result<()> {
@@ -99,6 +112,24 @@ impl TwitchService for TwitchServiceImpl {
                 Ok(())
             })
             .await?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::config::Config;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn get_user_id() -> Result<()> {
+        let twitch = TwitchApi::new(&Config::load()?).await?;
+        let service = TwitchServiceImpl::new(twitch);
+
+        let user_id = service.get_user_id("lasiace").await?;
+        println!("{user_id:?}");
+
         Ok(())
     }
 }

@@ -128,12 +128,23 @@ mission-failed:
   exclusive: true
   sender-gate: 10m
 
+lasiace:
+  file: "lasiace.ogg"
+  volume: 0.4
+  sender-gate: 5m
+
 PING:
   variants:
     - file: "AUGH.ogg"
       volume: 0.1
     - file: "undertakers-bell.ogg"
       volume: 0.1
+
+lasiace-raid:
+  file: "lasiace-raid.ogg"
+  volume: 0.4
+  exclusive: true
+  sender-gate: 1h
 
 RAID:
   file: "pipes.ogg"

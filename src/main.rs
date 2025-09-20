@@ -429,8 +429,12 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
                 "raid"
             );
 
+            let raid_sound = match data.from_broadcaster_user_id.as_str() {
+                "39063397" => "lasiace-raid",
+                _ => "RAID",
+            };
             let sound_service = ctx.sounds();
-            let sound = tokio::spawn(async move { sound_service.play_builtin("RAID").await });
+            let sound = tokio::spawn(async move { sound_service.play_builtin(raid_sound).await });
 
             ctx.send(format!(
                 "VoHiYo Thanks for the raid @{}, and welcome raiders TwitchUnity",
