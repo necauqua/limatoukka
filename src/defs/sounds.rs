@@ -160,10 +160,8 @@ async fn song_request(
             ctx.storage()
                 .set(&format!("song-requester:{id}"), &ctx.message().sender.name)
                 .await?;
-            ctx.send(format!(
-                "Added a song to be played next: {author} - {title}"
-            ))
-            .await?;
+            ctx.send(format!("Added a song to the queue: {author} - {title}"))
+                .await?;
         }
         Err(AddSongError::Internal(e)) => return Err(CommandError::Internal(e)),
         Err(e) => ctx.fail(e.to_string()).await?,
