@@ -20,10 +20,7 @@ use crate::{
 async fn balance(ctx: CommandContext, chatter: Chatter) -> CommandResult {
     let charges = ctx.charges().get(&chatter.id).await?;
 
-    let whom = match ctx.owner() == &chatter {
-        true => "Your",
-        false => "Their",
-    };
+    let whom = chatter.them(ctx.owner(), "Your", "Their");
 
     ctx.reply(format!("{whom} balance is {charges}")).await?;
 

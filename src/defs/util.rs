@@ -42,10 +42,7 @@ async fn last_error(ctx: CommandContext, chatter: Chatter) -> CommandResult {
             .get(&format!("last-error:{chatter}"))
             .await?
             .unwrap_or_else(|| {
-                let whom = match ctx.owner() == &chatter {
-                    true => "your",
-                    false => "their",
-                };
+                let whom = chatter.them(ctx.owner(), "your", "their");
                 format!("No errors in {whom} last message")
             }),
     )
@@ -216,10 +213,7 @@ async fn what_is(ctx: CommandContext, name: String, to: Chatter) -> CommandResul
 
     match ctx.vars().resolve(VarType::Macro, &to.id, &name).await? {
         VarResolution::Personal(script) => {
-            let whom = match ctx.owner() == &to {
-                true => "your",
-                false => "their",
-            };
+            let whom = to.them(ctx.owner(), "your", "their");
             ctx.reply(format!("`{name}` is one of {whom} macros: {script}"))
                 .await?;
         }

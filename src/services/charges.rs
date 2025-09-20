@@ -7,6 +7,7 @@ use rustis::{
     client::Client as ValkeyClient,
     commands::{CallBuilder, ScriptingCommands, StringCommands},
 };
+use serde::{Deserialize, Serialize};
 
 use crate::{
     commands::args::{ArgError, ArgResult, CommandArg},
@@ -14,11 +15,20 @@ use crate::{
     injector_getter,
 };
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct Charges(i64);
 
 impl Charges {
     pub const ONE: Self = Self::whole(1);
+
+    pub const fn is_zero(&self) -> bool {
+        self.0 == 0
+    }
+
+    pub const fn non_zero(&self) -> bool {
+        self.0 != 0
+    }
 
     pub const fn whole(whole: i64) -> Self {
         Self(whole * 1000)
@@ -26,6 +36,10 @@ impl Charges {
 
     pub const fn as_i64(&self) -> i64 {
         self.0
+    }
+
+    pub const fn as_u64(&self) -> u64 {
+        self.0 as _
     }
 }
 

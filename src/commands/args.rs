@@ -495,6 +495,17 @@ pub struct Chatter {
     pub login: String,
 }
 
+pub enum Addressed {
+    You,
+    Them,
+}
+
+impl Chatter {
+    pub fn them<T>(&self, owner: &Chatter, you: T, they: T) -> T {
+        if self == owner { you } else { they }
+    }
+}
+
 impl PartialEq for Chatter {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id

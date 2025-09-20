@@ -6,21 +6,23 @@ use rustis::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::injector_getter;
+use crate::{injector_getter, services::charges::Charges};
 
 #[derive(Serialize, Deserialize)]
 pub struct Bet {
     pub option: String,
-    pub amount: u64,
+    pub amount: Charges,
 }
 
 #[async_trait]
 pub trait BetsService: Send + Sync {
-    async fn place_bet(&self, bet_id: &str, user_id: &str, bet: &Bet) -> Result<u64>;
+    async fn place(&self, bet_id: &str, user_id: &str, bet: &Bet) -> Result<u64>;
 
-    async fn remove_bet(&self, bet_id: &str, user_id: &str) -> Result<(Option<Bet>, u64)>;
+    async fn get(&self, bet_id: &str, user_id: &str) -> Result<Option<Bet>>;
 
-    async fn bet_count(&self, bet_id: &str) -> Result<Option<u64>>;
+    async fn remove(&self, bet_id: &str, user_id: &str) -> Result<(Option<Bet>, u64)>;
+
+    async fn count(&self, bet_id: &str) -> Result<Option<u64>>;
 
     async fn finalize(&self, bet_id: &str) -> Result<Vec<(String, Bet)>>;
 }
@@ -39,7 +41,7 @@ impl BetsServiceRedis {
 
 #[async_trait]
 impl BetsService for BetsServiceRedis {
-    async fn place_bet(&self, bet_id: &str, user_id: &str, bet: &Bet) -> Result<u64> {
+    async fn place(&self, bet_id: &str, user_id: &str, bet: &Bet) -> Result<u64> {
         let key = format!("bet:{bet_id}");
 
         let mut t = self.client.create_transaction();
@@ -50,7 +52,14 @@ impl BetsService for BetsServiceRedis {
         Ok(t.execute().await?)
     }
 
-    async fn remove_bet(&self, bet_id: &str, user_id: &str) -> Result<(Option<Bet>, u64)> {
+    async fn get(&self, bet_id: &str, user_id: &str) -> Result<Option<Bet>> {
+        let key = format!("bet:{bet_id}");
+
+        let json: Option<String> = self.client.hget(&key, user_id).await?;
+        Ok(json.map(|b| serde_json::from_str(&b)).transpose()?)
+    }
+
+    async fn remove(&self, bet_id: &str, user_id: &str) -> Result<(Option<Bet>, u64)> {
         let key = format!("bet:{bet_id}");
 
         let mut t = self.client.create_transaction();
@@ -63,7 +72,7 @@ impl BetsService for BetsServiceRedis {
         Ok((bet, len))
     }
 
-    async fn bet_count(&self, bet_id: &str) -> Result<Option<u64>> {
+    async fn count(&self, bet_id: &str) -> Result<Option<u64>> {
         let key = format!("bet:{bet_id}");
 
         let mut t = self.client.create_transaction();

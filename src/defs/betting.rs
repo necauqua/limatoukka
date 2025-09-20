@@ -2,7 +2,11 @@ use maud::{Markup, html};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    commands::{CommandResult, args::RestOfArgs, command},
+    commands::{
+        CommandResult,
+        args::{Chatter, RestOfArgs},
+        command,
+    },
     context::cmd::CommandContext,
     fail,
     services::{
@@ -108,7 +112,7 @@ async fn reopen(ctx: CommandContext) -> CommandResult {
 
     ctx.send("[!!!] Bet was reopened".into()).await?;
 
-    let total = ctx.bets().bet_count("current").await?.unwrap_or_default();
+    let total = ctx.bets().count("current").await?.unwrap_or_default();
     ctx.status()
         .set_and_bump(bet.status_key, render_status(total, &bet.premise).into())
         .await;
@@ -129,7 +133,7 @@ async fn is_bet(ctx: CommandContext) -> CommandResult {
         if bet.closed { "closed" } else { "open" },
         bet.premise,
         bet.options.join(", "),
-        ctx.bets().bet_count("current").await?.unwrap_or_default(),
+        ctx.bets().count("current").await?.unwrap_or_default(),
     ))
     .await?;
 
@@ -164,10 +168,10 @@ async fn bet(ctx: CommandContext, option: String, wager: Option<Charges>) -> Com
 
     let bets = ctx.bets();
 
-    if let (Some(prev), _) = bets.remove_bet("current", ctx.sender()).await?
-        && prev.amount != 0
+    if let (Some(prev), _) = bets.remove("current", ctx.sender()).await?
+        && prev.amount.non_zero()
     {
-        ctx.charges().add(ctx.sender(), prev.amount.into()).await?;
+        ctx.charges().add(ctx.sender(), prev.amount).await?;
     }
 
     if let Some(wager) = wager
@@ -178,27 +182,54 @@ async fn bet(ctx: CommandContext, option: String, wager: Option<Charges>) -> Com
 
     let wager = Bet {
         option,
-        amount: wager.map_or(0, |c| c.as_i64() as _),
+        amount: wager.unwrap_or_default(),
     };
 
-    let total = ctx
-        .bets()
-        .place_bet("current", ctx.sender(), &wager)
-        .await?;
+    let total = ctx.bets().place("current", ctx.sender(), &wager).await?;
 
-    ctx.reply(match wager.amount {
-        0 => format!("bet on '{}' accepted", wager.option),
-        _ => format!(
+    ctx.reply(if wager.amount.non_zero() {
+        format!(
             "accepted {} for as a bet on '{}'",
-            Charges::from(wager.amount),
-            wager.option,
-        ),
+            wager.amount, wager.option,
+        )
+    } else {
+        format!("bet on '{}' accepted", wager.option)
     })
     .await?;
 
     ctx.status()
         .set_and_bump(bet.status_key, render_status(total, &bet.premise).into())
         .await;
+
+    Ok(())
+}
+
+/// Get your current bet, if any.
+#[command(sender_gate = 5s)]
+async fn get_bet(ctx: CommandContext, chatter: Chatter) -> CommandResult {
+    if ctx
+        .storage()
+        .load::<BetSetup>("bet:current")
+        .await?
+        .is_none()
+    {
+        ctx.fail("There is no active bet").await?;
+        return Ok(());
+    };
+
+    let whom = chatter.them(ctx.owner(), "You", "They");
+
+    match ctx.bets().get("current", &chatter.id).await? {
+        None => ctx.fail("{whom} did not bet yet").await?,
+        Some(wager) if wager.amount.non_zero() => {
+            ctx.reply(format!("{whom} bet {} on '{}'", wager.amount, wager.option))
+                .await?
+        }
+        Some(wager) => {
+            ctx.reply(format!("{whom} bet on '{}'", wager.option))
+                .await?
+        }
+    }
 
     Ok(())
 }
@@ -213,23 +244,25 @@ async fn unbet(ctx: CommandContext) -> CommandResult {
         fail!("Bet is closed");
     }
 
-    let (wager, total) = ctx.bets().remove_bet("current", ctx.sender()).await?;
+    let (wager, total) = ctx.bets().remove("current", ctx.sender()).await?;
 
-    ctx.reply(match wager {
-        Some(wager) if wager.amount != 0 => {
+    match wager {
+        None => ctx.fail("you did not bet").await?,
+        Some(wager) if wager.amount.non_zero() => {
             // refund
-            ctx.charges().add(ctx.sender(), wager.amount.into()).await?;
+            ctx.charges().add(ctx.sender(), wager.amount).await?;
 
-            format!(
+            ctx.reply(format!(
                 "removed your '{}' bet (refunded {})",
-                wager.option,
-                Charges::from(wager.amount)
-            )
+                wager.option, wager.amount,
+            ))
+            .await?
         }
-        Some(wager) => format!("removed your '{}' bet", wager.option),
-        None => "you did not bet".into(),
-    })
-    .await?;
+        Some(wager) => {
+            ctx.reply(format!("removed your '{}' bet", wager.option))
+                .await?
+        }
+    };
 
     ctx.status()
         .set_and_bump(bet.status_key, render_status(total, &bet.premise).into())
@@ -248,8 +281,8 @@ async fn cancel_bet(ctx: CommandContext) -> CommandResult {
     };
 
     for (user_id, bet) in ctx.bets().finalize("current").await? {
-        if bet.amount != 0 {
-            ctx.charges().add(&user_id, bet.amount.into()).await?;
+        if bet.amount.non_zero() {
+            ctx.charges().add(&user_id, bet.amount).await?;
         }
     }
 
@@ -270,19 +303,22 @@ async fn cancel_bet(ctx: CommandContext) -> CommandResult {
 async fn rollback(ctx: CommandContext) -> CommandResult {
     let storage = ctx.storage();
 
-    let Some(LastBet { bet, wins }) = storage.load::<LastBet>("last-bet").await? else {
+    let Some(LastBet { bet, result, wins }) = storage.load::<LastBet>("last-bet").await? else {
         fail!("No bet to rollback");
     };
 
     let charges = ctx.charges();
     for (user_id, amount) in wins {
-        charges.add(&user_id, -Charges::from(amount)).await?;
+        // add negative instead of consume to put people into negatives
+        // if they managed to immediately spend the win
+        charges.add(&user_id, -amount).await?;
     }
 
     storage.save("bet:current", &bet).await?;
     storage.del("last-bet").await?;
 
-    ctx.send("[!!!] Bet rolled back".into()).await?;
+    ctx.send(format!("[!!!] Bet rolled back (settlement was '{result}')"))
+        .await?;
 
     Ok(())
 }
@@ -290,7 +326,8 @@ async fn rollback(ctx: CommandContext) -> CommandResult {
 #[derive(Serialize, Deserialize, Debug)]
 struct LastBet {
     bet: BetSetup,
-    wins: Vec<(String, u64)>,
+    result: String,
+    wins: Vec<(String, Charges)>,
 }
 
 /// Settle the current bet, paying out the users who bet on the given option.
@@ -316,9 +353,9 @@ async fn settle(ctx: CommandContext, option: String) -> CommandResult {
     let mut winner_pool = 0;
     let mut losers = 0;
     for (user_id, bet) in bets {
-        total_pool += bet.amount;
+        total_pool += bet.amount.as_u64();
         if bet.option.eq_ignore_ascii_case(&option) {
-            winner_pool += bet.amount;
+            winner_pool += bet.amount.as_u64();
             wins.push((user_id, bet.amount));
         } else {
             losers += 1;
@@ -327,20 +364,26 @@ async fn settle(ctx: CommandContext, option: String) -> CommandResult {
 
     // huh
     if winner_pool != 0 {
-        for win in &mut wins {
-            win.1 = (win.1 * total_pool / winner_pool).max(1000);
+        for (_, amount) in &mut wins {
+            *amount = (amount.as_u64() * total_pool / winner_pool)
+                .max(1000)
+                .into();
         }
     } else {
-        for win in &mut wins {
-            win.1 = 1000;
+        for (_, amount) in &mut wins {
+            *amount = Charges::ONE;
         }
     }
 
-    let last_bet = LastBet { bet, wins };
+    let last_bet = LastBet {
+        bet,
+        result: option,
+        wins,
+    };
 
     let charges = ctx.charges();
     for (user_id, amount) in &last_bet.wins {
-        charges.add(user_id, (*amount).into()).await?;
+        charges.add(user_id, *amount).await?;
     }
 
     ctx.status().remove(last_bet.bet.status_key).await;
