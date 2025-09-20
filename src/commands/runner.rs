@@ -75,7 +75,7 @@ impl Runner {
         }
 
         if s.level < PermissionLevel::Moderator {
-            if self.storage.has("settings:stop").await? {
+            if self.storage.has("setting:stop").await? {
                 return Ok(());
             }
             if self.banishes.status(&s.id).await?.is_banished() {
@@ -83,7 +83,7 @@ impl Runner {
             }
         } else if self
             .storage
-            .has(&format!("settings:turbo-banished:{}", s.login))
+            .has(&format!("setting:turbo-banished:{}", s.login))
             .await?
         {
             return Ok(());

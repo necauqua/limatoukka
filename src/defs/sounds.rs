@@ -141,7 +141,7 @@ async fn song_request(
     url_or_id: String,
     extra: Option<String>,
 ) -> CommandResult {
-    if ctx.storage().has("settings:nosr").await? {
+    if ctx.storage().has("setting:nosr").await? {
         ctx.fail("Song requests are disabled").await?;
     }
 
