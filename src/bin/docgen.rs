@@ -2,12 +2,12 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use humantime_serde::re::humantime;
-use serde::Serialize;
-use strum::{EnumMessage, IntoEnumIterator};
-use tpn_bot::{
+use limatoukka::{
     commands::{CommandTag, NativeCommand},
     services::{charges::Charges, messaging::PermissionLevel},
 };
+use serde::Serialize;
+use strum::{EnumMessage, IntoEnumIterator};
 
 fn capitalise(s: &str) -> String {
     let mut c = s.chars();

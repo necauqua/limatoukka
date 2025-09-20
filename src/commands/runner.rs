@@ -10,11 +10,9 @@ use anyhow::Result;
 use humantime_serde::re::humantime;
 use maud::html;
 use neca_cmd::{Command, Statement, Token, param::Param};
-use opentelemetry::trace::Status;
 use thiserror::Error;
 use tokio::task::JoinSet;
-use tracing::{Instrument, Span, debug_span};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
+use tracing::{Instrument, debug_span};
 
 use crate::{
     commands::CommandTag,
@@ -105,13 +103,10 @@ impl Runner {
 
         match self.eval(eval_ctx, stmt).await {
             Ok(_) | Err(EvalError::Interrupt) => {
-                Span::current().set_status(Status::Ok);
                 self.storage.del(&error_key).await?;
             }
             Err(EvalError::RecursionLimit) => unreachable!(),
             Err(EvalError::CommandErrors(errors)) => {
-                Span::current().set_status(Status::error("error"));
-
                 let mut err = errors
                     .iter()
                     .map(|e| e.to_string())
@@ -254,26 +249,21 @@ impl Runner {
         let mut result = Vec::new();
         for (ctx, fut) in sequence {
             // spawn a task for each command to catch panics
-            let cmd_span = debug_span!("command", cmd.name=%ctx.token.name, cmd.tpe=?ctx.token.symbol, ?ctx.pos, otel.name=format!("{}", ctx.token));
-            let cmd_span_inner = cmd_span.clone();
+            let cmd_span = debug_span!("command", cmd.name=%ctx.token.name, cmd.tpe=?ctx.token.symbol, ?ctx.pos);
             let ctx_inner = ctx.clone();
             let handle = tokio::spawn(
                 async move {
                     let error = match Self::run_command(ctx_inner, fut).await {
                         Ok(()) => {
-                            cmd_span_inner.set_status(Status::Ok);
                             return Ok(());
                         }
                         Err(e) => e,
                     };
                     if matches!(error, CommandError::Interrupt) {
-                        cmd_span_inner.set_status(Status::Ok);
                         tracing::debug!("interrupted");
                     } else if error.is_internal() {
-                        cmd_span_inner.set_status(Status::error("error"));
                         tracing::error!(?error);
                     } else {
-                        cmd_span_inner.set_status(Status::error("failure"));
                         tracing::debug!(?error, "command failure");
                     }
                     Err(error)
@@ -290,7 +280,6 @@ impl Runner {
                     }
                 }
                 Err(e) => {
-                    cmd_span.set_status(Status::error("panic"));
                     let panic = e.into_panic();
                     cmd_span.in_scope(|| tracing::error!("task panic: {}", panic_string(&panic)));
                     result.push(ContextualCommandError::new(

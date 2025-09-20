@@ -2,10 +2,7 @@ use std::{borrow::Cow, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use futures::FutureExt;
-use opentelemetry::trace::Status;
-use rustis::client::Client as ValkeyClient;
-use tokio::{task::JoinSet, time::sleep};
-use tpn_bot::{
+use limatoukka::{
     commands::{CommandTag, discover_declared_commands, runner::Runner},
     config::Config,
     context::app::{AppContext, InterruptKind},
@@ -32,9 +29,10 @@ use tpn_bot::{
         variables::{VariableStorage, VariableStorageRedis},
     },
 };
+use rustis::client::Client as ValkeyClient;
+use tokio::{task::JoinSet, time::sleep};
 
-use tracing::{Instrument, Span, instrument};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
+use tracing::{Instrument, instrument};
 use twitch_api::{
     eventsub::{Event, Message, Payload},
     types::SubscriptionTier,
@@ -160,7 +158,6 @@ async fn run(config: Config) -> Result<()> {
                     async move {
                         if let Err(error) = runner.process_message(ctx, msg).await {
                             tracing::error!(?error, "failed to handle message");
-                            Span::current().set_status(Status::error("error"));
                         }
                     }
                     .instrument(span),
@@ -490,7 +487,7 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
 #[tokio::main]
 async fn main() -> Result<()> {
     let config = Config::load()?;
-    logging::init(&config)?;
+    logging::init()?;
 
     tracing::info!("started");
 

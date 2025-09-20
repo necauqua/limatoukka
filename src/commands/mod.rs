@@ -12,8 +12,8 @@ use args::Args;
 pub mod args;
 pub mod runner;
 
+pub use limatoukka_macros::command;
 use runner::CommandError;
-pub use tpn_bot_macros::command;
 
 use crate::{context::cmd::CommandContext, services::messaging::PermissionLevel};
 

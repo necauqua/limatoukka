@@ -311,7 +311,7 @@ mod tests {
             .with_filter(EnvFilter::new(
                 env::var(tracing_subscriber::EnvFilter::DEFAULT_ENV)
                     .as_deref()
-                    .unwrap_or("tpn_bot=info"),
+                    .unwrap_or("limatoukka=info"),
             ));
 
         _ = tracing_subscriber::registry().with(fmt_layer).try_init();
