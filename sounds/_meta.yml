@@ -112,6 +112,7 @@ nya:
   file: "nya.ogg"
   volume: 0.5
   global-gate: 20m
+  exclusive: true
 
 lizard:
   file: "lizard.ogg"
