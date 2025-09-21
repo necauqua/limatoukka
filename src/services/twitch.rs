@@ -123,6 +123,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    #[ignore = "manual test"]
     async fn get_user_id() -> Result<()> {
         let twitch = TwitchApi::new(&Config::load()?).await?;
         let service = TwitchServiceImpl::new(twitch);

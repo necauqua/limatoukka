@@ -44,6 +44,7 @@ pub struct Config {
 
     pub valkey: String,
     pub elastic: Elastic,
+    pub stats: Elastic,
 
     pub browser_source_bind: String,
 }

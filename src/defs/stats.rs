@@ -121,7 +121,7 @@ async fn command_stat(ctx: CommandContext, name: String, chatter: Chatter) -> Co
     let name = name.to_lowercase();
     match ctx
         .stats()
-        .get(&chatter.id, &format!("command:{name}"))
+        .count(&chatter.id, "command", &[("command", &name)])
         .await?
     {
         0 => ctx.reply(format!("never ran the {name} command")).await?,

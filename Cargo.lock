@@ -2364,7 +2364,7 @@ dependencies = [
 
 [[package]]
 name = "noita-engine-reader"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "convert_case",
  "derive_more",
@@ -2385,7 +2385,7 @@ dependencies = [
 
 [[package]]
 name = "noita-engine-reader-macros"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "proc-macro2",
  "quote",

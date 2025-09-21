@@ -331,14 +331,6 @@ impl Runner {
         };
 
         tracing::trace!("running: {}", ctx.token);
-        let stats = ctx.stats();
-        stats
-            .record(ctx.sender(), &format!("command:{}", &ctx.token.name))
-            .await?;
-        stats.record(ctx.sender(), "commands").await?;
-        stats
-            .record(ctx.sender(), &format!("symbol:{:?}", ctx.token.symbol))
-            .await?;
 
         let res = fut.await;
 
@@ -355,6 +347,19 @@ impl Runner {
             if let Some(cost) = refund {
                 ctx.charges().add(ctx.sender(), cost).await?;
             }
+        } else {
+            ctx.stats()
+                .record(
+                    ctx.sender(),
+                    Some(&ctx.message().sender.name),
+                    "command",
+                    &[
+                        ("command", m.name),
+                        ("symbol", &format!("{:?}", ctx.token.symbol)),
+                        ("cost", &refund.map_or(0, |c| c.as_i64()).to_string()),
+                    ],
+                )
+                .await?;
         }
 
         res

@@ -21,7 +21,7 @@ use limatoukka::{
         music::{MusicService, MusicServiceImpl},
         noita::{ItemFound, NoitaEvent, NoitaHandle, NoitaHandleExt},
         sounds::{SoundService, SoundServiceExt, SoundServiceImpl},
-        stats::{StatsService, StatsServiceRedis},
+        stats::{StatsService, StatsServiceElastic},
         status_wall::{StatusService, StatusWall},
         storage::{StorageService, StorageServiceExt, StorageServiceRedis},
         tts::{TtsService, TtsServiceExt, TtsServiceImpl},
@@ -56,20 +56,21 @@ async fn run(config: Config) -> Result<()> {
         .with::<dyn StorageService>(Arc::new(StorageServiceRedis::new(valkey.clone())))
         .with::<dyn VariableStorage>(Arc::new(VariableStorageRedis::new(valkey.clone())))
         .with::<dyn CacheService>(Arc::new(CacheServiceRedis::new(valkey.clone())))
-        .with::<dyn StatsService>(Arc::new(StatsServiceRedis::new(valkey.clone())))
+        .with::<dyn StatsService>(Arc::new(StatsServiceElastic::new(
+            &config.stats.url,
+            &config.stats.api_key,
+            &config.stats.index,
+        )?))
         .with::<dyn IpcService>(Arc::new(IpcServiceRedis::new(valkey.clone())))
         .with::<dyn BanishService>(Arc::new(BanishServiceRedis::new(valkey.clone())))
         .with::<dyn ChargesService>(Arc::new(ChargesServiceRedis::new(valkey.clone())))
         .with::<dyn GateService>(Arc::new(GateServiceRedis::new(valkey.clone())))
         .with::<dyn TwitchService>(Arc::new(TwitchServiceImpl::new(twitch_api.clone())))
-        .with::<dyn ChatLogService>(Arc::new(
-            ChatLogServiceElastic::new(
-                &config.elastic.url,
-                &config.elastic.api_key,
-                &config.elastic.index,
-            )
-            .await?,
-        ))
+        .with::<dyn ChatLogService>(Arc::new(ChatLogServiceElastic::new(
+            &config.elastic.url,
+            &config.elastic.api_key,
+            &config.elastic.index,
+        )?))
         .with::<dyn SoundService>(Arc::new(SoundServiceImpl::default()))
         .with::<dyn MusicService>(Arc::new(MusicServiceImpl::new(
             "http://localhost:26538".into(),

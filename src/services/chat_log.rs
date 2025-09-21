@@ -51,7 +51,7 @@ pub struct ChatLogServiceElastic {
 }
 
 impl ChatLogServiceElastic {
-    pub async fn new(elastic_url: &str, elastic_api_key: &str, index: &str) -> Result<Self> {
+    pub fn new(elastic_url: &str, elastic_api_key: &str, index: &str) -> Result<Self> {
         let transport = Transport::single_node(elastic_url)?;
         transport.set_auth(Credentials::EncodedApiKey(elastic_api_key.to_owned()));
         Ok(Self {
