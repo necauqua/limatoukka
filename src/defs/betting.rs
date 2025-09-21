@@ -220,7 +220,7 @@ async fn get_bet(ctx: CommandContext, chatter: Chatter) -> CommandResult {
     let whom = chatter.them(ctx.owner(), "You", "They");
 
     match ctx.bets().get("current", &chatter.id).await? {
-        None => ctx.fail("{whom} did not bet yet").await?,
+        None => ctx.fail(format!("{whom} did not bet yet")).await?,
         Some(wager) if wager.amount.non_zero() => {
             ctx.reply(format!("{whom} bet {} on '{}'", wager.amount, wager.option))
                 .await?

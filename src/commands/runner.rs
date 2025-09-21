@@ -348,16 +348,16 @@ impl Runner {
                 ctx.charges().add(ctx.sender(), cost).await?;
             }
         } else {
+            let symbol = format!("{:?}", ctx.token.symbol);
+            let cost = refund.map_or(0, |c| c.as_i64()).to_string();
+            let records = vec![("command", m.name), ("symbol", &symbol), ("cost", &cost)];
+
             ctx.stats()
                 .record(
                     ctx.sender(),
                     Some(&ctx.message().sender.name),
                     "command",
-                    &[
-                        ("command", m.name),
-                        ("symbol", &format!("{:?}", ctx.token.symbol)),
-                        ("cost", &refund.map_or(0, |c| c.as_i64()).to_string()),
-                    ],
+                    &records,
                 )
                 .await?;
         }
