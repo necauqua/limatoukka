@@ -62,6 +62,7 @@ impl Runner {
 }
 
 impl Runner {
+    #[tracing::instrument(skip_all, fields(mid=%message.id, uid=%message.sender.id, name=%message.sender.name, subtext=%message.text))]
     pub async fn process_message(&self, ctx: AppContext, message: Message) -> Result<()> {
         let s = &message.sender;
 
@@ -125,6 +126,7 @@ impl Runner {
 
     const STACK_LIMIT: u32 = 3;
 
+    #[tracing::instrument(skip_all, fields(oid=%ctx.owner().id, owner=%ctx.owner().login, depth=ctx.macro_depth, subtext=%stmt.original))]
     pub async fn eval(&self, ctx: EvalContext, stmt: Statement) -> Result<(), EvalError> {
         if ctx.macro_depth > Self::STACK_LIMIT {
             return Err(EvalError::RecursionLimit);
@@ -249,7 +251,7 @@ impl Runner {
         let mut result = Vec::new();
         for (ctx, fut) in sequence {
             // spawn a task for each command to catch panics
-            let cmd_span = debug_span!("command", cmd.name=%ctx.token.name, cmd.tpe=?ctx.token.symbol, ?ctx.pos);
+            let cmd_span = debug_span!("command", token=%ctx.token, subtext=%ctx.meta.name);
             let ctx_inner = ctx.clone();
             let handle = tokio::spawn(
                 async move {

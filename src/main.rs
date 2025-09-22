@@ -498,7 +498,7 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    logging::init()?;
+    let _guard = logging::init()?;
     tracing::info!("starting up");
     run().await
 }

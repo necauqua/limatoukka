@@ -244,7 +244,8 @@ mod tests {
 
     use crate::{
         commands::{discover_declared_commands, runner::Runner},
-        logging, testing,
+        logging,
+        testing::{self, MessageExt},
     };
 
     use super::*;
@@ -288,14 +289,15 @@ mod tests {
 
     #[tokio::test]
     async fn song_request_extra_param() -> Result<()> {
-        _ = logging::init();
+        let _guard = logging::init();
         let ctx = testing::mock_context();
         let runner = Runner::new(discover_declared_commands(), &ctx);
 
         runner
             .process_message(
                 ctx.clone(),
-                testing::message(" sr:https://youtu.be/dQw4w9WgXcQ "),
+                testing::message(" sr:https://youtu.be/dQw4w9WgXcQ ")
+                    .permission(PermissionLevel::Caster),
             )
             .await?;
 

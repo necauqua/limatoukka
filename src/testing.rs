@@ -10,6 +10,7 @@ use crate::{
         banishes::{BanishService, BanishServiceNoop},
         gates::{GateService, GateServiceNoop},
         messaging::{Message, PermissionLevel, Sender},
+        stats::{StatsService, StatsServiceNoop},
         status_wall::{StatusService, TestStatusWall},
         storage::{InMemoryStorageService, StorageService},
         variables::{VariableStorage, VariableStorageMock},
@@ -23,7 +24,8 @@ pub fn mock_context() -> AppContext {
             .with::<dyn VariableStorage>(Arc::new(VariableStorageMock))
             .with::<dyn GateService>(Arc::new(GateServiceNoop))
             .with::<dyn BanishService>(Arc::new(BanishServiceNoop))
-            .with::<dyn StatusService>(Arc::new(TestStatusWall::default())),
+            .with::<dyn StatusService>(Arc::new(TestStatusWall::default()))
+            .with::<dyn StatsService>(Arc::new(StatsServiceNoop)),
     )
 }
 
