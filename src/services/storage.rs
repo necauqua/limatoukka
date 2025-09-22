@@ -7,10 +7,10 @@ use rustis::{
 };
 use serde::{Serialize, de::DeserializeOwned};
 
-use crate::injector_getter;
+use crate::{injector_getter, services::Service};
 
 #[async_trait]
-pub trait StorageService: Send + Sync {
+pub trait StorageService: Service {
     async fn get(&self, key: &str) -> Result<Option<String>>;
 
     async fn set(&self, key: &str, value: &str) -> Result<()>;
@@ -58,18 +58,18 @@ impl StorageService for InMemoryStorageService {
     }
 }
 
-pub struct StorageServiceRedis {
+pub struct StorageServiceValkey {
     client: ValkeyClient,
 }
 
-impl StorageServiceRedis {
+impl StorageServiceValkey {
     pub fn new(client: ValkeyClient) -> Self {
         Self { client }
     }
 }
 
 #[async_trait]
-impl StorageService for StorageServiceRedis {
+impl StorageService for StorageServiceValkey {
     async fn get(&self, key: &str) -> Result<Option<String>> {
         Ok(self.client.get(format!("storage:{key}")).await?)
     }

@@ -5,10 +5,10 @@ use async_trait::async_trait;
 use elasticsearch::{Elasticsearch, auth::Credentials, http::transport::Transport};
 use serde::Deserialize;
 
-use crate::injector_getter;
+use crate::{injector_getter, services::Service};
 
 #[async_trait]
-pub trait StatsService: Send + Sync {
+pub trait StatsService: Service {
     async fn record(
         &self,
         user_id: &str,

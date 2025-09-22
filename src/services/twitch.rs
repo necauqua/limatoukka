@@ -12,10 +12,10 @@ use twitch_api::helix::{
     },
 };
 
-use crate::{injector_getter, integration::twitch_api::TwitchApi};
+use crate::{injector_getter, integration::twitch_api::TwitchApi, services::Service};
 
 #[async_trait]
-pub trait TwitchService: Send + Sync {
+pub trait TwitchService: Service {
     async fn is_live(&self) -> Result<bool>;
 
     async fn get_user_id(&self, login: &str) -> Result<Option<String>>;

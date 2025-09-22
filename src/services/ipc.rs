@@ -3,28 +3,29 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use rustis::{client::Client as ValkeyClient, commands::PubSubCommands};
 
-use crate::injector_getter;
+use crate::{injector_getter, services::Service};
 
 #[async_trait]
-pub trait IpcService: Send + Sync {
+pub trait IpcService: Service {
     async fn publish(&self, channel: &str, message: &[u8]) -> Result<()>;
+
     async fn listen(&self, channel: &str) -> Result<Option<Vec<u8>>>;
 }
 
 injector_getter!(IpcService::ipc);
 
-pub struct IpcServiceRedis {
+pub struct IpcServiceValkey {
     client: ValkeyClient,
 }
 
-impl IpcServiceRedis {
+impl IpcServiceValkey {
     pub fn new(client: ValkeyClient) -> Self {
         Self { client }
     }
 }
 
 #[async_trait]
-impl IpcService for IpcServiceRedis {
+impl IpcService for IpcServiceValkey {
     async fn publish(&self, channel: &str, message: &[u8]) -> Result<()> {
         self.client.publish(channel, message).await?;
         Ok(())

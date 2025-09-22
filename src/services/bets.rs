@@ -6,7 +6,10 @@ use rustis::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{injector_getter, services::charges::Charges};
+use crate::{
+    injector_getter,
+    services::{Service, charges::Charges},
+};
 
 #[derive(Serialize, Deserialize)]
 pub struct Bet {
@@ -15,7 +18,7 @@ pub struct Bet {
 }
 
 #[async_trait]
-pub trait BetsService: Send + Sync {
+pub trait BetsService: Service {
     async fn place(&self, bet_id: &str, user_id: &str, bet: &Bet) -> Result<u64>;
 
     async fn get(&self, bet_id: &str, user_id: &str) -> Result<Option<Bet>>;
@@ -29,18 +32,18 @@ pub trait BetsService: Send + Sync {
 
 injector_getter!(BetsService::bets);
 
-pub struct BetsServiceRedis {
+pub struct BetsServiceValkey {
     client: ValkeyClient,
 }
 
-impl BetsServiceRedis {
+impl BetsServiceValkey {
     pub fn new(client: ValkeyClient) -> Self {
         Self { client }
     }
 }
 
 #[async_trait]
-impl BetsService for BetsServiceRedis {
+impl BetsService for BetsServiceValkey {
     async fn place(&self, bet_id: &str, user_id: &str, bet: &Bet) -> Result<u64> {
         let key = format!("bet:{bet_id}");
 

@@ -239,27 +239,12 @@ async fn volume(ctx: CommandContext, volume: Option<InRange<0, 100>>) -> Command
 
 #[cfg(test)]
 mod tests {
-    use std::{env, sync::Arc};
 
-    use tracing_subscriber::{
-        EnvFilter, Layer as _,
-        fmt::{Layer, time::LocalTime},
-        layer::SubscriberExt,
-        util::SubscriberInitExt,
-    };
+    use anyhow::Result;
 
     use crate::{
         commands::{discover_declared_commands, runner::Runner},
-        context::app::AppContext,
-        services::{
-            Injector,
-            banishes::{BanishService, BanishServiceMock},
-            gates::{GateService, GateServiceNoop},
-            messaging::{Message, Sender},
-            status_wall::{StatusService, TestStatusWall},
-            storage::{InMemoryStorageService, StorageService},
-            variables::{VariableStorage, VariableStorageMock},
-        },
+        logging, testing,
     };
 
     use super::*;
@@ -302,58 +287,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn song_request_extra_param() {
-        // todo huge parts of this test are a common setup type of thing,
-        // tests will look gorgeous after allthat is factored out
-
-        let fmt_layer = Layer::new()
-            .with_timer(LocalTime::rfc_3339())
-            .with_filter(EnvFilter::new(
-                env::var(tracing_subscriber::EnvFilter::DEFAULT_ENV)
-                    .as_deref()
-                    .unwrap_or("limatoukka=info"),
-            ));
-
-        _ = tracing_subscriber::registry().with(fmt_layer).try_init();
-
-        let storage = Arc::new(InMemoryStorageService::default());
-
-        let ctx = AppContext::new(
-            Injector::new()
-                .with::<dyn StorageService>(storage.clone())
-                .with::<dyn VariableStorage>(Arc::new(VariableStorageMock))
-                .with::<dyn GateService>(Arc::new(GateServiceNoop))
-                .with::<dyn BanishService>(Arc::new(BanishServiceMock))
-                .with::<dyn StatusService>(Arc::new(TestStatusWall::default())),
-        );
-
+    async fn song_request_extra_param() -> Result<()> {
+        _ = logging::init();
+        let ctx = testing::mock_context();
         let runner = Runner::new(discover_declared_commands(), &ctx);
 
         runner
             .process_message(
-                ctx,
-                Message {
-                    id: "mock-msg-id".into(),
-                    source_channel: "mock-channel".into(),
-                    sender: Sender {
-                        id: "mock-sender-id".into(),
-                        name: "mock-name".into(),
-                        level: PermissionLevel::Caster,
-                        login: "mock-login".into(),
-                    },
-                    text: " sr:https://youtu.be/dQw4w9WgXcQ ".into(),
-                },
+                ctx.clone(),
+                testing::message(" sr:https://youtu.be/dQw4w9WgXcQ "),
             )
-            .await
-            .unwrap();
+            .await?;
 
+        let err = ctx.storage().get("last-error:mock-sender-id").await?;
         assert_eq!(
-            storage
-                .get("last-error:mock-sender-id")
-                .await
-                .unwrap()
-                .as_deref(),
+            err.as_deref(),
             Some("sr(0:0): At least don't use a dQw link ICANT")
-        )
+        );
+
+        Ok(())
     }
 }

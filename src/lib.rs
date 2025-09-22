@@ -5,3 +5,6 @@ mod defs;
 pub mod integration;
 pub mod logging;
 pub mod services;
+
+#[cfg(test)]
+pub mod testing;

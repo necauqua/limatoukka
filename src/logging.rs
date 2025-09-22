@@ -15,7 +15,7 @@ pub fn init() -> Result<()> {
         .with_filter(EnvFilter::new(
             env::var(tracing_subscriber::EnvFilter::DEFAULT_ENV)
                 .as_deref()
-                .unwrap_or("limatoukka=debug"),
+                .unwrap_or("limatoukka=info"),
         ));
 
     tracing_subscriber::registry().with(fmt_layer).try_init()?;

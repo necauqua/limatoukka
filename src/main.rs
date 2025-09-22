@@ -10,23 +10,23 @@ use limatoukka::{
     logging,
     services::{
         Injector,
-        banishes::{BanishService, BanishServiceRedis},
-        bets::{BetsService, BetsServiceRedis},
-        caches::{CacheService, CacheServiceExt, CacheServiceRedis},
-        charges::{Charges, ChargesService, ChargesServiceExt, ChargesServiceRedis},
+        banishes::{BanishService, BanishServiceValkey},
+        bets::{BetsService, BetsServiceValkey},
+        caches::{CacheService, CacheServiceExt, CacheServiceValkey},
+        charges::{Charges, ChargesService, ChargesServiceExt, ChargesServiceValkey},
         chat_log::{ChatLogService, ChatLogServiceElastic},
-        gates::{GateService, GateServiceRedis},
-        ipc::{IpcService, IpcServiceExt, IpcServiceRedis},
+        gates::{GateService, GateServiceValkey},
+        ipc::{IpcService, IpcServiceExt, IpcServiceValkey},
         messaging::{self, MessagingService},
         music::{MusicService, MusicServiceImpl},
         noita::{ItemFound, NoitaEvent, NoitaHandle, NoitaHandleExt},
         sounds::{SoundService, SoundServiceExt, SoundServiceImpl},
         stats::{StatsService, StatsServiceElastic},
         status_wall::{StatusService, StatusWall},
-        storage::{StorageService, StorageServiceExt, StorageServiceRedis},
+        storage::{StorageService, StorageServiceExt, StorageServiceValkey},
         tts::{TtsService, TtsServiceExt, TtsServiceImpl},
         twitch::{TwitchService, TwitchServiceExt, TwitchServiceImpl},
-        variables::{VariableStorage, VariableStorageRedis},
+        variables::{VariableStorage, VariableStorageValkey},
     },
 };
 use rustis::client::Client as ValkeyClient;
@@ -38,7 +38,9 @@ use twitch_api::{
     types::SubscriptionTier,
 };
 
-async fn run(config: Config) -> Result<()> {
+async fn run() -> Result<()> {
+    let config = Config::load()?;
+
     let valkey = ValkeyClient::connect(&*config.valkey).await?;
 
     let twitch_api = TwitchApi::new(&config).await?;
@@ -53,19 +55,20 @@ async fn run(config: Config) -> Result<()> {
 
     let services = Injector::new()
         .with::<dyn MessagingService>(messaging.into())
-        .with::<dyn StorageService>(Arc::new(StorageServiceRedis::new(valkey.clone())))
-        .with::<dyn VariableStorage>(Arc::new(VariableStorageRedis::new(valkey.clone())))
-        .with::<dyn CacheService>(Arc::new(CacheServiceRedis::new(valkey.clone())))
+        .with::<dyn StorageService>(Arc::new(StorageServiceValkey::new(valkey.clone())))
+        .with::<dyn VariableStorage>(Arc::new(VariableStorageValkey::new(valkey.clone())))
+        .with::<dyn CacheService>(Arc::new(CacheServiceValkey::new(valkey.clone())))
+        .with::<dyn IpcService>(Arc::new(IpcServiceValkey::new(valkey.clone())))
+        .with::<dyn BanishService>(Arc::new(BanishServiceValkey::new(valkey.clone())))
+        .with::<dyn ChargesService>(Arc::new(ChargesServiceValkey::new(valkey.clone())))
+        .with::<dyn GateService>(Arc::new(GateServiceValkey::new(valkey.clone())))
+        .with::<dyn BetsService>(Arc::new(BetsServiceValkey::new(valkey.clone())))
+        .with::<dyn TwitchService>(Arc::new(TwitchServiceImpl::new(twitch_api.clone())))
         .with::<dyn StatsService>(Arc::new(StatsServiceElastic::new(
             &config.stats.url,
             &config.stats.api_key,
             &config.stats.index,
         )?))
-        .with::<dyn IpcService>(Arc::new(IpcServiceRedis::new(valkey.clone())))
-        .with::<dyn BanishService>(Arc::new(BanishServiceRedis::new(valkey.clone())))
-        .with::<dyn ChargesService>(Arc::new(ChargesServiceRedis::new(valkey.clone())))
-        .with::<dyn GateService>(Arc::new(GateServiceRedis::new(valkey.clone())))
-        .with::<dyn TwitchService>(Arc::new(TwitchServiceImpl::new(twitch_api.clone())))
         .with::<dyn ChatLogService>(Arc::new(ChatLogServiceElastic::new(
             &config.elastic.url,
             &config.elastic.api_key,
@@ -77,7 +80,6 @@ async fn run(config: Config) -> Result<()> {
         )))
         .with::<dyn TtsService>(Arc::new(TtsServiceImpl::default()))
         .with::<dyn StatusService>(status_wall.clone())
-        .with::<dyn BetsService>(Arc::new(BetsServiceRedis::new(valkey.clone())))
         // todo make it into a dyn service ofc
         .with(Arc::new(NoitaHandle::default()));
 
@@ -106,6 +108,7 @@ async fn run(config: Config) -> Result<()> {
     ipc.publish("bot-restart", b"1").await?;
 
     let mut restart_signal = ipc.listen("bot-restart");
+    let mut restart_received = false;
     let mut tasks = JoinSet::new();
 
     loop {
@@ -130,6 +133,7 @@ async fn run(config: Config) -> Result<()> {
                         );
                     }
                 });
+                restart_received = true;
                 break;
             },
             Some(msg) = incoming.recv() => {
@@ -178,7 +182,9 @@ async fn run(config: Config) -> Result<()> {
 
     // just pray nothing errored beforehand
     // where's my errdefer :(
-    twitch_api.pause_rewards().await?;
+    if !restart_received {
+        twitch_api.pause_rewards().await?;
+    }
 
     tasks.join_all().await;
 
@@ -473,8 +479,13 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
             ))
             .await?;
         }
-        Event::StreamOnlineV1(_) => ctx.send("→ stream start cutoff ←".into()).await?,
+        Event::StreamOnlineV1(_) => {
+            tracing::info!("stream online");
+            ctx.send("→ stream start cutoff ←".into()).await?
+        }
         Event::StreamOfflineV1(_) => {
+            tracing::info!("stream offline");
+
             // todo maybe have some generic "persisted until end of stream" data store
             ctx.storage().del("last-pinger").await?;
 
@@ -487,10 +498,7 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let config = Config::load()?;
     logging::init()?;
-
-    tracing::info!("started");
-
-    run(config).await
+    tracing::info!("starting up");
+    run().await
 }

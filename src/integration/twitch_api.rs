@@ -70,7 +70,6 @@ impl TwitchToken {
     // but eh its way better than not having it, at least we got payload types
     //
     // .. ok also this allows us to trace all twitch calls I guess lmao
-    #[instrument(name = "twitch-api-call", skip_all)]
     async fn call<'a, F, R, T>(
         &'a self,
         helix: &'a HelixClient<'static, reqwest::Client>,
@@ -194,7 +193,7 @@ impl TwitchApi {
     // but eh its way better than not having it, at least we got payload types
     //
     // .. ok also this allows us to trace all twitch calls I guess lmao
-    #[instrument(name = "calling Twitch API (bot)", level = "debug", skip_all)]
+    #[instrument(name = "twitch-api-bot-call", skip_all)]
     pub async fn call<'a, F, R, T>(&'a self, f: F) -> Result<T>
     where
         R: Future<Output = Result<T, ClientRequestError<reqwest::Error>>> + 'a,
@@ -206,7 +205,7 @@ impl TwitchApi {
             .await
     }
 
-    #[instrument(name = "calling Twitch API (caster)", level = "debug", skip_all)]
+    #[instrument(name = "twitch-api-caster-call", skip_all)]
     pub async fn caster_call<'a, F, R, T>(&'a self, f: F) -> Result<T>
     where
         R: Future<Output = Result<T, ClientRequestError<reqwest::Error>>> + 'a,

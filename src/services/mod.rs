@@ -29,28 +29,33 @@ pub struct Injector {
     services: Arc<DashMap<TypeId, Box<dyn Any + Send + Sync>>>,
 }
 
+// maybe do the sealed thing
+pub trait Service: Any + Send + Sync + 'static {}
+
+impl<T: ?Sized + Send + Sync + 'static> Service for T {}
+
 impl Injector {
     pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn with<T: ?Sized + Send + Sync + 'static>(mut self, service: Arc<T>) -> Self {
+    pub fn with<T: Service + ?Sized>(mut self, service: Arc<T>) -> Self {
         self.add(service);
         self
     }
 
-    pub fn add<T: ?Sized + Send + Sync + 'static>(&mut self, service: Arc<T>) {
+    pub fn add<T: Service + ?Sized>(&mut self, service: Arc<T>) {
         self.services.insert(TypeId::of::<T>(), Box::new(service));
     }
 
-    pub fn service_opt<T: ?Sized + Send + Sync + 'static>(&self) -> Option<Arc<T>> {
+    pub fn service_opt<T: Service + ?Sized>(&self) -> Option<Arc<T>> {
         self.services
             .get(&TypeId::of::<T>())
             .and_then(|s| s.downcast_ref::<Arc<T>>().cloned())
     }
 
     #[track_caller]
-    pub fn service<T: ?Sized + Send + Sync + 'static>(&self) -> Arc<T> {
+    pub fn service<T: Service + ?Sized>(&self) -> Arc<T> {
         match self.service_opt() {
             Some(s) => s,
             None => panic!(

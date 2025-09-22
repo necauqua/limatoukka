@@ -7,7 +7,7 @@ use rustis::{
     commands::{GenericCommands, StringCommands},
 };
 
-use crate::injector_getter;
+use crate::{injector_getter, services::Service};
 
 #[derive(Debug)]
 pub enum BanishStatus {
@@ -23,7 +23,7 @@ impl BanishStatus {
 }
 
 #[async_trait]
-pub trait BanishService: Send + Sync {
+pub trait BanishService: Service {
     async fn banish(&self, user_id: &str, duration: Option<Duration>) -> Result<bool>;
 
     async fn unbanish(&self, user_id: &str) -> Result<bool>;
@@ -33,18 +33,18 @@ pub trait BanishService: Send + Sync {
 
 injector_getter!(BanishService::banishes);
 
-pub struct BanishServiceRedis {
+pub struct BanishServiceValkey {
     client: ValkeyClient,
 }
 
-impl BanishServiceRedis {
+impl BanishServiceValkey {
     pub fn new(client: ValkeyClient) -> Self {
         Self { client }
     }
 }
 
 #[async_trait]
-impl BanishService for BanishServiceRedis {
+impl BanishService for BanishServiceValkey {
     async fn banish(&self, user_id: &str, duration: Option<Duration>) -> Result<bool> {
         let key = format!("kick:begone:{user_id}");
 
@@ -87,10 +87,10 @@ impl BanishService for BanishServiceRedis {
     }
 }
 
-pub struct BanishServiceMock;
+pub struct BanishServiceNoop;
 
 #[async_trait]
-impl BanishService for BanishServiceMock {
+impl BanishService for BanishServiceNoop {
     async fn banish(&self, _user_id: &str, _duration: Option<Duration>) -> Result<bool> {
         Ok(true)
     }

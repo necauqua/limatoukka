@@ -2,14 +2,13 @@ use std::borrow::Cow;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use dashmap::DashMap;
 use rustis::{
     client::{BatchPreparedCommand, Client as ValkeyClient},
     commands::{GenericCommands, HashCommands},
 };
 use thiserror::Error;
 
-use crate::injector_getter;
+use crate::{injector_getter, services::Service};
 
 #[derive(Error, Debug)]
 pub enum SetVarError {
@@ -55,7 +54,7 @@ impl VarResolution {
 }
 
 #[async_trait]
-pub trait VariableStorage: Send + Sync {
+pub trait VariableStorage: Service {
     async fn set(
         &self,
         tpe: VarType,
@@ -73,17 +72,15 @@ pub trait VariableStorage: Send + Sync {
     async fn list(&self, tpe: VarType, scope: VarScope<'_>) -> Result<Vec<(String, String)>>;
 
     async fn clear(&self, tpe: VarType, scope: VarScope<'_>) -> Result<()>;
-
-    async fn load_vars(&self, owner: &str) -> Result<DashMap<String, String>>;
 }
 
 injector_getter!(VariableStorage::vars);
 
-pub struct VariableStorageRedis {
+pub struct VariableStorageValkey {
     client: ValkeyClient,
 }
 
-impl VariableStorageRedis {
+impl VariableStorageValkey {
     pub fn new(client: ValkeyClient) -> Self {
         Self { client }
     }
@@ -99,7 +96,7 @@ fn key(tpe: VarType, scope: VarScope) -> Cow<'static, str> {
 }
 
 #[async_trait]
-impl VariableStorage for VariableStorageRedis {
+impl VariableStorage for VariableStorageValkey {
     async fn set(
         &self,
         tpe: VarType,
@@ -162,20 +159,6 @@ impl VariableStorage for VariableStorageRedis {
         self.client.del(&*key(tpe, scope)).await?;
         Ok(())
     }
-
-    async fn load_vars(&self, owner: &str) -> Result<DashMap<String, String>> {
-        let mut pp = self.client.create_pipeline();
-
-        type Pairs = Vec<(String, String)>;
-
-        pp.hgetall::<_, _, _, Pairs>("vars:global").queue();
-        pp.hgetall::<_, _, _, Pairs>(format!("vars:{owner}"))
-            .queue();
-
-        let (globals, vars): (Pairs, Pairs) = pp.execute().await?;
-
-        Ok(globals.into_iter().chain(vars.into_iter()).collect())
-    }
 }
 
 pub struct VariableStorageMock;
@@ -217,10 +200,5 @@ impl VariableStorage for VariableStorageMock {
 
     async fn clear(&self, _tpe: VarType, _scope: VarScope<'_>) -> Result<()> {
         Ok(())
-    }
-
-    // todo make this leak obsolete and remove it
-    async fn load_vars(&self, _owner: &str) -> Result<DashMap<String, String>> {
-        Ok(DashMap::new())
     }
 }

@@ -13,6 +13,7 @@ use crate::{
     commands::args::{ArgError, ArgResult, CommandArg},
     context::cmd::CommandContext,
     injector_getter,
+    services::Service,
 };
 
 #[derive(Default, Debug, Clone, Copy, Serialize, Deserialize)]
@@ -137,7 +138,7 @@ impl CommandArg for Charges {
 }
 
 #[async_trait]
-pub trait ChargesService: Send + Sync {
+pub trait ChargesService: Service {
     async fn get(&self, user_id: &str) -> Result<Charges>;
 
     async fn set(&self, user_id: &str, amount: Charges) -> Result<()>;
@@ -152,11 +153,11 @@ pub trait ChargesService: Send + Sync {
 
 injector_getter!(ChargesService::charges);
 
-pub struct ChargesServiceRedis {
+pub struct ChargesServiceValkey {
     client: ValkeyClient,
 }
 
-impl ChargesServiceRedis {
+impl ChargesServiceValkey {
     pub fn new(client: ValkeyClient) -> Self {
         Self { client }
     }
@@ -167,7 +168,7 @@ fn key(user_id: &str) -> String {
 }
 
 #[async_trait]
-impl ChargesService for ChargesServiceRedis {
+impl ChargesService for ChargesServiceValkey {
     async fn get(&self, user_id: &str) -> Result<Charges> {
         Ok(self
             .client

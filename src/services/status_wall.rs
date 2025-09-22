@@ -18,14 +18,14 @@ use tokio::sync::{
     broadcast::{self, Sender},
 };
 
-use crate::injector_getter;
+use crate::{injector_getter, services::Service};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(transparent)]
 pub struct EntryKey(usize);
 
 #[async_trait]
-pub trait StatusService: Send + Sync {
+pub trait StatusService: Service {
     fn new_key(&self) -> EntryKey;
 
     async fn set(&self, key: EntryKey, text: String) -> Option<String>;

@@ -18,6 +18,7 @@ use twitch_irc::{
 use crate::{
     injector_getter,
     integration::{justfile::just, twitch_api::TwitchApi},
+    services::Service,
 };
 
 #[derive(Debug, Clone)]
@@ -164,8 +165,9 @@ impl MessageSource {
 }
 
 #[async_trait]
-pub trait MessagingService: Send + Sync {
+pub trait MessagingService: Service {
     async fn send(&self, text: String) -> Result<()>;
+
     async fn reply(&self, message: &Message, text: String) -> Result<()>;
 }
 

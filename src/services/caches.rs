@@ -14,6 +14,7 @@ use crate::injector_getter;
 #[async_trait]
 pub trait CacheService: Send + Sync {
     async fn set(&self, cache: &str, ttl: Duration, key: &str, value: &str) -> Result<bool>;
+
     async fn get(&self, cache: &str, key: &str) -> Result<Option<String>>;
 }
 
@@ -80,18 +81,18 @@ impl CacheService for CacheServiceInMemory {
     }
 }
 
-pub struct CacheServiceRedis {
+pub struct CacheServiceValkey {
     client: ValkeyClient,
 }
 
-impl CacheServiceRedis {
+impl CacheServiceValkey {
     pub fn new(client: ValkeyClient) -> Self {
         Self { client }
     }
 }
 
 #[async_trait]
-impl CacheService for CacheServiceRedis {
+impl CacheService for CacheServiceValkey {
     async fn set(&self, cache: &str, ttl: Duration, key: &str, value: &str) -> Result<bool> {
         Ok(self
             .client

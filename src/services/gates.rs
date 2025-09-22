@@ -10,12 +10,15 @@ use rustis::{
 use crate::{
     commands::{CommandResult, runner::CommandError},
     injector_getter,
+    services::Service,
 };
 
 #[async_trait]
-pub trait GateService: Send + Sync {
+pub trait GateService: Service {
     async fn gate(&self, user: &str, key: &str, period: Duration) -> Result<bool>;
+
     async fn ungate(&self, user: &str, key: &str) -> Result<()>;
+
     async fn ungate_all(&self, user: &str) -> Result<()>;
 }
 
@@ -59,18 +62,18 @@ impl dyn GateService {
     }
 }
 
-pub struct GateServiceRedis {
+pub struct GateServiceValkey {
     client: ValkeyClient,
 }
 
-impl GateServiceRedis {
+impl GateServiceValkey {
     pub fn new(client: ValkeyClient) -> Self {
         Self { client }
     }
 }
 
 #[async_trait]
-impl GateService for GateServiceRedis {
+impl GateService for GateServiceValkey {
     async fn gate(&self, user: &str, key: &str, period: Duration) -> Result<bool> {
         let gate: Option<String> = self
             .client

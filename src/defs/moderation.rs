@@ -33,12 +33,6 @@ async fn banish(
     if !ctx.banishes().banish(&chatter.id, duration).await? {
         ctx.fail("already banished").await?;
     }
-    tracing::info!(
-        id = chatter.id,
-        login = chatter.login,
-        ?duration,
-        "sent to shadow realm"
-    );
     ctx.reply("whoosh!".into()).await?;
     Ok(())
 }
@@ -50,11 +44,6 @@ async fn unbanish(ctx: CommandContext, chatter: Required<Chatter>) -> CommandRes
     if !ctx.banishes().unbanish(&chatter.id).await? {
         ctx.fail("was not there lmao").await?;
     }
-    tracing::info!(
-        id = chatter.id,
-        login = chatter.login,
-        "pulled out of shadow realm"
-    );
     ctx.reply("the deed is done".into()).await?;
     Ok(())
 }
