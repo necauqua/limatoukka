@@ -134,6 +134,25 @@ lasiace:
   volume: 0.4
   sender-gate: 5m
 
+vine-boom:
+  file: "vine-boom.ogg"
+  volume: 0.1
+  sender-gate: 5m
+
+bruh:
+  file: "bruh.ogg"
+  volume: 0.1
+
+thank-you:
+  sender-gate: 1m
+  variants:
+    - file: "thank-you.ogg"
+      volume: 0.4
+    - file: "thank-you-full.ogg"
+      volume: 0.4
+      rarity: 0.05
+      exclusive: true
+
 PING:
   variants:
     - file: "AUGH.ogg"
