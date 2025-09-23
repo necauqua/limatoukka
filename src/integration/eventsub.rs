@@ -8,6 +8,7 @@ use tokio::{
         Notify,
         broadcast::{Receiver, Sender},
     },
+    task::JoinSet,
     time::{Instant, Sleep},
 };
 use tokio_tungstenite::{
@@ -62,21 +63,31 @@ impl EventSub {
 
         let transport = eventsub::Transport::websocket(data.id.clone());
 
+        let mut join_set = JoinSet::new();
+
         macro_rules! subscribe {
             ($group:ident::$event:ident $method:ident) => {
-                self.twitch.caster_call(|t| {
+                let twitch = self.twitch.clone();
+                join_set.spawn({
                     let transport = transport.clone();
                     async move {
-                        t.helix.create_eventsub_subscription(
-                            eventsub::$group::$event::$method(t.caster_id),
-                            transport,
-                            &t.token,
-                        ).await
+                        let res = twitch.caster_call(|t| {
+                            let transport = transport.clone();
+                            async move {
+                                t.helix.create_eventsub_subscription(
+                                    eventsub::$group::$event::$method(t.caster_id),
+                                    transport,
+                                    &t.token,
+                                ).await
+                            }
+                        })
+                        .await;
+                        match res {
+                            Ok(_) => tracing::info!("subscribed to {}", stringify!($event)),
+                            Err(e) => tracing::error!(error=?e, "failed to subscribe to {}", stringify!($event)),
+                        }
                     }
-                })
-                .await?;
-
-                tracing::info!("subscribing to {}", stringify!($event));
+                });
             };
             ($group:ident::$event:ident) => {
                 subscribe!($group::$event broadcaster_user_id);
@@ -101,6 +112,8 @@ impl EventSub {
             stream::StreamOnlineV1,
             stream::StreamOfflineV1,
         ];
+
+        join_set.join_all().await;
 
         self.on_subscribed.notify_waiters();
 
