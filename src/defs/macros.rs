@@ -333,7 +333,7 @@ async fn group(
 ) -> CommandResult {
     let name = match custom_status_name {
         Some(text) => html! { "group:" span style="color: #CCCCFF" { (text) } },
-        None => html! { (ctx.token) },
+        None => html! { (ctx.command.token) },
     };
     let wall = ctx.status();
     let _guard = wall.push(html! {
@@ -355,7 +355,7 @@ async fn group(
 async fn r#try(ctx: CommandContext, script: Script) -> CommandResult {
     let wall = ctx.status();
     let _guard = wall.push(html! {
-        span style="color: #E38AF0" { (ctx.message().sender.name) } ": " (ctx.token) " " (ctx.nesting_str())
+        span style="color: #E38AF0" { (ctx.message().sender.name) } ": " (ctx.command.token) " " (ctx.nesting_str())
     }).await;
 
     match ctx.runner().eval(ctx.nest(), script.stmt).await {

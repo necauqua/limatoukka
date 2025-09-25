@@ -205,7 +205,7 @@ impl Runner {
             return Err(CommandError::NotFound);
         };
 
-        let cmd_ctx = CommandContext::new(ctx.clone(), meta.clone(), token, loc.clone());
+        let cmd_ctx = CommandContext::new(ctx.clone(), meta.clone(), command.clone(), loc.clone());
 
         let fut = (meta.action)(
             cmd_ctx.clone(),
@@ -228,21 +228,20 @@ impl Runner {
             return Ok(Some(meta.clone()));
         }
 
-        Ok(
-            match self.vars.resolve(VarType::Macro, owner, name).await? {
-                VarResolution::None => None,
-                _ => {
-                    if let Some(q) = self.get_command("macro") {
-                        // empty string for current username, to allow macro params to immediately follow
-                        expr.params.push_front(Param::default());
-                        expr.params.push_front(Param::simple(name.to_owned()));
-                        Some(q)
-                    } else {
-                        None
-                    }
+        let res = match self.vars.resolve(VarType::Macro, owner, name).await? {
+            VarResolution::None => None,
+            _ => {
+                if let Some(q) = self.get_command("macro") {
+                    // empty string for current username, to allow macro params to immediately follow
+                    expr.params.push_front(Param::default());
+                    expr.params.push_front(Param::simple(name.to_owned()));
+                    Some(q)
+                } else {
+                    None
                 }
-            },
-        )
+            }
+        };
+        Ok(res)
     }
 
     async fn run_command_sequence(
@@ -251,7 +250,7 @@ impl Runner {
         let mut result = Vec::new();
         for (ctx, fut) in sequence {
             // spawn a task for each command to catch panics
-            let cmd_span = debug_span!("command", token=%ctx.token, subtext=%ctx.meta.name);
+            let cmd_span = debug_span!("command", token=%ctx.command.token, subtext=%ctx.meta.name);
             let ctx_inner = ctx.clone();
             let handle = tokio::spawn(
                 async move {
@@ -276,7 +275,11 @@ impl Runner {
                 Ok(Ok(())) => {}
                 Ok(Err(e)) => {
                     let interrupt = matches!(e, CommandError::Interrupt);
-                    result.push(ContextualCommandError::new(e, ctx.token, ctx.pos.clone()));
+                    result.push(ContextualCommandError::new(
+                        e,
+                        ctx.command.token,
+                        ctx.pos.clone(),
+                    ));
                     if interrupt {
                         break;
                     }
@@ -286,7 +289,7 @@ impl Runner {
                     cmd_span.in_scope(|| tracing::error!("task panic: {}", panic_string(&panic)));
                     result.push(ContextualCommandError::new(
                         CommandError::Panic(panic),
-                        ctx.token,
+                        ctx.command.token,
                         ctx.pos.clone(),
                     ));
                 }
@@ -325,14 +328,14 @@ impl Runner {
         let _guard = if !m.is(CommandTag::NoWall) {
             let wall = ctx.status();
             let guard = wall.push(html! {
-                span style="color: #E38AF0" { (ctx.message().sender.name) } ": " (ctx.token) " " (ctx.nesting_str())
+                span style="color: #E38AF0" { (ctx.message().sender.name) } ": " (ctx.command.token) " " (ctx.nesting_str())
             }).await;
             Some(guard)
         } else {
             None
         };
 
-        tracing::trace!("running: {}", ctx.token);
+        tracing::trace!("running: {}", ctx.command.token);
 
         let res = fut.await;
 
@@ -350,18 +353,30 @@ impl Runner {
                 ctx.charges().add(ctx.sender(), cost).await?;
             }
         } else {
-            let symbol = format!("{:?}", ctx.token.symbol);
-            let cost = refund.map_or(0, |c| c.as_i64()).to_string();
-            let records = vec![("command", m.name), ("symbol", &symbol), ("cost", &cost)];
+            tokio::spawn({
+                let stats = ctx.stats();
+                let sender = ctx.message().sender.clone();
+                let command = ctx.command.clone();
+                let name = m.name;
+                async move {
+                    let symbol = format!("{:?}", command.token.symbol);
+                    let cost = refund.map_or(0, |c| c.as_i64()).to_string();
+                    let mut records = vec![("command", name), ("symbol", &symbol), ("cost", &cost)];
 
-            ctx.stats()
-                .record(
-                    ctx.sender(),
-                    Some(&ctx.message().sender.name),
-                    "command",
-                    &records,
-                )
-                .await?;
+                    for arg in &command.params {
+                        records.push(("args", arg.text()));
+                    }
+
+                    let res = stats
+                        .record(&sender.id, Some(&sender.name), "command", &records)
+                        .await;
+
+                    if let Err(e) = res {
+                        tracing::error!("failed to record stats: {e}");
+                    }
+                }
+                .in_current_span()
+            });
         }
 
         res

@@ -1,6 +1,6 @@
 use std::{ops::Deref, sync::Arc};
 
-use neca_cmd::Token;
+use neca_cmd::Command;
 
 use crate::commands::{NativeCommand, runner::Location};
 
@@ -10,7 +10,7 @@ use super::eval::EvalContext;
 pub struct CommandContext {
     parent: EvalContext,
     pub meta: Arc<NativeCommand>,
-    pub token: Token,
+    pub command: Command,
     pub pos: Location,
 }
 
@@ -26,13 +26,13 @@ impl CommandContext {
     pub fn new(
         eval_ctx: EvalContext,
         meta: Arc<NativeCommand>,
-        token: Token,
+        command: Command,
         pos: Location,
     ) -> Self {
         Self {
             parent: eval_ctx,
             meta,
-            token,
+            command,
             pos,
         }
     }

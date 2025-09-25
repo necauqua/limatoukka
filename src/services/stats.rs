@@ -79,12 +79,17 @@ impl StatsService for StatsServiceElastic {
     ) -> Result<()> {
         let timestamp = std::time::UNIX_EPOCH.elapsed().unwrap().as_millis();
 
+        let mut data_map: HashMap<_, Vec<_>> = HashMap::new();
+        for (k, v) in data {
+            data_map.entry(*k).or_default().push(*v);
+        }
+
         let body = serde_json::json!({
             "@timestamp": timestamp,
             "uid": user_id,
             "name": name,
             "event": event,
-            "data": data.iter().cloned().collect::<HashMap<_, _>>(),
+            "data": data_map,
         });
         self.client
             .index(elasticsearch::IndexParts::Index(&self.index))
