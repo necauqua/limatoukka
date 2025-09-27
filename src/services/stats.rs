@@ -1,16 +1,27 @@
-use std::{borrow::Cow, collections::HashMap};
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+    mem,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use anyhow::Result;
 use async_trait::async_trait;
-use elasticsearch::{Elasticsearch, auth::Credentials, http::transport::Transport};
+use elasticsearch::{
+    Elasticsearch,
+    auth::Credentials,
+    http::{request::JsonBody, transport::Transport},
+};
 use serde::Deserialize;
+use serde_json::json;
 
 use crate::{injector_getter, services::Service};
 
 #[async_trait]
 pub trait StatsService: Service {
-    async fn record(
-        &self,
+    fn record(
+        self: Arc<Self>,
         user_id: &str,
         name: Option<&str>,
         event: &str,
@@ -27,6 +38,8 @@ injector_getter!(StatsService::stats);
 pub struct StatsServiceElastic {
     client: Elasticsearch,
     index: String,
+    buffer: Mutex<Vec<serde_json::Value>>,
+    batch_period: Duration,
 }
 
 impl StatsServiceElastic {
@@ -36,6 +49,8 @@ impl StatsServiceElastic {
         Ok(Self {
             client: Elasticsearch::new(transport),
             index: index.to_owned(),
+            buffer: Default::default(),
+            batch_period: Duration::from_secs(1),
         })
     }
 }
@@ -44,9 +59,9 @@ impl StatsServiceElastic {
     async fn count_impl(&self, clauses: Vec<(Cow<'_, str>, &str)>) -> Result<u64> {
         let mut terms = vec![];
         for (k, v) in clauses {
-            terms.push(serde_json::json!({ "term": { k: v } }));
+            terms.push(json!({ "term": { k: v } }));
         }
-        let query = serde_json::json!({
+        let query = json!({
             "query": { "bool": { "must": terms } }
         });
 
@@ -70,8 +85,8 @@ impl StatsServiceElastic {
 
 #[async_trait]
 impl StatsService for StatsServiceElastic {
-    async fn record(
-        &self,
+    fn record(
+        self: Arc<Self>,
         user_id: &str,
         name: Option<&str>,
         event: &str,
@@ -84,18 +99,55 @@ impl StatsService for StatsServiceElastic {
             data_map.entry(*k).or_default().push(*v);
         }
 
-        let body = serde_json::json!({
+        let document = json!({
             "@timestamp": timestamp,
             "uid": user_id,
             "name": name,
             "event": event,
             "data": data_map,
         });
-        self.client
-            .index(elasticsearch::IndexParts::Index(&self.index))
-            .body(body)
-            .send()
-            .await?;
+
+        {
+            let mut buffer = self.buffer.lock().unwrap();
+            if buffer.is_empty() {
+                tracing::trace!("new stat buffer");
+            }
+            buffer.push(document);
+            // meh
+            if buffer.len() > 1 {
+                return Ok(());
+            }
+        }
+
+        let s = self.clone();
+
+        tokio::spawn(async move {
+            tokio::time::sleep(s.batch_period).await;
+
+            let documents = mem::take(&mut *s.buffer.lock().unwrap());
+
+            let count = documents.len();
+
+            let res = s
+                .client
+                .bulk(elasticsearch::BulkParts::Index(&s.index))
+                .body(
+                    documents
+                        .into_iter()
+                        .flat_map(|doc| {
+                            [JsonBody::new(json!({ "create": {} })), JsonBody::new(doc)]
+                        })
+                        .collect(),
+                )
+                .send()
+                .await;
+
+            match res {
+                Ok(_) => tracing::debug!(count, "recorded stats"),
+                Err(e) => tracing::error!("failed to record stats: {e}"),
+            }
+        });
+
         Ok(())
     }
 
@@ -120,8 +172,8 @@ pub struct StatsServiceNoop;
 
 #[async_trait]
 impl StatsService for StatsServiceNoop {
-    async fn record(
-        &self,
+    fn record(
+        self: Arc<Self>,
         user_id: &str,
         name: Option<&str>,
         event: &str,

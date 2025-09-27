@@ -353,32 +353,19 @@ impl Runner {
                 ctx.charges().add(ctx.sender(), cost).await?;
             }
         } else {
-            tokio::spawn({
-                let stats = ctx.stats();
-                let sender = ctx.message().sender.clone();
-                let command = ctx.command.clone();
-                let name = m.name;
-                async move {
-                    let symbol = format!("{:?}", command.token.symbol);
-                    let cost = refund.map_or(0, |c| c.as_i64()).to_string();
-                    let mut records = vec![("command", name), ("symbol", &symbol), ("cost", &cost)];
+            let symbol = format!("{:?}", ctx.command.token.symbol);
+            let cost = refund.map_or(0, |c| c.as_i64()).to_string();
 
-                    for arg in &command.params {
-                        records.push(("args", arg.text()));
-                    }
+            let mut records = vec![("command", m.name), ("symbol", &symbol), ("cost", &cost)];
+            for arg in &ctx.command.params {
+                records.push(("args", arg.text()));
+            }
 
-                    let res = stats
-                        .record(&sender.id, Some(&sender.name), "command", &records)
-                        .await;
+            let sender = &ctx.message().sender;
 
-                    if let Err(e) = res {
-                        tracing::error!("failed to record stats: {e}");
-                    }
-                }
-                .in_current_span()
-            });
+            ctx.stats()
+                .record(&sender.id, Some(&sender.name), "command", &records)?;
         }
-
         res
     }
 }
