@@ -1,3 +1,7 @@
+use std::time::{Duration, SystemTime};
+
+use serde::{Deserialize, Serialize};
+
 use crate::{
     commands::{
         CommandResult,
@@ -78,34 +82,60 @@ async fn award(ctx: CommandContext, target: Chatter, amount: Charges) -> Command
     Ok(())
 }
 
+#[derive(Serialize, Deserialize)]
+struct LastPinger {
+    id: String,
+    name: String,
+    timestamp: SystemTime,
+    next_gate: Duration,
+}
+
 /// Respond with "pong!".
 ///
 /// I heard that scarcity creates value, so getting a pong is very _cool_ and
-/// _pog_, because only one person can get it in an hour.
+/// _pog_, because only one person can get it in an hour-ish.
+///
+/// This command has a dynamic global gate of 55-65 minutes, chosen at random.
 ///
 /// Ping fails if you were the last person to do it!
 ///
 /// There is also some magical property to this command..
-#[command(global_gate = 1h, cost = -1)]
+#[command(cost = -1)]
 async fn ping(ctx: CommandContext) -> CommandResult {
+    let storage = ctx.storage();
+
+    let prev: Option<LastPinger> = storage.load("last-pinger").await?;
+
+    if let Some(prev) = prev {
+        if prev.id == ctx.message().sender.id {
+            fail!(
+                "You were the last person to ping~! Wait for someone else to ping~ before you can ping~ again."
+            );
+        }
+        let elapsed = prev.timestamp.elapsed().unwrap_or_default();
+        if elapsed < Duration::from_secs(600) {
+            ctx.fail("KEKW U LOST KEKW").await?;
+        }
+        if elapsed < prev.next_gate {
+            fail!("not yet");
+        }
+    }
+
     if !ctx.twitch().is_live().await? {
         fail!("stream is offline lmao")
     }
 
-    let storage = ctx.storage();
     let pinger = &ctx.message().sender;
-
-    let prev: Option<(String, String)> = storage.load("last-pinger").await?;
-    if let Some((prev_id, _)) = prev
-        && prev_id == pinger.id
-    {
-        fail!(
-            "You were the last person to ping~! Wait for someone else to ping~ before you can ping~ again."
-        );
-    }
-
     storage
-        .save("last-pinger", &(&pinger.id, &pinger.login))
+        .save(
+            "last-pinger",
+            &LastPinger {
+                id: pinger.id.clone(),
+                name: pinger.login.clone(),
+                timestamp: SystemTime::now(),
+                next_gate: Duration::from_secs(rand::random_range(55..65) * 60),
+            },
+        )
         .await?;
 
     // Xeanthorn
@@ -127,13 +157,10 @@ async fn ping(ctx: CommandContext) -> CommandResult {
 /// current stream.
 #[command(sender_gate = 15s)]
 async fn last_pinger(ctx: CommandContext) -> CommandResult {
-    let pinger: Option<(String, String)> = ctx.storage().load("last-pinger").await?;
-
-    match pinger {
-        Some((_, pinger)) => ctx.reply(format!("Last ping~ was by {pinger}")).await?,
+    match ctx.storage().load::<LastPinger>("last-pinger").await? {
+        Some(p) => ctx.reply(format!("Last ping~ was by {}", p.name)).await?,
         None => ctx.reply("No one has pinged yet".into()).await?,
     }
-
     Ok(())
 }
 
