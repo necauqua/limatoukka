@@ -153,6 +153,11 @@ thank-you:
       rarity: 0.05
       exclusive: true
 
+porno:
+  sender-gate: 10m
+  file: "porno.ogg"
+  volume: 0.1
+
 PING:
   variants:
     - file: "AUGH.ogg"
