@@ -165,7 +165,7 @@ async fn last_pinger(ctx: CommandContext) -> CommandResult {
 }
 
 /// Say hi to the stream!
-#[command(sender_gate = 12h, cost = -0.2)]
+#[command(sender_gate = 12h, cost = -0.2, shortcode=hi)]
 async fn hello(ctx: CommandContext) -> CommandResult {
     if !ctx.twitch().is_live().await? {
         fail!("stream is offline lmao")
