@@ -19,7 +19,7 @@ use limatoukka::{
         ipc::{IpcService, IpcServiceExt, IpcServiceValkey},
         messaging::{self, MessagingService},
         music::{MusicService, MusicServiceImpl},
-        noita::{ItemFound, NoitaEvent, NoitaHandle, NoitaHandleExt},
+        noita::{ItemFound, NoitaEvent, NoitaHandle, NoitaHandleExt, WinState},
         sounds::{SoundService, SoundServiceExt, SoundServiceImpl},
         stats::{StatsService, StatsServiceElastic},
         status_wall::{StatusService, StatusWall},
@@ -212,19 +212,11 @@ async fn noita_event(ctx: AppContext, event: NoitaEvent) -> Result<()> {
         NoitaEvent::PlayerDeath => {
             ctx.storage().del("best-inventory").await?;
 
-            let won = ctx.noita().with(|n| {
-                Ok(n.get_world_state()?
-                    .map(|ws| anyhow::Ok(ws.flags.read_storage(n.proc())?.iter().any(|f| f == "ending_game_completed")))
-                    .transpose()?
-                    .unwrap_or_default())
-            }).await?;
-
-            if won {
-                ctx.send("won GIGACHAD".into()).await?
-            } else {
-                ctx.send("died lmao".into()).await?
+            match ctx.noita().get_win_state().await? {
+                WinState::Loss => ctx.send("died lmao".into()).await?,
+                WinState::Win { cheese: false } => ctx.send("won GIGACHAD".into()).await?,
+                WinState::Win { cheese: true } => ctx.send("won StinkyCheese".into()).await?,
             }
-            // ctx.next_run().await?
         },
         NoitaEvent::LowOxygen => {
             if ctx.gate("low-oxygen", Duration::from_secs(60)).await? {

@@ -30,7 +30,7 @@ fn data_error(thing: &str) -> impl Fn(anyhow::Error) -> CommandError {
 }
 
 /// Read the current seed
-#[command(global_gate = 15s, permission = Vip, NoitaData)]
+#[command(global_gate = 15s, NoitaData)]
 async fn seed(ctx: CommandContext) -> CommandResult {
     let seed = ctx
         .noita()

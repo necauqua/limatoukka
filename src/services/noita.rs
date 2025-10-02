@@ -286,6 +286,30 @@ impl NoitaHandle {
 
         Ok(set)
     }
+
+    /// This assumes the game is over and player being alive is not actually checked.
+    pub async fn get_win_state(&self) -> Result<WinState> {
+        self.with(|n| {
+            let Some(ws) = n.get_world_state()? else {
+                return Ok(WinState::Loss);
+            };
+            let flags = ws.flags.read_storage(n.proc())?;
+            if flags.iter().any(|f| f == "ending_game_completed") {
+                let cheese = flags
+                    .iter()
+                    .any(|f| f == "kantele_secret_02" || f == "ocarina_secret_02");
+                return Ok(WinState::Win { cheese });
+            }
+            Ok(WinState::Loss)
+        })
+        .await
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WinState {
+    Loss,
+    Win { cheese: bool },
 }
 
 #[derive(Debug, Error)]
