@@ -158,6 +158,12 @@ porno:
   file: "porno.ogg"
   volume: 0.1
 
+source:
+  sender-gate: 5m
+  file: "source.ogg"
+  volume: 0.1
+  exclusive: true
+
 PING:
   variants:
     - file: "AUGH.ogg"
