@@ -19,7 +19,7 @@ use limatoukka::{
         ipc::{IpcService, IpcServiceExt, IpcServiceValkey},
         messaging::{self, MessagingService},
         music::{MusicService, MusicServiceImpl},
-        noita::{ItemFound, NoitaEvent, NoitaHandle, NoitaHandleExt, WinState},
+        noita::{ItemFound, NoitaEvent, NoitaHandle, NoitaService, NoitaServiceExt, WinState},
         sounds::{SoundService, SoundServiceExt, SoundServiceImpl},
         stats::{StatsService, StatsServiceElastic},
         status_wall::{StatusService, StatusWall},
@@ -52,6 +52,7 @@ async fn run() -> Result<()> {
     let eventsub_init = eventsub.wait_for_full_init();
 
     let status_wall = Arc::new(StatusWall::default());
+    let noita_handle = Arc::new(NoitaHandle::default());
 
     let services = Injector::new()
         .with::<dyn MessagingService>(messaging.into())
@@ -80,8 +81,7 @@ async fn run() -> Result<()> {
         )))
         .with::<dyn TtsService>(Arc::new(TtsServiceImpl::default()))
         .with::<dyn StatusService>(status_wall.clone())
-        // todo make it into a dyn service ofc
-        .with(Arc::new(NoitaHandle::default()));
+        .with::<dyn NoitaService>(noita_handle.clone());
 
     let ctx = AppContext::new(services)
         .with_caster_id(twitch_api.caster_id().to_owned())
@@ -96,9 +96,9 @@ async fn run() -> Result<()> {
 
     tokio::spawn(eventsub.run(ctx.clone()));
     tokio::spawn(status_wall.start(&config.browser_source_bind));
-    tokio::spawn(NoitaHandle::poll_state_updates(ctx.clone()));
 
-    let mut noita_events = ctx.noita().subscribe();
+    let mut noita_events = noita_handle.subscribe();
+    tokio::spawn(noita_handle.poll_state_updates(ctx.clone()));
 
     eventsub_init.await;
     // after eventsub init so we can receive redemptions
@@ -237,7 +237,6 @@ async fn noita_event(ctx: AppContext, event: NoitaEvent) -> Result<()> {
             ItemFound::Taikasauva => "Got the SUMMONTAIKASAUVA , the whole world is in your hands now",
         }.into()).await?,
         NoitaEvent::PillarCompleted(pillar) => ctx.send(format!("A new pillar level was erected! '{pillar}' is complete! shadowWizardJAM")).await?,
-        NoitaEvent::NewSpellCast(flag, name) => ctx.send(format!("A new spell was cast: {name} ({flag})")).await?,
         NoitaEvent::OtherPermanentFlag(flag) => ctx.send(format!("A permanent flag was set: {flag}")).await?,
         _ => {}
     }
