@@ -54,6 +54,8 @@ pub trait NoitaService: Service {
     async fn get_player_pos(&self) -> NoitaResult<PlayerPos>;
 
     async fn get_entity_tag_data(&self) -> NoitaResult<EntityTagData>;
+
+    async fn get_player_distance_to(&self, entity_tag: String) -> NoitaResult<Option<f32>>;
 }
 
 injector_getter!(NoitaService::noita);
@@ -252,10 +254,10 @@ impl NoitaHandle {
         // if the process died we re-lookup (3 is libc::ESRCH, has no ErrorKind variant)
         match e {
             NoitaError::NoNoita => {}
-            NoitaError::Internal(e)
-                if e.downcast_ref::<io::Error>().and_then(|e| e.raw_os_error()) != Some(3) =>
-            {
-                return Err(e.into());
+            NoitaError::Internal(e) => {
+                if e.downcast_ref::<io::Error>().and_then(|e| e.raw_os_error()) != Some(3) {
+                    return Err(e.into());
+                }
             }
             e => return Err(e),
         };
@@ -441,6 +443,37 @@ impl NoitaService for NoitaHandle {
                 all_tags,
                 entity_tags,
             })
+        })
+        .await
+    }
+
+    async fn get_player_distance_to(&self, entity_tag: String) -> NoitaResult<Option<f32>> {
+        self.with(move |n| {
+            let (e, _) = n.get_player()?.ok_or(NoitaError::NoPlayer)?;
+
+            let Some(tag_idx) = n.get_entity_tag_index(&entity_tag)? else {
+                return Ok(None);
+            };
+
+            let manager = n.read_entity_manager()?;
+            let Some(bucket) = manager.entity_buckets.get(tag_idx as _) else {
+                return Ok(None);
+            };
+            let mut min_dist_sqr = None;
+            for ptr in bucket.read(n.proc())?.read(n.proc())? {
+                if ptr.is_null() {
+                    continue;
+                }
+                let entity = ptr.read(n.proc())?;
+                let pos = entity.transform.pos;
+                let dx = pos.x - e.transform.pos.x;
+                let dy = pos.y - e.transform.pos.y;
+                let dist_sqr = dx * dx + dy * dy;
+                if min_dist_sqr.is_none_or(|d| dist_sqr < d) {
+                    min_dist_sqr = Some(dist_sqr);
+                }
+            }
+            Ok(min_dist_sqr.map(|d| d.sqrt()))
         })
         .await
     }
