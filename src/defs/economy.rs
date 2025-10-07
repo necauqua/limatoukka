@@ -20,7 +20,7 @@ use crate::{
 };
 
 /// Check the current charge balance
-#[command(sender_gate = 3s)]
+#[command(sender_gate = 3s, shortcode = b)]
 async fn balance(ctx: CommandContext, chatter: Chatter) -> CommandResult {
     let charges = ctx.charges().get(&chatter.id).await?;
 

@@ -6,12 +6,14 @@ use crate::{
     commands::{CommandResult, args::InRange, command, runner::CommandError},
     context::cmd::CommandContext,
     fail,
+    integration::yt_music_api::Song,
     services::{
         charges::{Charges, ChargesServiceExt},
         gates::GateServiceExt,
         messaging::PermissionLevel,
-        music::{AddSongError, MusicServiceExt, Song},
+        music::{AddSongError, MusicServiceExt},
         sounds::SoundServiceExt,
+        stats::StatsServiceExt,
         storage::StorageServiceExt,
         tts::TtsServiceExt,
     },
@@ -70,9 +72,27 @@ async fn play_sound(ctx: CommandContext, sound_id: String) -> CommandResult {
 #[command(global_gate = 5s, shortcode = np)]
 async fn now_playing(ctx: CommandContext) -> CommandResult {
     match ctx.music().current().await? {
-        Some(title) => ctx.send(format!("Now playing: {title}")).await?,
+        Some(song) => {
+            ctx.send(format!("Now playing: {} - {}", song.title, song.author))
+                .await?
+        }
         None => ctx.fail("Nothing is playing right now").await?,
     }
+    Ok(())
+}
+
+/// Get or set the YouTube Music volume.
+#[command(sender_gate = 3s, permission = Vip, shortcode = v)]
+async fn volume(ctx: CommandContext, volume: Option<InRange<0, 100>>) -> CommandResult {
+    let music_service = ctx.music();
+    match volume {
+        Some(volume) => music_service.set_volume(volume.get()).await?,
+        None => {
+            let volume = music_service.get_volume().await?;
+            ctx.send(format!("Current volume is {volume}%")).await?;
+        }
+    }
+
     Ok(())
 }
 
@@ -87,7 +107,34 @@ async fn skip(ctx: CommandContext) -> CommandResult {
     Ok(())
 }
 
-fn get_youtube_id(raw: &str) -> Result<String, CommandError> {
+/// A "back" button, undoes skips or otherwise goes back to the previous song.
+#[command(global_gate = 15s, cost = 1, free_for = Vip)]
+async fn unskip(ctx: CommandContext) -> CommandResult {
+    if ctx.music().unskip().await? {
+        ctx.reply("unskipped 😌".into()).await?
+    } else {
+        fail!("Nothing is playing right now")
+    }
+    Ok(())
+}
+
+/// Pause/unpause the music.
+#[command(permission = Moderator)]
+async fn pause(ctx: CommandContext, state: Option<bool>) -> CommandResult {
+    let pause = match state {
+        Some(s) => s,
+        None => !ctx.music().is_paused().await?,
+    };
+    ctx.music().set_pause(pause).await?;
+    if pause {
+        ctx.reply("paused".into()).await?;
+    } else {
+        ctx.reply("unpaused".into()).await?;
+    }
+    Ok(())
+}
+
+fn unwrap_youtube_id(raw: &str) -> Result<String, CommandError> {
     let no_proto = !raw.starts_with("http://") && !raw.starts_with("https://");
     let url = if no_proto {
         format!("https://{raw}")
@@ -96,7 +143,7 @@ fn get_youtube_id(raw: &str) -> Result<String, CommandError> {
     };
 
     let Ok(url) = Url::parse(&url) else {
-        return Ok(url);
+        return Ok(raw.into());
     };
 
     const YOUTUBE: &[&str] = &[
@@ -106,7 +153,6 @@ fn get_youtube_id(raw: &str) -> Result<String, CommandError> {
         "youtu.be",
     ];
     if !YOUTUBE.contains(&url.host_str().unwrap_or_default()) {
-        // cringe way to support raw ids or smth
         if no_proto {
             return Ok(raw.into());
         }
@@ -121,7 +167,7 @@ fn get_youtube_id(raw: &str) -> Result<String, CommandError> {
                 .and_then(|mut s| s.rfind(|s| !s.is_empty()))
                 .map(|s| s.into())
         })
-        .ok_or_else(|| CommandError::PreconditionFail("Malformed YouTube URL".into()))
+        .ok_or_else(|| CommandError::PreconditionFail("YouTube URL had no video ID".into()))
 }
 
 /// Adds the given song to the YouTube Music queue.
@@ -150,52 +196,77 @@ async fn song_request(
         None => url_or_id,
     };
 
-    let id = get_youtube_id(&url_or_id)?;
-    if id == "dQw4w9WgXcQ" {
+    let query = unwrap_youtube_id(&url_or_id)?;
+    if query == "dQw4w9WgXcQ" {
         ctx.fail("At least don't use a dQw link ICANT").await?;
     }
 
-    match ctx.music().add(&id).await {
-        Ok(Song { author, title, .. }) => {
-            ctx.storage()
-                .set(&format!("song-requester:{id}"), &ctx.message().sender.name)
-                .await?;
+    let name = &ctx.message().sender.name;
+
+    match ctx.music().request(&query, name).await {
+        Ok(Song { author, title, video_id, length, .. }) => {
             ctx.send(format!("Added a song to the queue: {author} - {title}"))
                 .await?;
+            let length = length.as_millis().to_string();
+            ctx.stats().record(ctx.sender(), Some(name), "song-request", &[
+                ("title", &title),
+                ("author", &author),
+                ("video_id", &video_id),
+                ("length", length.as_str()),
+            ])?;
         }
+        Err(AddSongError::AgeRestricted) => {
+            ctx.fail("A few select videos are so turbo-age-restricted YouTube disallows embedding them Sadge").await?
+        },
+        Err(AddSongError::RegionRestricted) => {
+            ctx.fail("Oh wow you found a video that's *actually* region-locked").await?
+        },
+        Err(AddSongError::AgeAndRegionRestricted) => {
+            ctx.fail("How tf did you find a video thats *BOTH* age- and region-locked lmao").await?
+        },
+        Err(AddSongError::NotFound) => {
+            ctx.fail("Actually did not find anything (search only searches in the music category)").await?
+        },
+        Err(AddSongError::AlreadyInQueue) => {
+            ctx.fail("Already in the queue ICANT").await?
+        },
         Err(AddSongError::Internal(e)) => return Err(CommandError::Internal(e)),
-        Err(e) => ctx.fail(e.to_string()).await?,
     }
     Ok(())
 }
 
+/// Removes the last song you requested from the queue.
+#[command(sender_gate = 5s, shortcode = cr)]
+async fn cancel_request(ctx: CommandContext) -> CommandResult {
+    match ctx.music().cancel_last(&ctx.message().sender.name).await? {
+        Some(song) => {
+            ctx.send(format!(
+                "Removed from queue: {} - {}",
+                song.title, song.author
+            ))
+            .await?
+        }
+        None => ctx.fail("Queue had no songs requested by you").await?,
+    }
+
+    Ok(())
+}
+
 /// List the songs that were requested through `song-request~`.
-#[command(global_gate = 30s)]
+#[command(global_gate = 30s, shortcode = mq)]
 async fn music_queue(ctx: CommandContext, top: Option<u32>) -> CommandResult {
-    let storage = ctx.storage();
     let queue = ctx.music().queue().await?;
     if queue.is_empty() {
         ctx.send("Queue is empty".into()).await?;
-        // todo could cleanup all song-requester:* keys here somehow
         return Ok(());
     }
 
     let mut response = String::new();
 
-    for Song {
-        author,
-        title,
-        video_id,
-    } in queue.iter().take(top.unwrap_or(999999) as _)
-    {
+    for (Song { author, title, .. }, requester) in queue.iter().take(top.unwrap_or(999999) as _) {
         if !response.is_empty() {
             response.push_str(";\n");
         }
-
-        let requester = storage
-            .get(&format!("song-requester:{video_id}"))
-            .await?
-            .unwrap_or_default();
 
         if requester.is_empty() {
             write!(&mut response, "{author} - {title}").unwrap();
@@ -214,25 +285,10 @@ async fn music_queue(ctx: CommandContext, top: Option<u32>) -> CommandResult {
 }
 
 /// A helper command to help fix potential music queue issues.
-#[command(permission = Moderator)]
-async fn music_queue_reset(ctx: CommandContext) -> CommandResult {
-    ctx.music().queue_reset().await?;
+#[command(permission = Moderator, shortcode = cmq)]
+async fn clear_music_queue(ctx: CommandContext) -> CommandResult {
+    ctx.music().clear().await?;
     ctx.reply("queue cursor reset".into()).await?;
-
-    Ok(())
-}
-
-/// Get or set the YouTube Music volume.
-#[command(sender_gate = 3s, permission = Vip)]
-async fn volume(ctx: CommandContext, volume: Option<InRange<0, 100>>) -> CommandResult {
-    let music_service = ctx.music();
-    match volume {
-        Some(volume) => music_service.set_volume(volume.get()).await?,
-        None => {
-            let volume = music_service.get_volume().await?;
-            ctx.send(format!("Current volume is {volume}%")).await?;
-        }
-    }
 
     Ok(())
 }
@@ -253,34 +309,34 @@ mod tests {
     #[test]
     fn test_get_youtube_id() {
         assert_eq!(
-            get_youtube_id("https://www.youtube.com/watch?v=dQw4w9WgXcQ").unwrap(),
+            unwrap_youtube_id("https://www.youtube.com/watch?v=dQw4w9WgXcQ").unwrap(),
             "dQw4w9WgXcQ"
         );
         assert_eq!(
-            get_youtube_id("https://youtube.com/watch?v=dQw4w9WgXcQ").unwrap(),
+            unwrap_youtube_id("https://youtube.com/watch?v=dQw4w9WgXcQ").unwrap(),
             "dQw4w9WgXcQ"
         );
         assert_eq!(
-            get_youtube_id("https://youtu.be/dQw4w9WgXcQ").unwrap(),
+            unwrap_youtube_id("https://youtu.be/dQw4w9WgXcQ").unwrap(),
             "dQw4w9WgXcQ"
         );
         assert_eq!(
-            get_youtube_id("https://music.youtube.com/watch?v=dQw4w9WgXcQ").unwrap(),
+            unwrap_youtube_id("https://music.youtube.com/watch?v=dQw4w9WgXcQ").unwrap(),
             "dQw4w9WgXcQ"
         );
         assert_eq!(
-            get_youtube_id("youtu.be/dQw4w9WgXcQ").unwrap(),
+            unwrap_youtube_id("youtu.be/dQw4w9WgXcQ").unwrap(),
             "dQw4w9WgXcQ"
         );
-        assert_eq!(get_youtube_id("not-a-url").unwrap(), "not-a-url");
+        assert_eq!(unwrap_youtube_id("not-a-url").unwrap(), "not-a-url");
         assert_eq!(
-            get_youtube_id("https://example.com/watch?v=dQw4w9WgXcQ")
+            unwrap_youtube_id("https://example.com/watch?v=dQw4w9WgXcQ")
                 .unwrap_err()
                 .to_string(),
             "Not a YouTube URL"
         );
         assert_eq!(
-            get_youtube_id("https://www.youtube.com/") // no v query, no last path segment
+            unwrap_youtube_id("https://www.youtube.com/") // no v query, no last path segment
                 .unwrap_err()
                 .to_string(),
             "Malformed YouTube URL"

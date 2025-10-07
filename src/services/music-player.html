@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>YouTube Queue Player</title>
+        <style>
+            * {
+                color: #d4d4d4;
+                background-color: #1e1e1e;
+                font-family:
+                    JetBrains Mono,
+                    monospace;
+            }
+            input[type="range"] {
+                appearance: none;
+                width: 100%;
+                height: 8px;
+                border-radius: 4px;
+                background: #444;
+                outline: none;
+            }
+            iframe {
+                display: none;
+            }
+        </style>
+    </head>
+
+    <body>
+        <div id="player"></div>
+
+        <div
+            style="
+                display: flex;
+                flex-direction: column;
+                gap: 1rem;
+                max-width: 60rem;
+                margin: auto;
+            "
+        >
+            <h2>YouTube Queue Player</h2>
+
+            <span id="currentTitle"></span>
+
+            <div style="display: flex; gap: 0.5rem; align-items: center">
+                <button
+                    onclick="playPrev().catch(console.error)"
+                    style="align-self: normal"
+                >
+                    &lt;&lt;
+                </button>
+                <button
+                    id="pause"
+                    onclick="togglePause()"
+                    style="align-self: normal; width: 2rem; height: 2rem"
+                >
+                    ⏸︎
+                </button>
+                <button
+                    onclick="playNext().catch(console.error)"
+                    style="align-self: normal"
+                >
+                    &gt;&gt;
+                </button>
+                <input
+                    id="seek"
+                    type="range"
+                    min="0"
+                    max="1000"
+                    value="0"
+                    oninput="updateSeek()"
+                />
+            </div>
+
+            <div style="display: flex; gap: 0.5rem; align-items: center">
+                <span id="volumeDisplay" style="width: 2rem">5</span>
+                <input
+                    id="volume"
+                    type="range"
+                    min="0"
+                    max="100"
+                    value="5"
+                    oninput="updateVolume()"
+                />
+            </div>
+        </div>
+
+        <script src="https://www.youtube.com/iframe_api"></script>
+        <script>
+            let player;
+
+            function updateVolume() {
+                volumeDisplay.innerText = volume.value;
+                player?.setVolume(volume.value);
+                fetch("/state/volume/" + volume.value, {
+                    method: "POST",
+                }).catch(console.error);
+            }
+
+            function updatePause(state) {
+                if (state == YT.PlayerState.PAUSED) {
+                    pause.innerText = "▶︎";
+                    fetch("/state/paused/true", { method: "POST" }).catch(
+                        console.error,
+                    );
+                } else {
+                    pause.innerText = "⏸︎";
+                    fetch("/state/paused/false", { method: "POST" }).catch(
+                        console.error,
+                    );
+                }
+            }
+
+            function updateSeek() {
+                player?.seekTo(
+                    (seek.value * player.getDuration()) / 1000,
+                    true,
+                );
+            }
+
+            let seekUpdater = null;
+
+            // called by the yt iframe api
+            function onYouTubeIframeAPIReady() {
+                player = new YT.Player("player", {
+                    height: "390",
+                    width: "640",
+                    events: {
+                        onReady: updateVolume,
+                        onStateChange(e) {
+                            updatePause(e.data);
+
+                            if (e.data == YT.PlayerState.ENDED) {
+                                playNext().catch(console.error);
+                            }
+
+                            if (e.data == YT.PlayerState.PLAYING) {
+                                seekUpdater = setInterval(() => {
+                                    const current = player.getCurrentTime();
+                                    const duration = player.getDuration();
+                                    if (duration > 0) {
+                                        seek.value =
+                                            (current * 1000) / duration;
+                                    }
+                                }, 200);
+                            } else if (seekUpdater) {
+                                clearInterval(seekUpdater);
+                                seekUpdater = null;
+                            }
+                        },
+                    },
+                });
+            }
+
+            async function play(endpoint) {
+                const res = await fetch(endpoint).then((res) => res.json());
+                if (seekUpdater) {
+                    clearInterval(seekUpdater);
+                    seekUpdater = null;
+                }
+                seek.value = 0;
+                if (res) {
+                    player.loadVideoById(res.videoId);
+                    currentTitle.textContent = res.title + " - " + res.author;
+                } else {
+                    currentTitle.textContent = "";
+                }
+            }
+
+            function togglePause() {
+                if (player.getPlayerState() === YT.PlayerState.PLAYING) {
+                    player.pauseVideo();
+                } else {
+                    player.playVideo();
+                }
+            }
+
+            async function playPrev() {
+                await play("/prev");
+            }
+
+            async function playNext() {
+                await play("/next");
+            }
+
+            const events = new EventSource("/events");
+            events.addEventListener("volume", (e) => {
+                volume.value = parseInt(e.data);
+                updateVolume();
+            });
+            events.addEventListener("next", () =>
+                playNext().catch(console.error),
+            );
+            events.addEventListener("prev", () =>
+                playPrev().catch(console.error),
+            );
+            events.addEventListener("pause", () => player.pauseVideo());
+            events.addEventListener("play", () => player.playVideo());
+        </script>
+    </body>
+</html>

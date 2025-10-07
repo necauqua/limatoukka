@@ -35,6 +35,17 @@ pub struct Elastic {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "kebab-case")]
+pub struct YouTube {
+    /// The API key for the YouTube Data API v3
+    pub api_key: String,
+    /// The country code to check for region restrictions
+    pub country_code: String,
+    /// The ID of the default playlist to use when no songs are requested
+    pub playlist: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct Config {
     /// The environment in which the bot is running
     pub env: Env,
@@ -46,7 +57,10 @@ pub struct Config {
     pub elastic: Elastic,
     pub stats: Elastic,
 
+    pub youtube: YouTube,
+
     pub browser_source_bind: String,
+    pub music_player_bind: String,
 }
 
 impl Display for Env {

@@ -6,7 +6,7 @@ use limatoukka::{
     commands::{CommandTag, discover_declared_commands, runner::Runner},
     config::Config,
     context::app::{AppContext, InterruptKind},
-    integration::{eventsub::EventSub, twitch_api::TwitchApi},
+    integration::{eventsub::EventSub, twitch_api::TwitchApi, yt_music_api::YouTubeMusic},
     logging,
     services::{
         Injector,
@@ -18,7 +18,7 @@ use limatoukka::{
         gates::{GateService, GateServiceValkey},
         ipc::{IpcService, IpcServiceExt, IpcServiceValkey},
         messaging::{self, MessagingService},
-        music::{MusicService, MusicServiceImpl},
+        music::{MusicService, YouTubeMusicPlayer},
         noita::{ItemFound, NoitaEvent, NoitaHandle, NoitaService, NoitaServiceExt, WinState},
         sounds::{SoundService, SoundServiceExt, SoundServiceImpl},
         stats::{StatsService, StatsServiceElastic},
@@ -53,6 +53,13 @@ async fn run() -> Result<()> {
 
     let status_wall = Arc::new(StatusWall::default());
     let noita_handle = Arc::new(NoitaHandle::default());
+    let music_player = Arc::new(
+        YouTubeMusicPlayer::new(
+            YouTubeMusic::new(config.youtube.api_key, config.youtube.country_code),
+            &config.youtube.playlist,
+        )
+        .await?,
+    );
 
     let services = Injector::new()
         .with::<dyn MessagingService>(messaging.into())
@@ -76,12 +83,10 @@ async fn run() -> Result<()> {
             &config.elastic.index,
         )?))
         .with::<dyn SoundService>(Arc::new(SoundServiceImpl::default()))
-        .with::<dyn MusicService>(Arc::new(MusicServiceImpl::new(
-            "http://localhost:26538".into(),
-        )))
         .with::<dyn TtsService>(Arc::new(TtsServiceImpl::default()))
         .with::<dyn StatusService>(status_wall.clone())
-        .with::<dyn NoitaService>(noita_handle.clone());
+        .with::<dyn NoitaService>(noita_handle.clone())
+        .with::<dyn MusicService>(music_player.clone());
 
     let ctx = AppContext::new(services)
         .with_caster_id(twitch_api.caster_id().to_owned())
@@ -96,6 +101,7 @@ async fn run() -> Result<()> {
 
     tokio::spawn(eventsub.run(ctx.clone()));
     tokio::spawn(status_wall.start(&config.browser_source_bind));
+    tokio::spawn(music_player.start(&config.music_player_bind));
 
     let mut noita_events = noita_handle.subscribe();
     tokio::spawn(noita_handle.poll_state_updates(ctx.clone()));

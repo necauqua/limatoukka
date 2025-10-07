@@ -75,8 +75,10 @@ async fn var_resolvers(ctx: &CommandContext, name: &str) -> anyhow::Result<Optio
         "self" => return Ok(Some(ctx.owner().login.clone())),
         "rand" => return Ok(Some(rand::random_range(0..100_i32).to_string())),
         "volume" => {
-            let volume = ctx.music().get_volume().await?;
-            return Ok(Some(volume.to_string()));
+            return Ok(Some(ctx.music().get_volume().await?.to_string()));
+        }
+        "paused" => {
+            return Ok(Some(ctx.music().is_paused().await?.to_string()));
         }
         "balance" => {
             let balance = ctx.charges().get(ctx.sender()).await?;

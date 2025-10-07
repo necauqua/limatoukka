@@ -8,6 +8,7 @@ display = ":17"
 valkey = "redis://localhost:6379"
 
 browser-source-bind = "localhost:7456"
+music-player-bind = "localhost:35354"
 
 vote-min-ratio = 0.7
 vote-trigger-people = 2

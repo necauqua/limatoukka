@@ -59,6 +59,7 @@ compact_str = "0.9.0"
 dashmap = "6.1.0"
 surf = "2.3.2"
 tracing-chrome = "0.7.2"
+parse_duration = "2.1.1"
 
 [build-dependencies]
 anyhow = "1.0.97"
