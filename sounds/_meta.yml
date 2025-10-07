@@ -56,6 +56,10 @@ factorio-alert:
       volume: 0.2
       rarity: 0.2
 
+factorio-sa:
+  file: "factorrio.ogg"
+  volume: 0.05
+
 factorio-game-over:
   file: "factorio-game-over.ogg"
   volume: 0.2
