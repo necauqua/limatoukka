@@ -351,8 +351,10 @@ async fn group(
 /// The difference is that any script errors are ignored, and this command
 /// always succeeds, without preventing the repeats from continuing or setting
 /// last-error.
+///
+/// The `catch` script, if given, is executed only if the main script errors out.
 #[command(NoWall)]
-async fn r#try(ctx: CommandContext, script: Script) -> CommandResult {
+async fn r#try(ctx: CommandContext, script: Script, catch: Option<Script>) -> CommandResult {
     let wall = ctx.status();
     let _guard = wall.push(html! {
         span style="color: #E38AF0" { (ctx.message().sender.name) } ": " (ctx.command.token) " " (ctx.nesting_str())
@@ -364,6 +366,8 @@ async fn r#try(ctx: CommandContext, script: Script) -> CommandResult {
         Err(ref e @ EvalError::CommandErrors(ref errors)) => {
             if errors.iter().any(|e| e.error.is_internal()) {
                 fail!("script had internal errors: {e}")
+            } else if let Some(catch) = catch {
+                ctx.runner().eval(ctx.nest(), catch.stmt).await?;
             }
         }
     }
