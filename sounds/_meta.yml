@@ -58,7 +58,7 @@ factorio-alert:
 
 factorio-sa:
   file: "factorrio.ogg"
-  volume: 0.05
+  volume: 0.1
 
 factorio-game-over:
   file: "factorio-game-over.ogg"
@@ -167,6 +167,10 @@ source:
   file: "source.ogg"
   volume: 0.1
   exclusive: true
+
+glizzyy:
+  file: "glizzyy.ogg"
+  volume: 0.025
 
 PING:
   variants:
