@@ -73,12 +73,12 @@ pub enum NoitaEvent {
     Polymorphed,
     LowOxygen,
     ItemFound(ItemFound),
-    WormSummoned,
     PillarCompleted(String),
     OtherPermanentFlag(String),
 }
 
 #[derive(Debug, Clone, Copy)]
+#[repr(u8)]
 pub enum ItemFound {
     TreeTablet,
     OtherTablet,
@@ -102,110 +102,103 @@ impl NoitaHandle {
         self.events.subscribe()
     }
 
-    fn send(&self, event: NoitaEvent) {
-        _ = self.events.send(event);
-    }
-
     pub async fn poll_state_updates(self: Arc<Self>, ctx: AppContext) {
-        let best_state = ctx
+        let mut low_oxygen = Changeable::new(None);
+        let mut polied = Changeable::new(None);
+        let mut dead = Changeable::new(None);
+
+        let best_inv = ctx
             .storage()
-            .get("noita-state-flags")
+            .get("best-inventory")
             .await
             .ok()
             .flatten()
             .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or_default();
 
-        let mut best_state = NoitaState::from_bits_truncate(best_state);
-        let mut last_flags = self.get_flags().await.ok();
-        let mut poll_error = false;
+        let mut best_inv = Inventory::from_bits_truncate(best_inv);
 
-        let mut was_dead = false;
+        let mut last_flags = self.get_flags().await.ok();
+
+        let mut last_inv_update = Instant::now();
+        let mut inv_errored = false;
 
         loop {
-            sleep(Duration::from_millis(200)).await;
+            sleep(Duration::from_millis(30)).await;
 
-            let set = match self.with(NoitaState::read).await {
-                Ok(set) => set,
+            let state = self.with(NoitaState::read).await.ok();
+            if state.is_none() {
+                // prevent busy looping when most likely noita is simply not running
+                sleep(Duration::from_secs(5)).await;
+            }
+
+            if low_oxygen.was_set(state.as_ref().map(|n| n.low_oxygen)) {
+                _ = self.events.send(NoitaEvent::LowOxygen);
+            }
+            if polied.was_set(state.as_ref().map(|n| n.polied)) {
+                _ = self.events.send(NoitaEvent::Polymorphed);
+            }
+            if dead.was_set(state.as_ref().map(|s| s.dead)) {
+                tracing::info!("died");
+
+                best_inv = Inventory::empty();
+                last_inv_update = Instant::now(); // avoid races with inventory reading by resetting its timer
+                _ = self.events.send(NoitaEvent::PlayerDeath);
+            }
+
+            if last_inv_update.elapsed() < Duration::from_secs(1) {
+                continue;
+            }
+            last_inv_update = Instant::now();
+
+            let inv = match self.with(Inventory::read).await {
+                Ok(inv) => inv,
                 Err(NoitaError::NoNoita) => {
-                    // prevent busy loop
                     sleep(Duration::from_secs(5)).await;
                     continue;
                 }
                 Err(error) => {
-                    // log it once
-                    if !poll_error {
-                        tracing::warn!(?error, "failed to read player state");
-                        poll_error = true;
+                    if !inv_errored {
+                        tracing::warn!(?error, "failed to read player inventory");
+                        inv_errored = true;
                     }
                     continue;
                 }
             };
-            poll_error = false;
+            inv_errored = false;
 
-            if set.contains(NoitaState::DEAD) {
-                // on rising edge
-                if !was_dead {
-                    was_dead = true;
-                } else {
-                    continue;
-                }
-
-                tracing::info!("died");
-
-                self.send(NoitaEvent::PlayerDeath);
-
-                best_state = NoitaState::empty();
-                if let Err(error) = ctx.storage().del("noita-state-flags").await {
-                    tracing::error!(?error, "failed to delete noita-state-flags");
-                }
-                continue;
-            } else {
-                was_dead = false;
-            }
-
-            let diff = set.difference(best_state);
+            let diff = inv.difference(best_inv);
 
             if !diff.is_empty() {
-                best_state |= set;
+                best_inv |= inv;
 
                 use ItemFound as I;
                 use NoitaEvent as E;
-                use NoitaState as S;
 
-                if diff.contains(S::HAS_BEST_TABLET) {
-                    self.send(E::ItemFound(I::TreeTablet));
-                } else if diff.contains(S::HAS_TABLET) {
-                    self.send(E::ItemFound(I::OtherTablet));
+                if diff.contains(Inventory::BEST_TABLET) {
+                    _ = self.events.send(E::ItemFound(I::TreeTablet));
+                } else if diff.contains(Inventory::TABLET) {
+                    _ = self.events.send(E::ItemFound(I::OtherTablet));
                 }
-                if diff.contains(S::HAS_EVIL_EYE) {
-                    self.send(E::ItemFound(I::EvilEye));
+                if diff.contains(Inventory::EVIL_EYE) {
+                    _ = self.events.send(E::ItemFound(I::EvilEye));
                 }
-                if diff.contains(S::HAS_EARTH_STONE) {
-                    self.send(E::ItemFound(I::EarthStone));
+                if diff.contains(Inventory::EARTH_STONE) {
+                    _ = self.events.send(E::ItemFound(I::EarthStone));
                 }
-                if diff.contains(S::HAS_TAIKASAUVA) {
-                    self.send(E::ItemFound(I::Taikasauva));
+                if diff.contains(Inventory::TAIKASAUVA) {
+                    _ = self.events.send(E::ItemFound(I::Taikasauva));
                 }
-                if diff.contains(S::HAS_TOUCH_OF_GOLD) {
-                    self.send(E::ItemFound(I::TouchOfGold));
-                }
-                if diff.contains(S::LOW_OXYGEN) {
-                    self.send(E::LowOxygen);
-                }
-                if diff.contains(S::POLIED) {
-                    self.send(E::Polymorphed);
-                }
-                if diff.contains(S::WORM_SUMMON) {
-                    self.send(E::WormSummoned);
+                if diff.contains(Inventory::TOUCH_OF_GOLD) {
+                    _ = self.events.send(E::ItemFound(I::TouchOfGold));
                 }
 
-                if let Err(error) = ctx
+                if let Err(e) = ctx
                     .storage()
-                    .set("noita-state-flags", &best_state.bits().to_string())
+                    .set("best-inventory", &best_inv.bits().to_string())
                     .await
                 {
-                    tracing::error!(?error, "failed to save noita-state-flags");
+                    tracing::error!(error=?e, "failed to save best-inventory");
                 }
             }
 
@@ -224,10 +217,13 @@ impl NoitaHandle {
             if !new_flags.is_empty() {
                 last_flags = Some(current_flags);
                 for flag in new_flags {
-                    self.send(match PILLAR_FLAG_NAMES.get(&flag).cloned() {
-                        Some(pillar) => NoitaEvent::PillarCompleted(pillar),
-                        None => NoitaEvent::OtherPermanentFlag(flag),
-                    });
+                    _ = self
+                        .events
+                        .send(if let Some(pillar) = PILLAR_FLAG_NAMES.get(&flag) {
+                            NoitaEvent::PillarCompleted(pillar.clone())
+                        } else {
+                            NoitaEvent::OtherPermanentFlag(flag)
+                        });
                 }
             }
         }
@@ -545,55 +541,66 @@ async fn find_noita() -> Result<Option<Noita>> {
     .await?
 }
 
-bitflags! {
-    #[derive(Clone, Copy, Debug)]
-    pub struct NoitaState: u64 {
-        const DEAD = 1 << 0;
-        const HAS_TABLET = 1 << 1;
-        const HAS_BEST_TABLET = 1 << 2;
-        const HAS_EVIL_EYE = 1 << 3;
-        const HAS_EARTH_STONE = 1 << 4;
-        const HAS_TOUCH_OF_GOLD = 1 << 5;
-        const HAS_TAIKASAUVA = 1 << 6;
-        const LOW_OXYGEN = 1 << 7;
-        const POLIED = 1 << 8;
-        const WORM_SUMMON = 1 << 9;
+struct NoitaState {
+    low_oxygen: bool,
+    polied: bool,
+    dead: bool,
+}
+
+fn is_polied_or_low_oxygen(noita: &mut Noita) -> io::Result<Option<(bool, bool)>> {
+    match noita.get_player()? {
+        Some((_, PlayerState::Polymorphed)) => Ok(Some((true, false))),
+        Some((entity, PlayerState::Normal)) => Ok(noita
+            .component_store::<DamageModelComponent>()?
+            .get(&entity)?
+            .map(|c| {
+                (
+                    false,
+                    c.air_needed.as_bool() && c.air_in_lungs <= c.air_in_lungs_max / 2.0,
+                )
+            })),
+        _ => Ok(None),
     }
 }
 
 impl NoitaState {
     fn read(noita: &mut Noita) -> NoitaResult<Self> {
-        let mut set = Self::empty();
+        let (polied, drowning) = is_polied_or_low_oxygen(noita)?.unwrap_or_default();
+        let dead = noita.read_config_player_stats()?.stats.dead.as_bool();
 
-        if noita.read_config_player_stats()?.stats.dead.as_bool() {
-            return Ok(Self::DEAD);
-        }
+        Ok(Self {
+            low_oxygen: drowning,
+            polied,
+            dead,
+        })
+    }
+}
 
-        let entity = match noita.get_player()? {
-            Some((entity, PlayerState::Normal)) => entity,
-            Some((_, PlayerState::Polymorphed)) => return Ok(Self::POLIED),
-            _ => return Ok(set),
+bitflags! {
+    #[derive(Clone, Copy, Debug)]
+    pub struct Inventory: u64 {
+        const TABLET = 1 << 0;
+        const BEST_TABLET = 1 << 1;
+        const EVIL_EYE = 1 << 2;
+        const EARTH_STONE = 1 << 3;
+        const TOUCH_OF_GOLD = 1 << 4;
+        const TAIKASAUVA = 1 << 5;
+    }
+}
+
+impl Inventory {
+    fn read(noita: &mut Noita) -> NoitaResult<Self> {
+        let Some((entity, PlayerState::Normal)) = noita.get_player()? else {
+            return Ok(Self::empty());
         };
 
         let p = noita.proc().clone();
-        let p = &p;
-
-        let dmc_store = noita.component_store::<DamageModelComponent>()?;
-
-        let low_oxygen = dmc_store
-            .get(&entity)?
-            .map(|c| c.air_needed.as_bool() && c.air_in_lungs <= c.air_in_lungs_max / 2.0)
-            .unwrap_or(false);
-
-        if low_oxygen {
-            set |= Self::LOW_OXYGEN;
-        }
 
         let mut inv_quick = None;
         let mut inv_full = None;
-        for child in entity.children.read(p)?.read(p)? {
-            let child = child.read(p)?;
-            match &*child.name.read(p)? {
+        for child in entity.children.read(&p)?.read(&p)? {
+            let child = child.read(&p)?;
+            match &*child.name.read(&p)? {
                 "inventory_quick" => {
                     inv_quick = Some(child);
                 }
@@ -608,56 +615,66 @@ impl NoitaState {
         let inv_full = inv_full.context("no inventory")?;
         let store = noita.component_store::<ItemComponent>()?;
         let action_store = noita.component_store::<ItemActionComponent>()?;
+        let mut inv = Self::empty();
 
-        for child in inv_quick.children.read(p)?.read(p)? {
-            let child = child.read(p)?;
+        for child in inv_quick.children.read(&p)?.read(&p)? {
+            let child = child.read(&p)?;
             let Some(item_comp) = store.get(&child)? else {
                 continue;
             };
-            let name = item_comp.item_name.read(p)?;
+            let name = item_comp.item_name.read(&p)?;
             if name.starts_with("$booktitle") {
                 if name == "$booktitle_tree" {
-                    set |= NoitaState::HAS_BEST_TABLET;
+                    inv |= Inventory::BEST_TABLET;
                 }
-                set |= NoitaState::HAS_TABLET;
+                inv |= Inventory::TABLET;
             } else {
-                set |= match &*name {
-                    "$item_evil_eye" => NoitaState::HAS_EVIL_EYE,
-                    "$item_stonestone" => NoitaState::HAS_EARTH_STONE,
-                    _ => NoitaState::empty(),
+                inv |= match &*name {
+                    "$item_evil_eye" => Inventory::EVIL_EYE,
+                    "$item_stonestone" => Inventory::EARTH_STONE,
+                    _ => Inventory::empty(),
                 };
             }
         }
         // apparently this can happen
         if inv_full.children.is_null() {
-            return Ok(set);
+            return Ok(inv);
         }
-        for child in inv_full.children.read(p)?.read(p)? {
-            let child = child.read(p)?;
+        for child in inv_full.children.read(&p)?.read(&p)? {
+            let child = child.read(&p)?;
             let Some(item_action_comp) = action_store.get(&child)? else {
                 continue;
             };
-            let action_id = item_action_comp.action_id.read(p)?;
-            set |= match &*action_id {
-                "TOUCH_GOLD" => NoitaState::HAS_TOUCH_OF_GOLD,
-                "SUMMON_WANDGHOST" => NoitaState::HAS_TAIKASAUVA,
-                _ => NoitaState::empty(),
+            let action_id = item_action_comp.action_id.read(&p)?;
+            inv |= match &*action_id {
+                "TOUCH_GOLD" => Inventory::TOUCH_OF_GOLD,
+                "SUMMON_WANDGHOST" => Inventory::TAIKASAUVA,
+                _ => Inventory::empty(),
             };
         }
-        let Some(ws) = noita.get_world_state()? else {
-            return Ok(set);
-        };
-        let worm = ws
-            .flags
-            .read_storage(p)?
-            .iter()
-            .any(|f| f == "kantele_secret_02" || f == "ocarina_secret_02");
+        Ok(inv)
+    }
+}
 
-        if worm {
-            set |= NoitaState::WORM_SUMMON;
-        }
+pub struct Changeable<T> {
+    pub value: T,
+}
 
-        Ok(set)
+impl<T: PartialEq> Changeable<T> {
+    pub fn new(value: T) -> Self {
+        Self { value }
+    }
+
+    pub fn changed(&mut self, next: T) -> bool {
+        let changed = self.value != next;
+        self.value = next;
+        changed
+    }
+}
+
+impl Changeable<Option<bool>> {
+    pub fn was_set(&mut self, next: Option<bool>) -> bool {
+        self.changed(next) && next == Some(true)
     }
 }
 

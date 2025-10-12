@@ -5,7 +5,6 @@ use std::{
 };
 
 use dashmap::DashMap;
-use tokio::sync::mpsc::Receiver;
 
 pub mod banishes;
 pub mod bets;
@@ -31,11 +30,7 @@ pub struct Injector {
 }
 
 // maybe do the sealed thing
-pub trait Service: Any + Send + Sync + 'static {
-    fn events(&self) -> Option<Receiver<Box<dyn Event>>> {
-        None
-    }
-}
+pub trait Service: Any + Send + Sync + 'static {}
 
 impl<T: ?Sized + Send + Sync + 'static> Service for T {}
 
@@ -71,10 +66,6 @@ impl Injector {
         }
     }
 }
-
-pub trait Event: Send + Sync + 'static {}
-
-impl<T: Send + Sync + 'static> Event for T {}
 
 #[macro_export]
 macro_rules! injector_getter {
