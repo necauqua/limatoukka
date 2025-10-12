@@ -110,6 +110,10 @@ impl FromStr for Charges {
             None => (false, whole),
         };
         let fraction = parts.next().unwrap_or("0");
+        let whole = match whole {
+            "" => "0",
+            _ => whole,
+        };
         let Ok(whole) = whole.parse::<i64>() else {
             return Err("charge amount must be a number");
         };
@@ -253,6 +257,40 @@ impl ChargesService for ChargesServiceValkey {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn charges_parsing() {
+        assert_eq!(".1".parse::<Charges>().unwrap().as_i64(), 100);
+        assert_eq!(".01".parse::<Charges>().unwrap().as_i64(), 10);
+        assert_eq!(".001".parse::<Charges>().unwrap().as_i64(), 1);
+
+        assert_eq!("0".parse::<Charges>().unwrap().as_i64(), 0);
+        assert_eq!("1".parse::<Charges>().unwrap().as_i64(), 1000);
+        assert_eq!("10".parse::<Charges>().unwrap().as_i64(), 10000);
+        assert_eq!("100".parse::<Charges>().unwrap().as_i64(), 100000);
+        assert_eq!("1000".parse::<Charges>().unwrap().as_i64(), 1000000);
+        assert_eq!("1234".parse::<Charges>().unwrap().as_i64(), 1234000);
+        assert_eq!("0.1".parse::<Charges>().unwrap().as_i64(), 100);
+        assert_eq!("0.12".parse::<Charges>().unwrap().as_i64(), 120);
+        assert_eq!("0.123".parse::<Charges>().unwrap().as_i64(), 123);
+        assert_eq!("1.1".parse::<Charges>().unwrap().as_i64(), 1100);
+        assert_eq!("1.12".parse::<Charges>().unwrap().as_i64(), 1120);
+        assert_eq!("1.123".parse::<Charges>().unwrap().as_i64(), 1123);
+        assert_eq!("1234.123".parse::<Charges>().unwrap().as_i64(), 1234123);
+        assert_eq!("-0".parse::<Charges>().unwrap().as_i64(), 0);
+        assert_eq!("-1".parse::<Charges>().unwrap().as_i64(), -1000);
+        assert_eq!("-10".parse::<Charges>().unwrap().as_i64(), -10000);
+        assert_eq!("-100".parse::<Charges>().unwrap().as_i64(), -100000);
+        assert_eq!("-1000".parse::<Charges>().unwrap().as_i64(), -1000000);
+        assert_eq!("-1234".parse::<Charges>().unwrap().as_i64(), -1234000);
+        assert_eq!("-0.1".parse::<Charges>().unwrap().as_i64(), -100);
+        assert_eq!("-0.12".parse::<Charges>().unwrap().as_i64(), -120);
+        assert_eq!("-0.123".parse::<Charges>().unwrap().as_i64(), -123);
+        assert_eq!("-1.1".parse::<Charges>().unwrap().as_i64(), -1100);
+        assert_eq!("-1.12".parse::<Charges>().unwrap().as_i64(), -1120);
+        assert_eq!("-1.123".parse::<Charges>().unwrap().as_i64(), -1123);
+        assert_eq!("-1234.123".parse::<Charges>().unwrap().as_i64(), -1234123);
+    }
 
     #[test]
     fn charges_display() {
