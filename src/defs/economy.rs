@@ -171,5 +171,8 @@ async fn hello(ctx: CommandContext) -> CommandResult {
         fail!("stream is offline lmao")
     }
     ctx.reply("hiii".into()).await?;
+    if let Some(bot) = ctx.bot_id() {
+        ctx.charges().add(bot, Charges::from(200)).await?;
+    }
     Ok(())
 }
