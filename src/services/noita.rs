@@ -67,12 +67,11 @@ pub struct NoitaHandle {
 
 #[derive(Debug, Clone)]
 pub enum NoitaEvent {
-    InventoryOpened,
-    InventoryClosed,
     PlayerDeath,
     Polymorphed,
     LowOxygen,
     WormSummoned,
+    PortalEntered,
     ItemFound(ItemFound),
     PillarCompleted(String),
     OtherPermanentFlag(String),
@@ -195,6 +194,9 @@ impl NoitaHandle {
                 }
                 if diff.contains(Inventory::WORM_SUMMON) {
                     _ = self.events.send(E::WormSummoned);
+                }
+                if diff.contains(Inventory::PORTAL_ENTERED) {
+                    _ = self.events.send(E::PortalEntered);
                 }
 
                 if let Err(e) = ctx
@@ -590,6 +592,7 @@ bitflags! {
         const TOUCH_OF_GOLD = 1 << 4;
         const TAIKASAUVA = 1 << 5;
         const WORM_SUMMON = 1 << 6;
+        const PORTAL_ENTERED = 1 << 7;
     }
 }
 
@@ -621,7 +624,12 @@ impl Inventory {
         let inv_full = inv_full.context("no inventory")?;
         let store = noita.component_store::<ItemComponent>()?;
         let action_store = noita.component_store::<ItemActionComponent>()?;
+
         let mut inv = Self::empty();
+
+        if entity.transform.pos.y > 1200.0 {
+            inv |= Inventory::PORTAL_ENTERED;
+        }
 
         for child in inv_quick.children.read(p)?.read(p)? {
             let child = child.read(p)?;

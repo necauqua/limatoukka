@@ -6,6 +6,7 @@ use limatoukka::{
     commands::{CommandTag, discover_declared_commands, runner::Runner},
     config::Config,
     context::app::{AppContext, InterruptKind},
+    defs::betting::{BetCancelError, BetCloseError, close_bet, do_cancel_bet},
     integration::{eventsub::EventSub, twitch_api::TwitchApi, yt_music_api::YouTubeMusic},
     logging,
     services::{
@@ -215,9 +216,28 @@ fn mainloop_task(tasks: &mut JoinSet<()>, task: impl Future<Output = Result<()>>
 
 async fn noita_event(ctx: AppContext, event: NoitaEvent) -> Result<()> {
     match event {
+        NoitaEvent::PortalEntered => {
+            match close_bet(&ctx, true).await {
+                Ok(()) => {
+                    ctx.send("[!!!] Bet was auto-closed".into()).await?;
+                },
+                Err(BetCloseError::Internal(e)) => return Err(e),
+                _ => {},
+            }
+        }
         NoitaEvent::PlayerDeath => {
             match ctx.noita().get_win_state().await? {
-                WinState::Loss => ctx.send("died lmao".into()).await?,
+                WinState::Loss => {
+                    match do_cancel_bet(&ctx, true).await {
+                        Ok(()) => {
+                            ctx.send("[!!!] Bet was auto-cancelled cuz skill issue lmao ICANT".into()).await?
+                        },
+                        Err(BetCancelError::Internal(e)) => return Err(e),
+                        _ => {
+                            ctx.send("died lmao".into()).await?
+                        },
+                    }
+                },
                 WinState::Win { cheese: false } => ctx.send("won GIGACHAD".into()).await?,
                 WinState::Win { cheese: true } => ctx.send("won StinkyCheese".into()).await?,
             }
@@ -243,7 +263,6 @@ async fn noita_event(ctx: AppContext, event: NoitaEvent) -> Result<()> {
         }.into()).await?,
         NoitaEvent::PillarCompleted(pillar) => ctx.send(format!("A new pillar level was erected! '{pillar}' is complete! shadowWizardJAM")).await?,
         NoitaEvent::OtherPermanentFlag(flag) => ctx.send(format!("A permanent flag was set: {flag}")).await?,
-        _ => {}
     }
     Ok(())
 }

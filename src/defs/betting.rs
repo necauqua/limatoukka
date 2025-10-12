@@ -1,5 +1,6 @@
 use maud::{Markup, html};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::{
     commands::{
@@ -7,7 +8,7 @@ use crate::{
         args::{Chatter, RestOfArgs},
         command,
     },
-    context::cmd::CommandContext,
+    context::{app::AppContext, cmd::CommandContext},
     fail,
     services::{
         bets::{Bet, BetsServiceExt},
@@ -23,6 +24,7 @@ struct BetSetup {
     options: Vec<String>,
     closed: bool,
     status_key: EntryKey,
+    auto: bool,
 }
 
 fn render_status(total: u64, premise: &str) -> Markup {
@@ -35,7 +37,12 @@ fn render_status(total: u64, premise: &str) -> Markup {
 
 /// Create a new bet. If no options are provided, they default to "believe" and "doubt".
 #[command(permission = Caster)]
-async fn mkbet(ctx: CommandContext, premise: String, options: RestOfArgs) -> CommandResult {
+async fn mkbet(
+    ctx: CommandContext,
+    premise: String,
+    auto_close: Option<bool>,
+    options: RestOfArgs,
+) -> CommandResult {
     let storage = ctx.storage();
 
     let key = "bet:current"; //format!("bet:{id}");
@@ -61,6 +68,7 @@ async fn mkbet(ctx: CommandContext, premise: String, options: RestOfArgs) -> Com
         options,
         closed: false,
         status_key,
+        auto: auto_close.unwrap_or_default(),
     };
 
     storage.save(key, &bet).await?;
@@ -73,26 +81,51 @@ async fn mkbet(ctx: CommandContext, premise: String, options: RestOfArgs) -> Com
     Ok(())
 }
 
-/// Close the current bet, preventing new bets from being placed.
-#[command(permission = Caster)]
-async fn close(ctx: CommandContext) -> CommandResult {
+#[derive(Error, Debug)]
+pub enum BetCloseError {
+    #[error("No active bet")]
+    NoActiveBet,
+    #[error("Bet is already closed")]
+    AlreadyClosed,
+    #[error("Bet is not auto-closable")]
+    NotAutoClosable,
+    #[error("internal")]
+    Internal(#[from] anyhow::Error),
+}
+
+pub async fn close_bet(ctx: &AppContext, auto: bool) -> Result<(), BetCloseError> {
     let storage = ctx.storage();
 
     let Some(mut bet) = storage.load::<BetSetup>("bet:current").await? else {
-        fail!("There is no active bet");
+        return Err(BetCloseError::NoActiveBet);
     };
     if bet.closed {
-        fail!("Bet is already closed");
+        return Err(BetCloseError::AlreadyClosed);
+    }
+    if auto && !bet.auto {
+        return Err(BetCloseError::NotAutoClosable);
     }
 
     bet.closed = true;
     storage.save("bet:current", &bet).await?;
 
-    ctx.send("[!!!] Bet is now closed".into()).await?;
-
     ctx.status().remove(bet.status_key).await;
 
     Ok(())
+}
+
+/// Close the current bet, preventing new bets from being placed.
+#[command(permission = Caster)]
+async fn close(ctx: CommandContext) -> CommandResult {
+    match close_bet(&ctx, false).await {
+        Ok(()) => {
+            ctx.send("[!!!] Bet is now closed".into()).await?;
+            Ok(())
+        }
+        Err(e @ (BetCloseError::NoActiveBet | BetCloseError::AlreadyClosed)) => fail!("{e}"),
+        Err(BetCloseError::NotAutoClosable) => unreachable!(),
+        Err(BetCloseError::Internal(e)) => Err(e.into()),
+    }
 }
 
 /// Reopen a closed bet, allowing new bets to be placed.
@@ -271,14 +304,32 @@ async fn unbet(ctx: CommandContext) -> CommandResult {
     Ok(())
 }
 
-/// Cancel the current bet, refunding all wagers.
-#[command(permission = Caster)]
-async fn cancel_bet(ctx: CommandContext) -> CommandResult {
+#[derive(Error, Debug)]
+pub enum BetCancelError {
+    #[error("No active bet")]
+    NoActiveBet,
+    #[error("Bet is not auto-cancellable")]
+    NotAutoCancellable,
+    #[error("Bet is already closed")]
+    AlreadyClosed,
+    #[error("internal")]
+    Internal(#[from] anyhow::Error),
+}
+
+pub async fn do_cancel_bet(ctx: &AppContext, auto: bool) -> Result<(), BetCancelError> {
     let storage = ctx.storage();
 
     let Some(bet) = storage.load::<BetSetup>("bet:current").await? else {
-        fail!("There is no active bet");
+        return Err(BetCancelError::NoActiveBet);
     };
+    if auto {
+        if !bet.auto {
+            return Err(BetCancelError::NotAutoCancellable);
+        }
+        if bet.closed {
+            return Err(BetCancelError::AlreadyClosed);
+        }
+    }
 
     for (user_id, bet) in ctx.bets().finalize("current").await? {
         if bet.amount.non_zero() {
@@ -288,11 +339,23 @@ async fn cancel_bet(ctx: CommandContext) -> CommandResult {
 
     storage.del("bet:current").await?;
 
-    ctx.send("[!!!] Bet cancelled".into()).await?;
-
     ctx.status().remove(bet.status_key).await;
 
     Ok(())
+}
+
+/// Cancel the current bet, refunding all wagers.
+#[command(permission = Caster)]
+async fn cancel_bet(ctx: CommandContext) -> CommandResult {
+    match do_cancel_bet(&ctx, false).await {
+        Ok(()) => {
+            ctx.send("[!!!] Bet cancelled".into()).await?;
+            Ok(())
+        }
+        Err(e @ BetCancelError::NoActiveBet) => fail!("{e}"),
+        Err(BetCancelError::NotAutoCancellable | BetCancelError::AlreadyClosed) => unreachable!(),
+        Err(BetCancelError::Internal(e)) => Err(e.into()),
+    }
 }
 
 /// Rollback the last settled bet, returning all winnings to the users and
