@@ -105,6 +105,7 @@ impl YouTubeMusic {
         struct VideoSnippet {
             title: String,
             channel_title: String,
+            live_broadcast_content: String, // "none", "live"
         }
 
         let Some(item) = self
@@ -119,6 +120,10 @@ impl YouTubeMusic {
         else {
             return Ok(None);
         };
+
+        if item.snippet.live_broadcast_content != "none" {
+            return Ok(None); // skip live videos
+        }
 
         let song = Song {
             title: item.snippet.title,
