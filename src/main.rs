@@ -216,14 +216,13 @@ fn mainloop_task(tasks: &mut JoinSet<()>, task: impl Future<Output = Result<()>>
 async fn noita_event(ctx: AppContext, event: NoitaEvent) -> Result<()> {
     match event {
         NoitaEvent::PlayerDeath => {
-            ctx.storage().del("best-inventory").await?;
-
             match ctx.noita().get_win_state().await? {
                 WinState::Loss => ctx.send("died lmao".into()).await?,
                 WinState::Win { cheese: false } => ctx.send("won GIGACHAD".into()).await?,
                 WinState::Win { cheese: true } => ctx.send("won StinkyCheese".into()).await?,
             }
         },
+        NoitaEvent::WormSummoned => ctx.send("WORM ayo".into()).await?,
         NoitaEvent::LowOxygen => {
             if ctx.gate("low-oxygen", Duration::from_secs(60)).await? {
                 ctx.send("Kinda getting low on O₂ btw HelloHowAreYouIAmUnderTheWater".into()).await?

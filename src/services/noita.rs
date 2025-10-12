@@ -72,6 +72,7 @@ pub enum NoitaEvent {
     PlayerDeath,
     Polymorphed,
     LowOxygen,
+    WormSummoned,
     ItemFound(ItemFound),
     PillarCompleted(String),
     OtherPermanentFlag(String),
@@ -191,6 +192,9 @@ impl NoitaHandle {
                 }
                 if diff.contains(Inventory::TOUCH_OF_GOLD) {
                     _ = self.events.send(E::ItemFound(I::TouchOfGold));
+                }
+                if diff.contains(Inventory::WORM_SUMMON) {
+                    _ = self.events.send(E::WormSummoned);
                 }
 
                 if let Err(e) = ctx
@@ -585,6 +589,7 @@ bitflags! {
         const EARTH_STONE = 1 << 3;
         const TOUCH_OF_GOLD = 1 << 4;
         const TAIKASAUVA = 1 << 5;
+        const WORM_SUMMON = 1 << 6;
     }
 }
 
@@ -595,12 +600,13 @@ impl Inventory {
         };
 
         let p = noita.proc().clone();
+        let p = &p;
 
         let mut inv_quick = None;
         let mut inv_full = None;
-        for child in entity.children.read(&p)?.read(&p)? {
-            let child = child.read(&p)?;
-            match &*child.name.read(&p)? {
+        for child in entity.children.read(p)?.read(p)? {
+            let child = child.read(p)?;
+            match &*child.name.read(p)? {
                 "inventory_quick" => {
                     inv_quick = Some(child);
                 }
@@ -617,12 +623,12 @@ impl Inventory {
         let action_store = noita.component_store::<ItemActionComponent>()?;
         let mut inv = Self::empty();
 
-        for child in inv_quick.children.read(&p)?.read(&p)? {
-            let child = child.read(&p)?;
+        for child in inv_quick.children.read(p)?.read(p)? {
+            let child = child.read(p)?;
             let Some(item_comp) = store.get(&child)? else {
                 continue;
             };
-            let name = item_comp.item_name.read(&p)?;
+            let name = item_comp.item_name.read(p)?;
             if name.starts_with("$booktitle") {
                 if name == "$booktitle_tree" {
                     inv |= Inventory::BEST_TABLET;
@@ -640,18 +646,31 @@ impl Inventory {
         if inv_full.children.is_null() {
             return Ok(inv);
         }
-        for child in inv_full.children.read(&p)?.read(&p)? {
-            let child = child.read(&p)?;
+        for child in inv_full.children.read(p)?.read(p)? {
+            let child = child.read(p)?;
             let Some(item_action_comp) = action_store.get(&child)? else {
                 continue;
             };
-            let action_id = item_action_comp.action_id.read(&p)?;
+            let action_id = item_action_comp.action_id.read(p)?;
             inv |= match &*action_id {
                 "TOUCH_GOLD" => Inventory::TOUCH_OF_GOLD,
                 "SUMMON_WANDGHOST" => Inventory::TAIKASAUVA,
                 _ => Inventory::empty(),
             };
         }
+
+        let Some(ws) = noita.get_world_state()? else {
+            return Ok(inv);
+        };
+        let worm = ws
+            .flags
+            .read_storage(p)?
+            .iter()
+            .any(|f| f == "kantele_secret_02" || f == "ocarina_secret_02");
+        if worm {
+            inv |= Inventory::WORM_SUMMON;
+        }
+
         Ok(inv)
     }
 }
