@@ -292,6 +292,8 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
                     true
                 }
                 "Buy 100 charges" => {
+                    ctx.send("HOLY OILER".into()).await?;
+
                     ctx.charges()
                         .add(data.user_id.as_str(), Charges::whole(100))
                         .await?;
