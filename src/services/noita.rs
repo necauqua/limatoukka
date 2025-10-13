@@ -45,6 +45,8 @@ pub trait NoitaService: Service {
 
     async fn get_death_count(&self) -> NoitaResult<u32>;
 
+    async fn get_streak(&self) -> NoitaResult<u32>;
+
     async fn get_kick_count(&self) -> NoitaResult<u32>;
 
     async fn get_perk_counts(&self) -> NoitaResult<Vec<(String, u32)>>;
@@ -317,6 +319,10 @@ impl NoitaService for NoitaHandle {
 
     async fn get_death_count(&self) -> NoitaResult<u32> {
         self.with(|n| Ok(n.read_stats()?.global.death_count)).await
+    }
+
+    async fn get_streak(&self) -> NoitaResult<u32> {
+        self.with(|n| Ok(n.read_stats()?.session.streaks)).await
     }
 
     async fn get_kick_count(&self) -> NoitaResult<u32> {

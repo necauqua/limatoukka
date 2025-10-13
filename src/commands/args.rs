@@ -18,6 +18,7 @@ use crate::{
         caches::CacheServiceExt,
         charges::ChargesServiceExt,
         music::MusicServiceExt,
+        noita::NoitaServiceExt,
         twitch::TwitchServiceExt,
         variables::{VarType, VariableStorageExt},
     },
@@ -73,6 +74,7 @@ async fn var_resolvers(ctx: &CommandContext, name: &str) -> anyhow::Result<Optio
             }
         }
         "self" => return Ok(Some(ctx.owner().login.clone())),
+        "self.id" => return Ok(Some(ctx.owner().id.clone())),
         "rand" => return Ok(Some(rand::random_range(0..100_i32).to_string())),
         "volume" => {
             return Ok(Some(ctx.music().get_volume().await?.to_string()));
@@ -83,6 +85,14 @@ async fn var_resolvers(ctx: &CommandContext, name: &str) -> anyhow::Result<Optio
         "balance" => {
             let balance = ctx.charges().get(ctx.sender()).await?;
             return Ok(Some(balance.as_i64().to_string()));
+        }
+        "stats.s" => {
+            let streak = ctx.noita().get_streak().await?;
+            return Ok(Some(streak.to_string()));
+        }
+        "stats.d" => {
+            let streak = ctx.noita().get_death_count().await?;
+            return Ok(Some(streak.to_string()));
         }
         _ => {}
     }
