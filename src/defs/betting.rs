@@ -221,10 +221,7 @@ async fn bet(ctx: CommandContext, option: String, wager: Option<Charges>) -> Com
     let total = ctx.bets().place("current", ctx.sender(), &wager).await?;
 
     ctx.reply(if wager.amount.non_zero() {
-        format!(
-            "accepted {} for as a bet on '{}'",
-            wager.amount, wager.option,
-        )
+        format!("accepted {} as a bet on '{}'", wager.amount, wager.option,)
     } else {
         format!("bet on '{}' accepted", wager.option)
     })
