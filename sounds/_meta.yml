@@ -15,6 +15,7 @@ snek-moan-scare:
   global-gate: 10m
 
 uwu:
+  group: long
   file: "pulu-prepare-your-asses-for-a-cute-uwu.ogg"
   volume: 0.2
   exclusive: true
@@ -113,6 +114,7 @@ meow:
       rarity: 0.005
 
 nya:
+  group: long
   file: "nya.ogg"
   volume: 0.5
   global-gate: 20m
