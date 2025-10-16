@@ -253,6 +253,9 @@ async fn noita_event(ctx: AppContext, event: NoitaEvent) -> Result<()> {
                 ctx.send("Polymorphed ICANT".into()).await?
             }
         },
+        NoitaEvent::OneHpClutch => {
+            ctx.send("1 hp is all we needed EZ Clap".into()).await?
+        },
         NoitaEvent::ItemFound(item) => ctx.send(match item {
             ItemFound::TreeTablet => "The best TABLET in the game acquired!",
             ItemFound::OtherTablet => "TABLET acquired",
