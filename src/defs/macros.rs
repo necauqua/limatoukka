@@ -464,7 +464,7 @@ async fn set(ctx: CommandContext, name: String, value: Option<String>) -> Comman
 /// Global variables will be replaced by anyone referencing them as `%name`,
 /// unless they have their own personal variable with the same name, which
 /// would take precedence.
-#[command(permission = Moderator)]
+#[command(permission = Moderator, GlobalMacroExempt)]
 async fn global_set(ctx: CommandContext, name: String, value: Option<String>) -> CommandResult {
     let value = value.unwrap_or_default();
     if name.len() > 8192 || value.len() > 8192 {
