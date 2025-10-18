@@ -6,7 +6,7 @@ scream:
       volume: 0.2
       rarity: 0.05
     - file: "scream/awful.ogg"
-      volume: 0.2
+      volume: 0.05
       rarity: 0.005
 
 snek-moan-scare:
