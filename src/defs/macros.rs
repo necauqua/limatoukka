@@ -143,7 +143,7 @@ async fn macro_get(
         .get(VarType::Macro, VarScope::Personal(&chatter.id), name)
         .await?
     {
-        Some(script) => Ok(script),
+        Some(script) => Ok(script.replace('\n', "\\n")),
         None => fail!("no macro named `{name}`"),
     }
 }
