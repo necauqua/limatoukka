@@ -537,7 +537,7 @@ impl CommandArg for Chatter {
         let Some(login) = arg else {
             return Ok(ctx.owner().clone());
         };
-        let login = login.trim().to_lowercase();
+        let login = login.trim().trim_start_matches("@").to_lowercase();
 
         let id = ctx
             .caches()
