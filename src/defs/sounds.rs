@@ -148,6 +148,7 @@ fn unwrap_youtube_id(raw: &str) -> Result<String, CommandError> {
 
     const YOUTUBE: &[&str] = &[
         "youtube.com",
+        "m.youtube.com",
         "www.youtube.com",
         "music.youtube.com",
         "youtu.be",
@@ -318,6 +319,10 @@ mod tests {
         );
         assert_eq!(
             unwrap_youtube_id("https://youtu.be/dQw4w9WgXcQ").unwrap(),
+            "dQw4w9WgXcQ"
+        );
+        assert_eq!(
+            unwrap_youtube_id("https://m.youtube.com/watch?v=dQw4w9WgXcQ").unwrap(),
             "dQw4w9WgXcQ"
         );
         assert_eq!(

@@ -95,7 +95,7 @@ temple-collapse:
   global-gate: 1m
   sender-gate: 5m
   file: "temple-collapse.ogg"
-  volume: 0.1
+  volume: 0.05
 
 meow:
   variants:
@@ -162,7 +162,7 @@ thank-you:
 porno:
   sender-gate: 10m
   file: "porno.ogg"
-  volume: 0.1
+  volume: 0.05
 
 source:
   sender-gate: 5m
