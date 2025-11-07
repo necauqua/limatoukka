@@ -9,6 +9,7 @@ use crate::{
     context::{app::InterruptKind, cmd::CommandContext},
     integration::justfile::just,
     services::{
+        charges::Charges,
         messaging::PermissionLevel,
         status_wall::StatusServiceExt,
         storage::StorageServiceExt,
@@ -186,6 +187,12 @@ async fn what_is(ctx: CommandContext, name: String, to: Chatter) -> CommandResul
         }
         if let Some(gate) = meta.global_gate {
             write!(&mut s, ", global gate {}", humantime::format_duration(gate)).unwrap();
+        }
+        if let Some(cost) = meta.cost {
+            write!(&mut s, ", costs {}", Charges::from(cost)).unwrap();
+            if meta.free_for != PermissionLevel::Viewer {
+                write!(&mut s, " (free for {:?}-level and above)", meta.free_for).unwrap();
+            }
         }
 
         let required = meta
