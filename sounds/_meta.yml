@@ -193,7 +193,11 @@ lasiace-raid:
   file: "lasiace-raid.ogg"
   volume: 0.4
   exclusive: true
-  sender-gate: 1h
+
+nutty-raid:
+  file: "nutty-raid.ogg"
+  volume: 0.1
+  exclusive: true
 
 RAID:
   file: "pipes.ogg"

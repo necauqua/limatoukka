@@ -455,6 +455,7 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
 
             let raid_sound = match data.from_broadcaster_user_id.as_str() {
                 "39063397" => "lasiace-raid",
+                "669474121" => "nutty-raid",
                 _ => "RAID",
             };
             let sound_service = ctx.sounds();
