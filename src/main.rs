@@ -509,6 +509,7 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
 
             // todo maybe have some generic "persisted until end of stream" data store
             ctx.storage().del("last-pinger").await?;
+            ctx.storage().del("noita:state").await?;
 
             ctx.send("→ stream end cutoff ←".into()).await?
         }
