@@ -100,7 +100,7 @@ struct LastPinger {
 /// Ping fails if you were the last person to do it!
 ///
 /// There is also some magical property to this command..
-#[command(cost = -1)]
+#[command(cost = -1, sender_gate = 100ms)]
 async fn ping(ctx: CommandContext) -> CommandResult {
     let storage = ctx.storage();
 
