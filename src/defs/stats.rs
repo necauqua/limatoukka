@@ -46,9 +46,10 @@ async fn stat_global(ctx: CommandContext, word: Option<String>) -> CommandResult
 /// Get the first message sent by a user (or you) in chat.
 #[command(sender_gate = 3s, shortcode = fm)]
 async fn first_message(ctx: CommandContext, chatter: Chatter) -> CommandResult {
+    let whom = chatter.them(ctx.owner(), "Your", "Their");
     let response = match ctx.chat_logs().edge(&chatter.id, Edge::First).await? {
-        Some(msg) if msg.true_first => format!("Their first message was: {}", msg.message),
-        Some(msg) => format!("Their first recorded message was: {}", msg.message),
+        Some(msg) if msg.true_first => format!("{whom} first message was: {}", msg.message),
+        Some(msg) => format!("{whom} first recorded message was: {}", msg.message),
         None => fail!("they never typed in chat"),
     };
     ctx.reply(response).await?;
@@ -61,8 +62,9 @@ async fn last_message(ctx: CommandContext, chatter: Chatter) -> CommandResult {
     let edge = Edge::Last {
         exclude_message_id: Some(&ctx.message().id),
     };
+    let whom = chatter.them(ctx.owner(), "Your", "Their");
     let response = match ctx.chat_logs().edge(&chatter.id, edge).await? {
-        Some(msg) => format!("Their last message was: {}", msg.message),
+        Some(msg) => format!("{whom} last message was: {}", msg.message),
         None => fail!("they never typed in chat"),
     };
     ctx.reply(response).await?;
