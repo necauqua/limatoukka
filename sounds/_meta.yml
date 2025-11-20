@@ -70,12 +70,13 @@ smoke-detector-beep:
   volume: 0.2
 
 bald:
-  exclusive: true
   sender-gate: 5m
   variants:
     - file: "bald.ogg"
+      exclusive: true
       volume: 0.4
     - file: "baldenheimer.ogg"
+      exclusive: true
       volume: 0.4
       rarity: 0.005
       reward: 3000
@@ -154,6 +155,7 @@ thank-you:
   variants:
     - file: "thank-you.ogg"
       volume: 0.4
+      exclusive: true
     - file: "thank-you-full.ogg"
       volume: 0.4
       rarity: 0.05
