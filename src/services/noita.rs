@@ -14,8 +14,8 @@ use noita_engine_reader::{
     types::{
         Bitset512, Vec2,
         components::{
-            DamageModelComponent, GameEffect, GameEffectComponent, ItemActionComponent,
-            ItemComponent, UIIconComponent,
+            AbilityComponent, DamageModelComponent, GameEffect, GameEffectComponent,
+            ItemActionComponent, ItemComponent, UIIconComponent,
         },
     },
 };
@@ -51,7 +51,7 @@ pub trait NoitaService: Service {
 
     async fn get_death_count(&self) -> NoitaResult<u32>;
 
-    async fn get_streak(&self) -> NoitaResult<u32>;
+    async fn get_streak(&self) -> NoitaResult<i32>;
 
     async fn get_kick_count(&self) -> NoitaResult<u32>;
 
@@ -95,6 +95,8 @@ pub enum ItemFound {
     EarthStone,
     TouchOfGold,
     Taikasauva,
+    CircleOfVigour,
+    TenSeven,
 }
 
 impl Default for NoitaHandle {
@@ -185,6 +187,12 @@ impl NoitaHandle {
                 }
                 if rising.contains(F::TAIKASAUVA) {
                     self.send(E::ItemFound(I::Taikasauva));
+                }
+                if rising.contains(F::COV) {
+                    self.send(E::ItemFound(I::CircleOfVigour));
+                }
+                if rising.contains(F::TEN_SEVEN) {
+                    self.send(E::ItemFound(I::TenSeven));
                 }
                 if rising.contains(F::TOUCH_OF_GOLD) {
                     self.send(E::ItemFound(I::TouchOfGold));
@@ -552,17 +560,20 @@ bitflags! {
         const EVIL_EYE = 1 << 6;
         const EARTH_STONE = 1 << 7;
 
+        const TEN_SEVEN = 1 << 8;
+
         const ITEMS = Self::TABLET.bits() | Self::BEST_TABLET.bits()
-                  | Self::EVIL_EYE.bits() | Self::EARTH_STONE.bits();
+                  | Self::EVIL_EYE.bits() | Self::EARTH_STONE.bits() | Self::TEN_SEVEN.bits();
 
-        const TOUCH_OF_GOLD = 1 << 8;
-        const TAIKASAUVA = 1 << 9;
+        const TOUCH_OF_GOLD = 1 << 9;
+        const TAIKASAUVA = 1 << 10;
+        const COV = 1 << 11;
 
-        const SPELLS = Self::TOUCH_OF_GOLD.bits() | Self::TAIKASAUVA.bits();
+        const SPELLS = Self::TOUCH_OF_GOLD.bits() | Self::TAIKASAUVA.bits() | Self::COV.bits();
 
-        const WORM_SUMMON = 1 << 10;
-        const PORTAL_ENTERED = 1 << 11;
-        const HAS_SAVING_GRACE = 1 << 12;
+        const WORM_SUMMON = 1 << 12;
+        const PORTAL_ENTERED = 1 << 13;
+        const HAS_SAVING_GRACE = 1 << 14;
     }
 }
 
@@ -638,9 +649,19 @@ impl NoitaFlags {
         let inv_quick = inv_quick.context("no inventory")?;
 
         if !self.contains(NoitaFlags::ITEMS) {
+            let wand_store = noita.component_store::<AbilityComponent>()?;
             let store = noita.component_store::<ItemComponent>()?;
+
             for child in inv_quick.children.read(p)?.read(p)? {
                 let child = child.read(p)?;
+
+                if let Some(ability) = wand_store.get(&child)? {
+                    if ability.ui_name.read(p)? == "Slim Rapid bolt wand" {
+                        *self |= NoitaFlags::TEN_SEVEN;
+                    }
+                    continue;
+                }
+
                 let Some(item_comp) = store.get(&child)? else {
                     continue;
                 };
@@ -671,6 +692,7 @@ impl NoitaFlags {
                 *self |= match &*action_id {
                     "TOUCH_GOLD" => NoitaFlags::TOUCH_OF_GOLD,
                     "SUMMON_WANDGHOST" => NoitaFlags::TAIKASAUVA,
+                    "REGENERATION_FIELD" => NoitaFlags::COV,
                     _ => NoitaFlags::empty(),
                 };
             }
