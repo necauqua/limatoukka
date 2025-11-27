@@ -38,11 +38,17 @@
                 margin: auto;
             "
         >
-            <h2>YouTube Queue Player</h2>
+            <h4>YouTube Queue Player</h4>
 
             <span id="currentTitle"></span>
 
             <div style="display: flex; gap: 0.5rem; align-items: center">
+                <button
+                    onclick="reset().catch(console.error)"
+                    style="align-self: normal"
+                >
+                    ↺
+                </button>
                 <button
                     onclick="playPrev().catch(console.error)"
                     style="align-self: normal"
@@ -153,15 +159,22 @@
             }
 
             async function play(endpoint) {
-                const res = await fetch(endpoint).then((res) => res.json());
+                const res = await fetch(endpoint, { method: "POST" }).then(
+                    (res) => res.json(),
+                );
                 if (seekUpdater) {
                     clearInterval(seekUpdater);
                     seekUpdater = null;
                 }
                 seek.value = 0;
                 if (res) {
-                    player.loadVideoById(res.videoId);
-                    currentTitle.textContent = res.title + " - " + res.author;
+                    const [{ videoId, title, author }, source] = res;
+                    player.loadVideoById(videoId);
+                    currentTitle.textContent = title + " - " + author;
+                    if (source) {
+                        currentTitle.textContent +=
+                            " (requested by " + source.requester + ")";
+                    }
                 } else {
                     currentTitle.textContent = "";
                 }
@@ -181,6 +194,11 @@
 
             async function playNext() {
                 await play("/next");
+            }
+
+            async function reset() {
+                await fetch("/reset", { method: "POST" });
+                await playNext();
             }
 
             const events = new EventSource("/events");

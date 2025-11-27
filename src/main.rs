@@ -54,10 +54,12 @@ async fn run() -> Result<()> {
 
     let status_wall = Arc::new(StatusWall::default());
     let noita_handle = Arc::new(NoitaHandle::default());
+
     let music_player = Arc::new(
         YouTubeMusicPlayer::new(
             YouTubeMusic::new(config.youtube.api_key, config.youtube.country_code),
             &config.youtube.playlist,
+            valkey.clone(),
         )
         .await?,
     );

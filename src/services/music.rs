@@ -1,7 +1,4 @@
-use std::{
-    collections::VecDeque,
-    sync::{Arc, Mutex},
-};
+use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
@@ -15,6 +12,12 @@ use axum::{
 };
 use rand::seq::SliceRandom;
 use reqwest::StatusCode;
+use rustis::{
+    client::Client as ValkeyClient,
+    commands::{
+        GenericCommands, LMoveWhere, ListCommands, SetCondition, SetExpiration, StringCommands,
+    },
+};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::broadcast::Sender;
@@ -26,11 +29,11 @@ use crate::{
 };
 
 #[derive(Debug, Error)]
-pub enum AddSongError {
+pub enum MusicError {
     #[error("Not found")]
-    NotFound,
+    SongNotFound,
     #[error("Already in queue")]
-    AlreadyInQueue,
+    SongAlreadyInQueue,
     #[error("The video is age-restricted")]
     AgeRestricted,
     #[error("The video is region-restricted")]
@@ -39,6 +42,12 @@ pub enum AddSongError {
     AgeAndRegionRestricted,
     #[error("internal")]
     Internal(#[from] anyhow::Error),
+}
+
+impl From<rustis::Error> for MusicError {
+    fn from(e: rustis::Error) -> Self {
+        MusicError::Internal(anyhow!(e))
+    }
 }
 
 #[async_trait]
@@ -51,9 +60,11 @@ pub trait MusicService: Service {
 
     async fn set_pause(&self, paused: bool) -> Result<()>;
 
-    async fn current(&self) -> Result<Option<Song>>;
+    async fn current(&self) -> Result<Option<(Song, SongSource)>>;
 
-    async fn request(&self, query: &str, requester: &str) -> Result<Song, AddSongError>;
+    async fn last(&self) -> Result<Option<(Song, SongSource)>>;
+
+    async fn request(&self, query: &str, requester: &str) -> Result<Song, MusicError>;
 
     async fn cancel_last(&self, requester: &str) -> Result<Option<Song>>;
 
@@ -61,85 +72,106 @@ pub trait MusicService: Service {
 
     async fn unskip(&self) -> Result<bool>;
 
-    async fn queue(&self) -> Result<Vec<(Song, String)>>;
+    async fn queue(&self) -> Result<Vec<(Song, SongSource)>>;
 
     async fn clear(&self) -> Result<()>;
 }
 
 injector_getter!(MusicService::music);
 
-#[derive(Debug, Serialize, Deserialize)]
-enum SongSource {
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SongSource {
     Playlist,
     Request { requester: String },
 }
 
-#[derive(Default)]
-struct ServerState {
-    playlist: VecDeque<Song>,
-    request_queue: VecDeque<(Song, String)>,
-    history: VecDeque<(Song, SongSource)>,
-    volume: u32,
-    paused: bool,
-}
-
 pub struct YouTubeMusicPlayer {
     ytm: YouTubeMusic,
-    state: Mutex<ServerState>,
+    playlist_id: String,
+    valkey: ValkeyClient,
     broadcast: Sender<Event>,
 }
 
-impl YouTubeMusicPlayer {
-    pub async fn new(ytm: YouTubeMusic, playlist_id: &str) -> Result<Self> {
-        let mut playlist = ytm.load_playlist(playlist_id).await?;
+const PLAYLIST: &str = "music:playlist";
+const REQUESTS: &str = "music:requests";
+const HISTORY: &str = "music:history";
+const VOLUME: &str = "music:volume";
+const PAUSED: &str = "music:paused";
 
-        // swap_remove is ok because we shuffle anyway
+impl YouTubeMusicPlayer {
+    pub async fn new(ytm: YouTubeMusic, playlist_id: &str, valkey: ValkeyClient) -> Result<Self> {
+        valkey
+            .set_with_options(VOLUME, "15", SetCondition::NX, SetExpiration::None, false)
+            .await?;
+
+        Ok(Self {
+            ytm,
+            playlist_id: playlist_id.to_string(),
+            valkey,
+            broadcast: tokio::sync::broadcast::channel(16).0,
+        })
+    }
+
+    async fn next(&self) -> Result<(Song, SongSource)> {
+        let request = self
+            .valkey
+            .lmove::<_, _, Option<String>>(REQUESTS, HISTORY, LMoveWhere::Left, LMoveWhere::Left)
+            .await?;
+
+        if let Some(request) = request {
+            return Ok(serde_json::from_str(&request)?);
+        }
+
+        let next = self
+            .valkey
+            .lmove::<_, _, String>(PLAYLIST, PLAYLIST, LMoveWhere::Left, LMoveWhere::Right)
+            .await?;
+        self.valkey.lpush(HISTORY, &next).await?;
+        Ok(serde_json::from_str(&next)?)
+    }
+
+    async fn prev(&self) -> Result<Option<(Song, SongSource)>> {
+        match self
+            .valkey
+            .lmove::<_, _, Option<String>>(HISTORY, REQUESTS, LMoveWhere::Left, LMoveWhere::Left)
+            .await?
+        {
+            Some(_) => Ok(self.current().await?),
+            _ => Ok(None),
+        }
+    }
+
+    async fn do_request(&self, song: Song, source: SongSource) -> Result<()> {
+        self.valkey
+            .rpush(REQUESTS, serde_json::to_string(&(song, source))?)
+            .await?;
+        Ok(())
+    }
+
+    async fn reset(&self) -> Result<()> {
+        self.valkey.del([HISTORY, REQUESTS, PLAYLIST]).await?;
+
+        let mut playlist = self.ytm.load_playlist(&self.playlist_id).await?;
         let intro = playlist.swap_remove(0);
         if playlist.is_empty() {
             return Err(anyhow!("playlist had a single song (intro)"));
         }
         playlist.shuffle(&mut rand::rng());
 
-        Ok(Self {
-            ytm,
-            state: Mutex::new(ServerState {
-                playlist: playlist.into(),
-                request_queue: [(intro, "<system>".into())].into(),
-                volume: 5,
-                ..Default::default()
-            }),
-            broadcast: tokio::sync::broadcast::channel(16).0,
-        })
-    }
+        self.valkey
+            .rpush(
+                PLAYLIST,
+                playlist.into_iter().try_fold(Vec::new(), |mut acc, s| {
+                    acc.push(serde_json::to_string(&(s, SongSource::Playlist))?);
+                    anyhow::Ok(acc)
+                })?,
+            )
+            .await?;
 
-    async fn next(&self) -> Song {
-        let mut state = self.state.lock().unwrap();
-        if let Some((song, requester)) = state.request_queue.pop_front() {
-            state
-                .history
-                .push_back((song.clone(), SongSource::Request { requester }));
-            return song;
-        }
-        let next = state.playlist.front().cloned().unwrap(); // playlist is never empty and we never pop it
-        state.playlist.rotate_left(1);
-        state
-            .history
-            .push_back((next.clone(), SongSource::Playlist));
-        next
-    }
+        self.do_request(intro.clone(), SongSource::Playlist).await?;
 
-    async fn prev(&self) -> Option<Song> {
-        let mut state = self.state.lock().unwrap();
-        if let Some((song, source)) = state.history.pop_back() {
-            match source {
-                SongSource::Playlist => state.playlist.rotate_right(1),
-                SongSource::Request { requester } => {
-                    state.request_queue.push_front((song.clone(), requester))
-                }
-            }
-            return state.history.back().map(|(s, _)| s.clone());
-        }
-        None
+        Ok(())
     }
 
     pub fn start(self: Arc<Self>, bind_addr: &str) -> impl Future<Output = Result<()>> + use<> {
@@ -166,7 +198,7 @@ impl YouTubeMusicPlayer {
 
                     async |State(s): State<Arc<Self>>,
                            Query(Request { q, requester }): Query<Request>|
-                           -> Result<StatusCode, AddSongError> {
+                           -> Result<StatusCode, MusicError> {
                         s.request(&q, requester.as_deref().unwrap_or("anon"))
                             .await?;
                         Ok(StatusCode::ACCEPTED)
@@ -175,17 +207,24 @@ impl YouTubeMusicPlayer {
             )
             .route(
                 "/next",
-                get(async |State(s): State<Arc<Self>>| Json(s.next().await)),
+                post(async |State(s): State<Arc<Self>>| Ok::<_, MusicError>(Json(s.next().await?))),
             )
             .route(
                 "/prev",
-                get(async |State(s): State<Arc<Self>>| Json(s.prev().await)),
+                post(async |State(s): State<Arc<Self>>| Ok::<_, MusicError>(Json(s.prev().await?))),
+            )
+            .route(
+                "/reset",
+                post(async |State(s): State<Arc<Self>>| {
+                    Ok::<_, MusicError>(Json(s.reset().await?))
+                }),
             )
             .route(
                 "/state/volume/{volume}",
                 post(
                     async |State(s): State<Arc<Self>>, Path(volume): Path<u32>| {
-                        s.state.lock().unwrap().volume = volume;
+                        s.valkey.set(VOLUME, volume.min(100).to_string()).await?;
+                        Ok::<_, MusicError>(())
                     },
                 ),
             )
@@ -193,7 +232,12 @@ impl YouTubeMusicPlayer {
                 "/state/paused/{state}",
                 post(
                     async |State(s): State<Arc<Self>>, Path(state): Path<bool>| {
-                        s.state.lock().unwrap().paused = state;
+                        if state {
+                            s.valkey.set(PAUSED, "1").await?;
+                        } else {
+                            s.valkey.del(PAUSED).await?;
+                        }
+                        Ok::<_, MusicError>(())
                     },
                 ),
             )
@@ -209,7 +253,7 @@ impl YouTubeMusicPlayer {
     }
 }
 
-impl IntoResponse for AddSongError {
+impl IntoResponse for MusicError {
     fn into_response(self) -> Response<Body> {
         tracing::error!(e = ?self, "music server error");
         (
@@ -223,7 +267,12 @@ impl IntoResponse for AddSongError {
 #[async_trait]
 impl MusicService for YouTubeMusicPlayer {
     async fn get_volume(&self) -> Result<u32> {
-        Ok(self.state.lock().unwrap().volume)
+        Ok(self
+            .valkey
+            .get::<_, Option<String>>(VOLUME)
+            .await?
+            .and_then(|v| v.parse().ok())
+            .unwrap_or_default())
     }
 
     async fn set_volume(&self, volume: u32) -> Result<()> {
@@ -236,7 +285,11 @@ impl MusicService for YouTubeMusicPlayer {
     }
 
     async fn is_paused(&self) -> Result<bool> {
-        Ok(self.state.lock().unwrap().paused)
+        Ok(self
+            .valkey
+            .get::<_, Option<String>>(PAUSED)
+            .await?
+            .is_some())
     }
 
     async fn set_pause(&self, paused: bool) -> Result<()> {
@@ -248,15 +301,23 @@ impl MusicService for YouTubeMusicPlayer {
         Ok(())
     }
 
-    async fn current(&self) -> Result<Option<Song>> {
-        let state = self.state.lock().unwrap();
-        if state.paused {
-            return Ok(None);
+    async fn current(&self) -> Result<Option<(Song, SongSource)>> {
+        let current = self.valkey.lindex::<_, Option<String>>(HISTORY, 0).await?;
+        if let Some(current) = current {
+            return Ok(Some(serde_json::from_str::<(Song, SongSource)>(&current)?));
         }
-        Ok(state.history.back().map(|(s, _)| s.clone()))
+        Ok(None)
     }
 
-    async fn request(&self, query: &str, requester: &str) -> Result<Song, AddSongError> {
+    async fn last(&self) -> Result<Option<(Song, SongSource)>> {
+        let current = self.valkey.lindex::<_, Option<String>>(HISTORY, 1).await?;
+        if let Some(current) = current {
+            return Ok(Some(serde_json::from_str::<(Song, SongSource)>(&current)?));
+        }
+        Ok(None)
+    }
+
+    async fn request(&self, query: &str, requester: &str) -> Result<Song, MusicError> {
         let song = match self.ytm.get_song(query).await? {
             Some(song) => Some(song),
             None => self.ytm.search(query).await?,
@@ -264,64 +325,94 @@ impl MusicService for YouTubeMusicPlayer {
 
         if let Some(mut song) = song {
             match song.restricted.take() {
-                Some(Restricted::Age) => return Err(AddSongError::AgeRestricted),
-                Some(Restricted::Region) => return Err(AddSongError::RegionRestricted),
-                Some(Restricted::AgeAndRegion) => return Err(AddSongError::AgeAndRegionRestricted),
+                Some(Restricted::Age) => return Err(MusicError::AgeRestricted),
+                Some(Restricted::Region) => return Err(MusicError::RegionRestricted),
+                Some(Restricted::AgeAndRegion) => return Err(MusicError::AgeAndRegionRestricted),
                 None => {}
             }
 
-            let mut state = self.state.lock().unwrap();
-            if state
-                .request_queue
-                .iter()
-                .any(|(s, _)| s.video_id == song.video_id)
-            {
-                return Err(AddSongError::AlreadyInQueue);
+            // todo ehh technically this is not atomic
+            let queue = self
+                .valkey
+                .lrange::<_, _, Vec<String>>(REQUESTS, 0, -1)
+                .await?;
+
+            if queue.iter().any(|s| {
+                serde_json::from_str::<(Song, SongSource)>(s)
+                    .is_ok_and(|(s, _)| s.video_id == song.video_id)
+            }) {
+                return Err(MusicError::SongAlreadyInQueue);
             }
-            state
-                .request_queue
-                .push_back((song.clone(), requester.into()));
+
+            self.do_request(
+                song.clone(),
+                SongSource::Request {
+                    requester: requester.into(),
+                },
+            )
+            .await?;
+
             return Ok(song);
         }
 
-        Err(AddSongError::NotFound)
+        Err(MusicError::SongNotFound)
     }
 
     async fn cancel_last(&self, requester: &str) -> Result<Option<Song>> {
-        let mut state = self.state.lock().unwrap();
-        if let Some(pos) = state
-            .request_queue
-            .iter()
-            .rposition(|(_, r)| r == requester)
+        let queue = self
+            .valkey
+            .lrange::<_, _, Vec<String>>(REQUESTS, 0, -1)
+            .await?;
+
+        let song = queue.iter().find(|s| {
+            serde_json::from_str::<(Song, SongSource)>(s).is_ok_and(|(_, source)| match source {
+                SongSource::Request { requester: r } => r == requester,
+                _ => false,
+            })
+        });
+
+        if let Some(song) = song
+            && self.valkey.lrem(REQUESTS, 1, song).await? > 0
         {
-            return Ok(state.request_queue.remove(pos).map(|(s, _)| s));
+            let (song, _) = serde_json::from_str::<(Song, SongSource)>(song)?;
+            return Ok(Some(song));
         }
+
         Ok(None)
     }
 
     async fn skip(&self) -> Result<bool> {
-        if self.state.lock().unwrap().paused {
+        if self.is_paused().await? {
             return Ok(false);
         }
-        _ = self.broadcast.send(Event::default().event("next").data(""));
+        _ = self
+            .broadcast
+            .send(Event::default().event("next").data("1"));
         Ok(true)
     }
 
     async fn unskip(&self) -> Result<bool> {
-        if self.state.lock().unwrap().paused {
+        if self.is_paused().await? {
             return Ok(false);
         }
-        _ = self.broadcast.send(Event::default().event("prev").data(""));
+        _ = self
+            .broadcast
+            .send(Event::default().event("prev").data("1"));
         Ok(true)
     }
 
-    async fn queue(&self) -> Result<Vec<(Song, String)>> {
-        let state = self.state.lock().unwrap();
-        Ok(state.request_queue.iter().cloned().collect())
+    async fn queue(&self) -> Result<Vec<(Song, SongSource)>> {
+        self.valkey
+            .lrange::<_, _, Vec<String>>(REQUESTS, 0, -1)
+            .await?
+            .into_iter()
+            .map(|s| serde_json::from_str::<(Song, SongSource)>(&s))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| anyhow!(e))
     }
 
     async fn clear(&self) -> Result<()> {
-        self.state.lock().unwrap().request_queue.clear();
+        self.valkey.del(REQUESTS).await?;
         Ok(())
     }
 }
@@ -342,6 +433,7 @@ mod tests {
             YouTubeMusicPlayer::new(
                 YouTubeMusic::new(config.youtube.api_key, config.youtube.country_code),
                 &config.youtube.playlist,
+                ValkeyClient::connect(config.valkey).await?,
             )
             .await?,
         );

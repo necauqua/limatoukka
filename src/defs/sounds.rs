@@ -11,7 +11,7 @@ use crate::{
         charges::{Charges, ChargesServiceExt},
         gates::GateServiceExt,
         messaging::PermissionLevel,
-        music::{AddSongError, MusicServiceExt},
+        music::{MusicError, MusicServiceExt, SongSource},
         sounds::SoundServiceExt,
         stats::StatsServiceExt,
         storage::StorageServiceExt,
@@ -72,11 +72,38 @@ async fn play_sound(ctx: CommandContext, sound_id: String) -> CommandResult {
 #[command(global_gate = 5s, shortcode = np)]
 async fn now_playing(ctx: CommandContext) -> CommandResult {
     match ctx.music().current().await? {
-        Some(song) => {
-            ctx.send(format!("Now playing: {} - {}", song.title, song.author))
+        Some((Song { author, title, .. }, SongSource::Playlist)) => {
+            ctx.reply(format!("Now playing: {author} - {title} (from !playlist)",))
                 .await?
         }
+        Some((Song { author, title, .. }, SongSource::Request { requester })) => {
+            ctx.reply(format!(
+                "Now playing: {author} - {title} (requested by {requester})",
+            ))
+            .await?
+        }
         None => ctx.fail("Nothing is playing right now").await?,
+    }
+    Ok(())
+}
+
+/// Get the title of the song was playing before the current one, if any.
+#[command(global_gate = 5s, shortcode = lp)]
+async fn last_playing(ctx: CommandContext) -> CommandResult {
+    match ctx.music().last().await? {
+        Some((Song { author, title, .. }, SongSource::Playlist)) => {
+            ctx.reply(format!(
+                "Previous song was: {author} - {title} (from !playlist)",
+            ))
+            .await?
+        }
+        Some((Song { author, title, .. }, SongSource::Request { requester })) => {
+            ctx.reply(format!(
+                "Previous song was: {author} - {title} (requested by {requester})",
+            ))
+            .await?
+        }
+        None => ctx.fail("No previous song?.").await?,
     }
     Ok(())
 }
@@ -216,22 +243,22 @@ async fn song_request(
                 ("length", length.as_str()),
             ])?;
         }
-        Err(AddSongError::AgeRestricted) => {
-            ctx.fail("A few select videos are so turbo-age-restricted YouTube disallows embedding them Sadge").await?
-        },
-        Err(AddSongError::RegionRestricted) => {
-            ctx.fail("Oh wow you found a video that's *actually* region-locked").await?
-        },
-        Err(AddSongError::AgeAndRegionRestricted) => {
-            ctx.fail("How tf did you find a video thats *BOTH* age- and region-locked lmao").await?
-        },
-        Err(AddSongError::NotFound) => {
+        Err(MusicError::SongNotFound) => {
             ctx.fail("Actually did not find anything (search only searches in the music category)").await?
         },
-        Err(AddSongError::AlreadyInQueue) => {
+        Err(MusicError::SongAlreadyInQueue) => {
             ctx.fail("Already in the queue ICANT").await?
         },
-        Err(AddSongError::Internal(e)) => return Err(CommandError::Internal(e)),
+        Err(MusicError::AgeRestricted) => {
+            ctx.fail("A few select videos are so turbo-age-restricted YouTube disallows embedding them Sadge").await?
+        },
+        Err(MusicError::RegionRestricted) => {
+            ctx.fail("Oh wow you found a video that's *actually* region-locked").await?
+        },
+        Err(MusicError::AgeAndRegionRestricted) => {
+            ctx.fail("How tf did you find a video thats *BOTH* age- and region-locked lmao").await?
+        },
+        Err(MusicError::Internal(e)) => return Err(CommandError::Internal(e)),
     }
     Ok(())
 }
@@ -258,7 +285,7 @@ async fn cancel_request(ctx: CommandContext) -> CommandResult {
 async fn music_queue(ctx: CommandContext, top: Option<u32>) -> CommandResult {
     let queue = ctx.music().queue().await?;
     if queue.is_empty() {
-        ctx.send("Queue is empty".into()).await?;
+        ctx.reply("Queue is empty".into()).await?;
         return Ok(());
     }
 
@@ -269,14 +296,17 @@ async fn music_queue(ctx: CommandContext, top: Option<u32>) -> CommandResult {
             response.push_str(";\n");
         }
 
-        if requester.is_empty() {
-            write!(&mut response, "{author} - {title}").unwrap();
-        } else {
-            write!(
-                &mut response,
-                "{author} - {title} (requested by {requester})",
-            )
-            .unwrap();
+        match requester {
+            SongSource::Request { requester } => {
+                write!(
+                    &mut response,
+                    "{author} - {title} (requested by {requester})",
+                )
+                .unwrap();
+            }
+            SongSource::Playlist => {
+                write!(&mut response, "{author} - {title}").unwrap();
+            }
         }
     }
 
