@@ -31,6 +31,13 @@ async fn echo(ctx: CommandContext, text: String) -> CommandResult {
     Ok(())
 }
 
+/// Always errors with the given text.
+#[command(permission = Caster, GlobalMacroExempt)]
+async fn error(ctx: CommandContext, text: String) -> CommandResult {
+    ctx.fail(text).await?;
+    Ok(())
+}
+
 /// Respond with the last error message for user.
 ///
 /// Last error message is set when you run invalid commands, or if the command

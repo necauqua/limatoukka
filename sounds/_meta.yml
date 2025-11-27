@@ -184,6 +184,11 @@ awoo:
   file: "awoo.ogg"
   volume: 0.2
 
+date-😳:
+  file: date-flushed-face-emoji.ogg
+  volume: 0.2
+  global-gate: 2m
+
 PING:
   variants:
     - file: "AUGH.ogg"
