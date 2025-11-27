@@ -313,7 +313,7 @@ impl NoitaService for NoitaHandle {
         self.with(|n| Ok(n.read_stats()?.global.death_count)).await
     }
 
-    async fn get_streak(&self) -> NoitaResult<u32> {
+    async fn get_streak(&self) -> NoitaResult<i32> {
         self.with(|n| Ok(n.read_stats()?.session.streaks)).await
     }
 
