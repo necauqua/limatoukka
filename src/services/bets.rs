@@ -94,7 +94,7 @@ impl BetsService for BetsServiceValkey {
 
         let mut t = self.client.create_transaction();
         t.hgetall::<_, _, _, Vec<(String, String)>>(&key).queue();
-        t.del(&key).forget();
+        t.rename(&key, "bet:last").forget();
         let bets: Vec<(String, String)> = t.execute().await?;
 
         let bets = bets
