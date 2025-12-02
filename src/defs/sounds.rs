@@ -268,6 +268,7 @@ async fn song_request(
 async fn cancel_request(ctx: CommandContext) -> CommandResult {
     match ctx.music().cancel_last(&ctx.message().sender.name).await? {
         Some(song) => {
+            ctx.gates().ungate(ctx.sender(), "song-request").await?;
             ctx.send(format!(
                 "Removed from queue: {} - {}",
                 song.title, song.author
