@@ -37,15 +37,15 @@ wrrr:
 quack:
   variants:
     - file: "quack/quack.ogg"
-      volume: 0.4
+      volume: 0.2
     - file: "quack/male.ogg"
-      volume: 0.4
+      volume: 0.2
       rarity: 0.15
     - file: "quack/female.ogg"
-      volume: 0.4
+      volume: 0.2
       rarity: 0.15
     - file: "quack/flamingo.ogg"
-      volume: 0.4
+      volume: 0.2
       rarity: 0.05
       # reward: 100
 
@@ -115,10 +115,10 @@ meow:
       rarity: 0.005
 
 nya:
-  group: long
+  # group: long
   file: "nya.ogg"
   volume: 0.5
-  global-gate: 20m
+  global-gate: 7d
   exclusive: true
 
 lizard:
@@ -186,7 +186,7 @@ awoo:
 
 date-😳:
   file: date-flushed-face-emoji.ogg
-  volume: 0.2
+  volume: 0.4
   global-gate: 2m
 
 PING:
