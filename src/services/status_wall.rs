@@ -120,7 +120,12 @@ impl StatusWall {
                 .fold(String::new(), |acc, (_, entry)| acc + entry + "\n");
             (r, text)
         };
-        _ = self.broadcast.send(Event::default().data(text));
+        _ = self
+            .broadcast
+            .send(Event::default().data(match text.as_str() {
+                "" => " ".into(),
+                _ => text,
+            }));
         r
     }
 

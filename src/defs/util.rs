@@ -104,6 +104,8 @@ async fn wait(ctx: CommandContext, duration: HoldTime<500, 300_000>) -> CommandR
         .await
         .inspect_err(|_| wall_task.abort())?;
 
+    wall_task.abort();
+
     Ok(())
 }
 
