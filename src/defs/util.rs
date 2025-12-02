@@ -7,6 +7,7 @@ use crate::{
         command,
     },
     context::{app::InterruptKind, cmd::CommandContext},
+    fail,
     integration::justfile::just,
     services::{
         charges::Charges,
@@ -33,9 +34,8 @@ async fn echo(ctx: CommandContext, text: String) -> CommandResult {
 
 /// Always errors with the given text.
 #[command(permission = Caster, GlobalMacroExempt)]
-async fn error(ctx: CommandContext, text: String) -> CommandResult {
-    ctx.fail(text).await?;
-    Ok(())
+async fn error(_: CommandContext, text: String) -> CommandResult {
+    fail!("{text}")
 }
 
 /// Respond with the last error message for user.
