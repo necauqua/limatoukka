@@ -94,6 +94,10 @@ async fn var_resolvers(ctx: &CommandContext, name: &str) -> anyhow::Result<Optio
             let streak = ctx.noita().get_death_count().await?;
             return Ok(Some(streak.to_string()));
         }
+        "seed" => {
+            let seed = ctx.noita().get_seed().await?;
+            return Ok(seed.map(|s| s.to_string()));
+        }
         _ => {}
     }
     if let Some(arg) = name
