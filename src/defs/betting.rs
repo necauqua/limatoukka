@@ -223,7 +223,7 @@ async fn bet(ctx: CommandContext, option: String, wager: Option<Charges>) -> Com
     ctx.reply(if wager.amount.non_zero() {
         format!("accepted {} as a bet on '{}'", wager.amount, wager.option,)
     } else {
-        format!("bet on '{}' accepted", wager.option)
+        format!("zero-bet on '{}' accepted", wager.option)
     })
     .await?;
 
