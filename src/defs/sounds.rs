@@ -245,7 +245,7 @@ async fn song_request(
 
     match ctx.music().request(&query, name).await {
         Ok(Song { author, title, video_id, length, .. }) => {
-            ctx.send(format!("Added a song to the queue: {author} - {title}"))
+            ctx.reply(format!("Added a song to the queue: {author} - {title}"))
                 .await?;
             let length = length.as_millis().to_string();
             ctx.stats().record(ctx.sender(), Some(name), "song-request", &[
@@ -279,13 +279,10 @@ async fn song_request(
 #[command(sender_gate = 5s, shortcode = cr)]
 async fn cancel_request(ctx: CommandContext) -> CommandResult {
     match ctx.music().cancel_last(&ctx.message().sender.name).await? {
-        Some(song) => {
+        Some(Song { title, author, .. }) => {
             ctx.gates().ungate(ctx.sender(), "song-request").await?;
-            ctx.send(format!(
-                "Removed from queue: {} - {}",
-                song.title, song.author
-            ))
-            .await?
+            ctx.reply(format!("Removed from queue: {author} - {title}",))
+                .await?
         }
         None => ctx.fail("Queue had no songs requested by you").await?,
     }
