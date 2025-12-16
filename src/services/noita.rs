@@ -656,7 +656,10 @@ impl NoitaFlags {
                 let child = child.read(p)?;
 
                 if let Some(ability) = wand_store.get(&child)? {
-                    if ability.ui_name.read(p)? == "Slim Rapid bolt wand" {
+                    if ability.charge_wait_frames == 10
+                        && ability.gun_config.reload_time == 4
+                        && ability.gun_config.shuffle_deck_when_empty.as_bool()
+                    {
                         *self |= NoitaFlags::TEN_SEVEN;
                     }
                     continue;
