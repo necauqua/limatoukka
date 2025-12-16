@@ -199,6 +199,19 @@ date-😳:
   volume: 0.2
   global-gate: 2m
 
+cola:
+  variants:
+    - file: cola/cola1.ogg
+      volume: 0.1
+    - file: cola/cola2.ogg
+      volume: 0.1
+    - file: cola/cola3.ogg
+      volume: 0.1
+    - file: cola/cola4.ogg
+      volume: 0.1
+    - file: cola/cola5.ogg
+      volume: 0.1
+
 PING:
   variants:
     - file: AUGH.ogg
