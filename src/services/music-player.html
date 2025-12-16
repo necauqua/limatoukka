@@ -198,7 +198,6 @@
 
             async function reset() {
                 await fetch("/reset", { method: "POST" });
-                await playNext();
             }
 
             const events = new EventSource("/events");
