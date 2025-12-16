@@ -1,6 +1,6 @@
 use std::{borrow::Cow, sync::Arc, time::Duration};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use futures::FutureExt;
 use limatoukka::{
     commands::{CommandTag, discover_declared_commands, runner::Runner},
@@ -42,7 +42,9 @@ use twitch_api::{
 async fn run() -> Result<()> {
     let config = Config::load()?;
 
-    let valkey = ValkeyClient::connect(&*config.valkey).await?;
+    let valkey = ValkeyClient::connect(&*config.valkey)
+        .await
+        .context("connecting to db")?;
 
     let twitch_api = TwitchApi::new(&config).await?;
 
