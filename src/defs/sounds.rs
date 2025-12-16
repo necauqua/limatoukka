@@ -11,7 +11,7 @@ use crate::{
         charges::{Charges, ChargesServiceExt},
         gates::GateServiceExt,
         messaging::PermissionLevel,
-        music::{MusicError, MusicServiceExt, SongSource},
+        music::{MusicError, MusicServiceExt, SongQuery, SongSource},
         sounds::SoundServiceExt,
         stats::StatsServiceExt,
         storage::StorageServiceExt,
@@ -243,7 +243,13 @@ async fn song_request(
 
     let name = &ctx.message().sender.name;
 
-    match ctx.music().request(&query, name).await {
+    let query = if ctx.macro_depth != 0 {
+        SongQuery::IdOnly(&query)
+    } else {
+        SongQuery::Any(&query)
+    };
+
+    match ctx.music().request(query, name).await {
         Ok(Song { author, title, video_id, length, .. }) => {
             ctx.reply(format!("Added a song to the queue: {author} - {title}"))
                 .await?;
@@ -256,7 +262,11 @@ async fn song_request(
             ])?;
         }
         Err(MusicError::SongNotFound) => {
-            ctx.fail("Actually did not find anything (search only searches in the music category)").await?
+            if ctx.macro_depth != 0 {
+                ctx.fail("Did not find anything with that ID (song-request only accepts IDs when called from macros)").await?
+            } else {
+                ctx.fail("Actually did not find anything (search only searches in the music category)").await?
+            }
         },
         Err(MusicError::SongAlreadyInQueue) => {
             ctx.fail("Already in the queue ICANT").await?

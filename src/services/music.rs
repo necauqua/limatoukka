@@ -50,6 +50,11 @@ impl From<rustis::Error> for MusicError {
     }
 }
 
+pub enum SongQuery<'s> {
+    Any(&'s str),
+    IdOnly(&'s str),
+}
+
 #[async_trait]
 pub trait MusicService: Service {
     async fn get_volume(&self) -> Result<u32>;
@@ -64,7 +69,7 @@ pub trait MusicService: Service {
 
     async fn last(&self) -> Result<Option<(Song, SongSource)>>;
 
-    async fn request(&self, query: &str, requester: &str) -> Result<Song, MusicError>;
+    async fn request(&self, query: SongQuery<'_>, requester: &str) -> Result<Song, MusicError>;
 
     async fn cancel_last(&self, requester: &str) -> Result<Option<Song>>;
 
@@ -199,7 +204,7 @@ impl YouTubeMusicPlayer {
                     async |State(s): State<Arc<Self>>,
                            Query(Request { q, requester }): Query<Request>|
                            -> Result<StatusCode, MusicError> {
-                        s.request(&q, requester.as_deref().unwrap_or("anon"))
+                        s.request(SongQuery::Any(&q), requester.as_deref().unwrap_or("anon"))
                             .await?;
                         Ok(StatusCode::ACCEPTED)
                     }
@@ -317,10 +322,13 @@ impl MusicService for YouTubeMusicPlayer {
         Ok(None)
     }
 
-    async fn request(&self, query: &str, requester: &str) -> Result<Song, MusicError> {
-        let song = match self.ytm.get_song(query).await? {
-            Some(song) => Some(song),
-            None => self.ytm.search(query).await?,
+    async fn request(&self, query: SongQuery<'_>, requester: &str) -> Result<Song, MusicError> {
+        let song = match query {
+            SongQuery::Any(query) => match self.ytm.get_song(query).await? {
+                Some(song) => Some(song),
+                None => self.ytm.search(query).await?,
+            },
+            SongQuery::IdOnly(id) => self.ytm.get_song(id).await?,
         };
 
         if let Some(mut song) = song {
