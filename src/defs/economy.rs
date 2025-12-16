@@ -133,7 +133,7 @@ async fn ping(ctx: CommandContext) -> CommandResult {
                 id: pinger.id.clone(),
                 name: pinger.login.clone(),
                 timestamp: SystemTime::now(),
-                next_gate: Duration::from_secs(rand::random_range(55..65) * 60),
+                next_gate: Duration::from_millis(rand::random_range(55 * 60_000..65 * 60_000)),
             },
         )
         .await?;
