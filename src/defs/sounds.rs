@@ -51,19 +51,31 @@ async fn play_sound(ctx: CommandContext, sound_id: String) -> CommandResult {
         ctx.gates()
             .command_gates(ctx.sender(), &gate_key, s.global_gate, s.sender_gate)
             .await?;
+
+        if let Some(cost) = s.cost {
+            let cost = Charges::from(cost);
+            let paid = ctx.charges().consume(ctx.sender(), cost).await?;
+            if !paid {
+                fail!("poor (sound costs {cost})");
+            }
+            ctx.reply(format!("That will be {cost}, you're welcome"))
+                .await?;
+        }
     }
 
-    let Some(s) = s.choose() else {
+    let Some(v) = s.choose() else {
         fail!("Sound had a chance of not playing, you lost to random lmao");
     };
 
-    if s.reward != 0 {
+    if v.reward != 0 {
         ctx.charges()
-            .add(ctx.sender(), Charges::from(s.reward))
+            .add(ctx.sender(), Charges::from(v.reward))
             .await?;
     }
 
-    sound_service.play(s, Some(ctx.interrupt_signal())).await?;
+    sound_service
+        .play(v, s.cost.is_none().then(|| ctx.interrupt_signal()))
+        .await?;
 
     Ok(())
 }

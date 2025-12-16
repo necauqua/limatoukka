@@ -114,11 +114,17 @@ meow:
     - file: "meow/meow-hp.ogg"
       rarity: 0.005
 
+two-headpats:
+  file: two-headpats.ogg
+  volume: 0.4
+  exclusive: true
+  global-gate: 5m
+
 nya:
-  # group: long
   file: "nya.ogg"
   volume: 0.5
-  global-gate: 7d
+  global-gate: 20m
+  cost: 3000
   exclusive: true
 
 lizard:

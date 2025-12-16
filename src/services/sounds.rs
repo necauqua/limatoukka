@@ -48,6 +48,8 @@ pub struct SoundEntry {
     pub sender_gate: Option<Duration>,
     #[serde(default)]
     pub group: Option<String>,
+    #[serde(default)]
+    pub cost: Option<u64>,
     #[serde(flatten)]
     pub variants: SoundVariants,
 }
