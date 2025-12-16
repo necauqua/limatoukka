@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{collections::HashMap, fmt::Display};
 
 use anyhow::Result;
 use config::File;
@@ -44,6 +44,21 @@ pub struct YouTube {
     pub playlist: String,
 }
 
+#[derive(Deserialize, Clone)]
+#[serde(rename_all = "kebab-case")]
+pub struct Ntfy {
+    /// The host of the ntfy instance
+    pub host: String,
+    /// The per-topic configuration
+    pub topic: HashMap<String, NtfyTopicConfig>,
+}
+
+#[derive(Deserialize, Clone, Default)]
+#[serde(rename_all = "kebab-case")]
+pub struct NtfyTopicConfig {
+    pub auth: Option<String>,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct Config {
@@ -58,6 +73,7 @@ pub struct Config {
     pub stats: Elastic,
 
     pub youtube: YouTube,
+    pub ntfy: Ntfy,
 
     pub browser_source_bind: String,
     pub music_player_bind: String,

@@ -8,7 +8,13 @@ use limatoukka::{
     config::Config,
     context::app::{AppContext, InterruptKind},
     defs::betting::{BetCancelError, BetCloseError, close_bet, do_cancel_bet},
-    integration::{eventsub::EventSub, twitch_api::TwitchApi, yt_music_api::YouTubeMusic},
+    integration::{
+        eventsub::EventSub,
+        kofi::{KofiPayload, KofiType},
+        ntfy::NtfyTopic,
+        twitch_api::TwitchApi,
+        yt_music_api::YouTubeMusic,
+    },
     logging,
     services::{
         Injector,
@@ -130,6 +136,10 @@ async fn run() -> Result<()> {
     let mut noita_events = noita_handle.subscribe();
     tokio::spawn(noita_handle.poll_state_updates(ctx.clone()));
 
+    let kofi = NtfyTopic::new(&config.ntfy, "kofi");
+    let mut kofi_events = kofi.subscribe();
+    tokio::spawn(kofi.run());
+
     eventsub_init.await;
     // after eventsub init so we can receive redemptions
     twitch_api.unpause_rewards().await?;
@@ -205,6 +215,10 @@ async fn run() -> Result<()> {
             Ok(event) = eventsub_rx.recv() => {
                 let ctx = ctx.clone();
                 mainloop_task(&mut tasks, async move { eventsub_event(ctx, event).await })
+            },
+            Ok(event) = kofi_events.recv() => {
+                let ctx = ctx.clone();
+                mainloop_task(&mut tasks, async move { kofi_event(ctx, event).await })
             },
             else => break,
         };
@@ -543,6 +557,63 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
         }
         event => tracing::info!(?event, "unhandled eventsub event"),
     }
+    Ok(())
+}
+
+#[instrument(skip_all)]
+async fn kofi_event(ctx: AppContext, event: Arc<str>) -> Result<()> {
+    let event = KofiPayload::parse_payload(&event)?;
+
+    tracing::debug!(?event, "kofi event");
+
+    // obviously dont shout out non-public ones
+    if !event.is_public {
+        return Ok(());
+    }
+
+    if event.is_first_subscription_payment {
+        tracing::info!(
+            amount = event.amount,
+            currency = event.currency,
+            name = event.from_name,
+            "kofi sub"
+        );
+        ctx.send(format!(
+            "[+{} {}] Yooo, thanks for subscribing on Ko-fi, {} <3",
+            event.amount, event.currency, event.from_name
+        ))
+        .await?;
+    } else if event.is_subscription_payment {
+        tracing::info!(
+            amount = event.amount,
+            currency = event.currency,
+            name = event.from_name,
+            "kofi resub"
+        );
+        ctx.send(format!(
+            "[+{} {}] Thanks for the continued Ko-fi support, {} <3 <3 <3",
+            event.amount, event.currency, event.from_name
+        ))
+        .await?;
+    } else if matches!(event.event_type, KofiType::Donation) {
+        tracing::info!(
+            amount = event.amount,
+            currency = event.currency,
+            name = event.from_name,
+            "kofi dono"
+        );
+        ctx.send(format!(
+            "[+{} {}] Tysm for a Ko-fi dono, {} <3",
+            event.amount, event.currency, event.from_name
+        ))
+        .await?;
+    }
+
+    if let Some(msg) = &event.message {
+        // todo admin interrupt for this and bits lmao
+        ctx.tts().tts(msg, None).await?;
+    }
+
     Ok(())
 }
 
