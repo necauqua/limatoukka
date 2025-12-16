@@ -1,117 +1,117 @@
 scream:
   variants:
-    - file: "scream/wilhelm.ogg"
+    - file: scream/wilhelm.ogg
       volume: 0.2
-    - file: "scream/howie.ogg"
+    - file: scream/howie.ogg
       volume: 0.2
       rarity: 0.05
-    - file: "scream/awful.ogg"
+    - file: scream/awful.ogg
       volume: 0.05
       rarity: 0.005
 
 snek-moan-scare:
-  file: "snek-moan.ogg"
+  file: snek-moan.ogg
   volume: 0.1
   global-gate: 10m
 
 uwu:
   group: long
-  file: "pulu-prepare-your-asses-for-a-cute-uwu.ogg"
+  file: pulu-prepare-your-asses-for-a-cute-uwu.ogg
   volume: 0.2
   exclusive: true
   global-gate: 5m
 
 uguu:
   variants:
-    - file: "uguu/uguu1.ogg"
+    - file: uguu/uguu1.ogg
       volume: 0.15
-    - file: "uguu/uguu2.ogg"
+    - file: uguu/uguu2.ogg
       volume: 0.15
-    - file: "uguu/uguu3.ogg"
+    - file: uguu/uguu3.ogg
       volume: 0.15
 
 wrrr:
-  file: "wrrr.ogg"
+  file: wrrr.ogg
   volume: 0.6
 
 quack:
   variants:
-    - file: "quack/quack.ogg"
+    - file: quack/quack.ogg
       volume: 0.2
-    - file: "quack/male.ogg"
-      volume: 0.2
-      rarity: 0.15
-    - file: "quack/female.ogg"
+    - file: quack/male.ogg
       volume: 0.2
       rarity: 0.15
-    - file: "quack/flamingo.ogg"
+    - file: quack/female.ogg
+      volume: 0.2
+      rarity: 0.15
+    - file: quack/flamingo.ogg
       volume: 0.2
       rarity: 0.05
       # reward: 100
 
 factorio-alert:
   variants:
-    - file: "factorio-alert.ogg"
+    - file: factorio-alert.ogg
       volume: 0.2
-    - file: "factorio-alert-old.ogg"
+    - file: factorio-alert-old.ogg
       volume: 0.2
       rarity: 0.2
 
 factorio-sa:
-  file: "factorrio.ogg"
+  file: factorrio.ogg
   volume: 0.1
 
 factorio-game-over:
-  file: "factorio-game-over.ogg"
+  file: factorio-game-over.ogg
   volume: 0.2
 
 smoke-detector-beep:
-  file: "smoke-detector-beep.ogg"
+  file: smoke-detector-beep.ogg
   volume: 0.2
 
 bald:
   sender-gate: 5m
   variants:
-    - file: "bald.ogg"
+    - file: bald.ogg
       exclusive: true
       volume: 0.4
-    - file: "baldenheimer.ogg"
+    - file: baldenheimer.ogg
       exclusive: true
       volume: 0.4
       rarity: 0.005
       reward: 3000
 
 yolksium:
-  file: "yolksium.ogg"
+  file: yolksium.ogg
   volume: 0.4
   exclusive: true
   sender-gate: 10m
 
 flashbang:
-  file: "flashbang.ogg"
+  file: flashbang.ogg
   volume: 0.025
   global-gate: 15m
 
 temple-collapse:
   global-gate: 1m
   sender-gate: 5m
-  file: "temple-collapse.ogg"
+  file: temple-collapse.ogg
   volume: 0.05
 
 meow:
   variants:
-    - file: "meow/meow1.ogg"
+    - file: meow/meow1.ogg
       volume: 0.4
-    - file: "meow/meow2.ogg"
+    - file: meow/meow2.ogg
       volume: 0.15
       rarity: 0.06
-    - file: "meow/meow3.ogg"
+    - file: meow/meow3.ogg
       volume: 0.15
       rarity: 0.03
-    - file: "meow/meow-snek.ogg"
+    - file: meow/meow-snek.ogg
       volume: 0.5
       rarity: 0.005
-    - file: "meow/meow-hp.ogg"
+    - file: meow/meow-hp.ogg
       rarity: 0.005
 
 two-headpats:
@@ -121,98 +121,102 @@ two-headpats:
   global-gate: 5m
 
 nya:
-  file: "nya.ogg"
+  file: nya.ogg
   volume: 0.5
   global-gate: 20m
   cost: 3000
   exclusive: true
 
 lizard:
-  file: "lizard.ogg"
+  file: lizard.ogg
   volume: 0.2
 
 buhee:
-  file: "buhee.ogg"
+  file: buhee.ogg
   volume: 0.4
   global-gate: 5m
 
 mission-failed:
-  file: "mission-failed.ogg"
+  file: mission-failed.ogg
   volume: 0.1
   exclusive: true
   sender-gate: 10m
 
 lasiace:
-  file: "lasiace.ogg"
+  file: lasiace.ogg
   volume: 0.4
   sender-gate: 5m
 
 vine-boom:
-  file: "vine-boom.ogg"
+  file: vine-boom.ogg
   volume: 0.1
   sender-gate: 5m
 
 bruh:
-  file: "bruh.ogg"
+  file: bruh.ogg
   volume: 0.1
 
 thank-you:
   sender-gate: 1m
   variants:
-    - file: "thank-you.ogg"
+    - file: thank-you.ogg
       volume: 0.4
       exclusive: true
-    - file: "thank-you-full.ogg"
+    - file: thank-you-full.ogg
       volume: 0.4
       rarity: 0.05
       exclusive: true
 
 porno:
   sender-gate: 10m
-  file: "porno.ogg"
+  file: porno.ogg
   volume: 0.05
 
 source:
   sender-gate: 5m
-  file: "source.ogg"
+  file: source.ogg
   volume: 0.1
   exclusive: true
 
 glizzyy:
-  file: "glizzyy.ogg"
+  file: glizzyy.ogg
   volume: 0.025
 
 lasiace-why:
-  file: "lasiace-why.ogg"
-  volume: 0.4
+  variants:
+    - file: lasiace-why.ogg
+      volume: 0.4
+    - file: lasiace-why2.ogg
+      volume: 0.1
+      rarity: 0.25
 
 awoo:
-  file: "awoo.ogg"
+  file: awoo.ogg
   volume: 0.2
 
 date-😳:
   file: date-flushed-face-emoji.ogg
-  volume: 0.4
+  volume: 0.2
   global-gate: 2m
 
 PING:
   variants:
-    - file: "AUGH.ogg"
+    - file: AUGH.ogg
       volume: 0.1
-    - file: "undertakers-bell.ogg"
+    - file: undertakers-bell.ogg
       volume: 0.1
 
 lasiace-raid:
-  file: "lasiace-raid.ogg"
+  file: lasiace-raid.ogg
   volume: 0.4
   exclusive: true
 
 nutty-raid:
-  file: "nutty-raid.ogg"
+  file: nutty-raid.ogg
   volume: 0.1
   exclusive: true
 
 RAID:
-  file: "pipes.ogg"
+  file: pipes.ogg
   volume: 0.25
   exclusive: true
