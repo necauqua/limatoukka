@@ -656,8 +656,12 @@ impl NoitaFlags {
                 let child = child.read(p)?;
 
                 if let Some(ability) = wand_store.get(&child)? {
-                    if ability.charge_wait_frames == 10
-                        && ability.gun_config.reload_time == 4
+                    let sprite = ability.sprite_file.read(p)?;
+                    if sprite != "data/items_gfx/wands/wand_0484.png" {
+                        continue;
+                    }
+                    if ability.gunaction_config.fire_rate_wait == 6
+                        && ability.reload_time_frames == 4
                         && ability.gun_config.shuffle_deck_when_empty.as_bool()
                     {
                         *self |= NoitaFlags::TEN_SEVEN;
