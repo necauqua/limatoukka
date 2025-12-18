@@ -83,7 +83,7 @@ bald:
 
 yolksium:
   file: yolksium.ogg
-  volume: 0.4
+  volume: 0.2
   exclusive: true
   sender-gate: 10m
 
