@@ -38,7 +38,12 @@ async fn tts(ctx: CommandContext, msg: String) -> CommandResult {
 /// Sender gate is at least 10 seconds for everything, but individual sounds
 /// have their own dynamic cooldowns.
 #[command(sender_gate = 10s, permission = Caster, GlobalMacroExempt)]
-async fn play_sound(ctx: CommandContext, sound_id: String) -> CommandResult {
+async fn play_sound(
+    ctx: CommandContext,
+    sound_id: String,
+    start: Option<u32>,
+    end: Option<u32>,
+) -> CommandResult {
     let sound_service = ctx.sounds();
 
     let Some(s) = sound_service.select(&sound_id).await? else {
@@ -74,7 +79,12 @@ async fn play_sound(ctx: CommandContext, sound_id: String) -> CommandResult {
     }
 
     sound_service
-        .play(v, s.cost.is_none().then(|| ctx.interrupt_signal()))
+        .play(
+            v,
+            start,
+            end,
+            s.cost.is_none().then(|| ctx.interrupt_signal()),
+        )
         .await?;
 
     Ok(())

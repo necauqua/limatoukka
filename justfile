@@ -33,5 +33,15 @@ aws-tts text:
     #     /tmp/last-tts.ogg
     pw-play --volume=0.2 /tmp/last-tts.ogg
 
-play-sound sound volume="1":
-    pw-play --volume="{{volume}}" sounds/{{sound}}
+@play-sound sound volume="1" cut-start="0" cut-end="0":
+    #!/usr/bin/env bash
+
+    duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "sounds/{{sound}}")
+
+    read skip_start play_duration < <(awk "BEGIN {
+        skip = {{cut-start}} / 1000
+        play = $duration - skip - ({{cut-end}} / 1000)
+        print skip, play
+    }")
+
+    ffmpeg -ss "$skip_start" -i "sounds/{{sound}}" -t "$play_duration" -f wav - 2>/dev/null | pw-play --volume="{{volume}}" -

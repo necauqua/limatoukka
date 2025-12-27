@@ -13,7 +13,13 @@ use crate::{injector_getter, integration::justfile::just, services::Service};
 pub trait SoundService: Service {
     async fn select(&self, sound_id: &str) -> Result<Option<SoundEntry>>;
 
-    async fn play(&self, sound: &SoundVariant, stop: Option<Receiver<()>>) -> Result<()>;
+    async fn play(
+        &self,
+        sound: &SoundVariant,
+        cut_start: Option<u32>,
+        cut_end: Option<u32>,
+        stop: Option<Receiver<()>>,
+    ) -> Result<()>;
 }
 
 injector_getter!(SoundService::sounds);
@@ -27,7 +33,7 @@ impl dyn SoundService {
         let sound_variant = sound
             .choose()
             .with_context(|| format!("'{id}' sound did not choose a variant"))?;
-        self.play(sound_variant, None).await
+        self.play(sound_variant, None, None, None).await
     }
 }
 
@@ -107,7 +113,13 @@ impl SoundService for SoundServiceImpl {
     }
 
     #[tracing::instrument(skip(self, stop), fields(file = Empty))]
-    async fn play(&self, sound: &SoundVariant, stop: Option<Receiver<()>>) -> Result<()> {
+    async fn play(
+        &self,
+        sound: &SoundVariant,
+        cut_start: Option<u32>,
+        cut_end: Option<u32>,
+        stop: Option<Receiver<()>>,
+    ) -> Result<()> {
         let _guard = if sound.exclusive {
             Some(self.exclusive_sound.lock().await)
         } else {
@@ -119,7 +131,15 @@ impl SoundService for SoundServiceImpl {
         let volume = sound.volume.unwrap_or(1.0);
 
         tracing::debug!("playing a sound");
-        let mut process = just("play-sound", &[&sound.file, volume.to_string().as_str()])?;
+        let mut process = just(
+            "play-sound",
+            &[
+                &sound.file,
+                volume.to_string().as_str(),
+                cut_start.unwrap_or_default().to_string().as_str(),
+                cut_end.unwrap_or_default().to_string().as_str(),
+            ],
+        )?;
 
         if process.wait(stop).await {
             tracing::debug!("finished playing sound");

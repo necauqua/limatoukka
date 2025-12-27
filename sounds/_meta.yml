@@ -212,6 +212,18 @@ cola:
     - file: cola/cola5.ogg
       volume: 0.1
 
+bucket:
+  file: bucket.ogg
+  volume: 0.1
+  exclusive: true
+  sender-gate: 2m
+
+sync:
+  file: sync.ogg
+  volume: 0.1
+  exclusive: true
+  sender-gate: 1m
+
 PING:
   variants:
     - file: AUGH.ogg
