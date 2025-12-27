@@ -372,7 +372,7 @@ impl MusicService for YouTubeMusicPlayer {
             .lrange::<_, _, Vec<String>>(REQUESTS, 0, -1)
             .await?;
 
-        let song = queue.iter().find(|s| {
+        let song = queue.iter().rfind(|s| {
             serde_json::from_str::<(Song, SongSource)>(s).is_ok_and(|(_, source)| match source {
                 SongSource::Request { requester: r } => r == requester,
                 _ => false,
