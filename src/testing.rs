@@ -76,5 +76,6 @@ pub fn message(text: impl Into<String>) -> Message {
             login: "mock-login".into(),
         },
         text: text.into(),
+        replyable: true,
     }
 }

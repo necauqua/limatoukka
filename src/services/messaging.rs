@@ -35,6 +35,7 @@ pub struct Message {
     pub source_channel: String,
     pub sender: Sender,
     pub text: String,
+    pub replyable: bool,
 }
 
 pub fn connect_to_twitch(api: TwitchApi) -> (MessageSource, Box<dyn MessagingService>) {
@@ -124,21 +125,41 @@ impl MessageSource {
         Some(match self {
             MessageSource::Twitch(incoming) => loop {
                 let incoming = incoming.recv().await?;
-                let ServerMessage::Privmsg(msg) = incoming else {
-                    continue;
-                };
 
-                break Message {
-                    id: msg.message_id,
-                    source_channel: msg.channel_login,
-                    sender: Sender {
-                        id: msg.sender.id,
-                        login: msg.sender.login,
-                        name: msg.sender.name,
-                        level: PermissionLevel::from_badges(&msg.badges),
-                    },
-                    text: msg.message_text,
-                };
+                match incoming {
+                    ServerMessage::Privmsg(msg) => {
+                        break Message {
+                            id: msg.message_id,
+                            source_channel: msg.channel_login,
+                            sender: Sender {
+                                id: msg.sender.id,
+                                login: msg.sender.login,
+                                name: msg.sender.name,
+                                level: PermissionLevel::from_badges(&msg.badges),
+                            },
+                            text: msg.message_text,
+                            replyable: true,
+                        };
+                    }
+                    ServerMessage::UserNotice(msg) => {
+                        let Some(text) = msg.message_text else {
+                            continue;
+                        };
+                        break Message {
+                            id: msg.message_id,
+                            source_channel: msg.channel_login,
+                            sender: Sender {
+                                id: msg.sender.id,
+                                login: msg.sender.login,
+                                name: msg.sender.name,
+                                level: PermissionLevel::from_badges(&msg.badges),
+                            },
+                            text,
+                            replyable: false,
+                        };
+                    }
+                    _ => {}
+                }
             },
             MessageSource::Mock(sender, fifo, count) => {
                 let mut text = String::new();
@@ -158,6 +179,7 @@ impl MessageSource {
                         level: PermissionLevel::Caster,
                     },
                     text,
+                    replyable: true,
                 }
             }
         })
@@ -203,6 +225,12 @@ impl MessagingService for MessagingServiceTwitch {
     }
 
     async fn reply(&self, message: &Message, text: String) -> Result<()> {
+        if !message.replyable {
+            self.send(format!("@{}, {text}", message.sender.login))
+                .await?;
+            return Ok(());
+        }
+
         // Actually dont set source-only for replies, since the original message will be visible in all chats
         // the reply could be visible too. It was the ad messages and macro echoes that were the offenders
         if text.len() <= 420 {
