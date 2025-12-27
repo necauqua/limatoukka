@@ -58,7 +58,7 @@ impl BanishService for BanishServiceValkey {
         }
         let res: usize = t.execute().await?;
 
-        Ok(res != 0)
+        Ok(res == 0)
     }
 
     async fn unbanish(&self, user_id: &str) -> Result<bool> {
