@@ -113,7 +113,9 @@ async fn ping(ctx: CommandContext) -> CommandResult {
             );
         }
         let elapsed = prev.timestamp.elapsed().unwrap_or_default();
-        if elapsed < Duration::from_secs(600) {
+        if elapsed < Duration::from_secs(600)
+            && ctx.gate("ping:ulost", Duration::from_secs(2)).await?
+        {
             ctx.fail("KEKW U LOST KEKW").await?;
         }
         if elapsed < prev.next_gate {
