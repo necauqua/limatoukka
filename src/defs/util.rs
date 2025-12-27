@@ -125,7 +125,7 @@ async fn r#break(ctx: CommandContext, chatter: Option<Required<Chatter>>) -> Com
 ///
 /// This is similar to `break~`, except the commands following the holds that
 /// get completed do not run.
-#[command]
+#[command(shortcode=int)]
 async fn interrupt(ctx: CommandContext, chatter: Option<Required<Chatter>>) -> CommandResult {
     ctx.interrupt(chatter.as_ref().map(|c| &*c.id), InterruptKind::Interrupt);
     Ok(())
