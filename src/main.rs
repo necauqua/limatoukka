@@ -2,6 +2,7 @@ use std::{borrow::Cow, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
 use futures::FutureExt;
+use lazy_regex::regex_replace;
 use limatoukka::{
     commands::{CommandTag, discover_declared_commands, runner::Runner},
     config::Config,
@@ -445,7 +446,8 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
                 "cheer"
             );
             if data.bits >= 25 {
-                ctx.tts().tts(&data.message, None).await?;
+                let text = regex_replace!(r"\bcheer\d+\b"i, &data.message, "");
+                ctx.tts().tts(&text, None).await?;
             }
         }
         Event::ChannelRaidV1(Payload {
