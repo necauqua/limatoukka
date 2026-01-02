@@ -35,6 +35,11 @@ async fn tts(ctx: CommandContext, msg: String) -> CommandResult {
 /// Sounds ids are secret, but look through `global-macro-list~` for macros that
 /// use this command to get an idea of what sounds are available.
 ///
+/// If given, the `start` parameter specifies the number of milliseconds to
+/// skip from the start of the sound.
+/// The `time` parameter (if given) specifies the number of milliseconds of the
+/// song to actually play.
+///
 /// Sender gate is at least 10 seconds for everything, but individual sounds
 /// have their own dynamic cooldowns.
 #[command(sender_gate = 10s, permission = Caster, GlobalMacroExempt)]
@@ -42,7 +47,7 @@ async fn play_sound(
     ctx: CommandContext,
     sound_id: String,
     start: Option<u32>,
-    end: Option<u32>,
+    time: Option<u32>,
 ) -> CommandResult {
     let sound_service = ctx.sounds();
 
@@ -82,7 +87,7 @@ async fn play_sound(
         .play(
             v,
             start,
-            end,
+            time,
             s.cost.is_none().then(|| ctx.interrupt_signal()),
         )
         .await?;

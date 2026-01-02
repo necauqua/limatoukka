@@ -40,8 +40,8 @@ aws-tts text:
 
     read skip_start play_duration < <(awk "BEGIN {
         skip = {{cut-start}} / 1000
-        play = $duration - skip - ({{cut-end}} / 1000)
-        print skip, play
+        play = {{cut-end}} / 1000
+        print skip, (play > 0 ? play : $duration)
     }")
 
     ffmpeg -ss "$skip_start" -i "sounds/{{sound}}" -t "$play_duration" -f wav - 2>/dev/null | pw-play --volume="{{volume}}" -
