@@ -170,6 +170,7 @@
                 if (res) {
                     const [{ videoId, title, author }, source] = res;
                     player.loadVideoById(videoId);
+                    setTimeout(updateVolume, 500); // just in case make it fix itself idk
                     currentTitle.textContent = title + " - " + author;
                     if (source) {
                         currentTitle.textContent +=
