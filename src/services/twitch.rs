@@ -20,6 +20,8 @@ pub trait TwitchService: Service {
 
     async fn get_user_id(&self, login: &str) -> Result<Option<String>>;
 
+    async fn get_display_name(&self, user_id: &str) -> Result<Option<String>>;
+
     async fn set_stream_title(&self, title: &str) -> Result<()>;
 
     async fn shout_out(&self, user_id: &str) -> Result<()>;
@@ -59,6 +61,26 @@ impl TwitchService for TwitchServiceImpl {
             .await
         {
             Ok(user) => Ok(user.map(|u| u.id.take())),
+            Err(e) => match e.downcast_ref::<ClientRequestError<reqwest::Error>>() {
+                Some(ClientRequestError::HelixRequestGetError(HelixRequestGetError::Error {
+                    message,
+                    ..
+                })) => {
+                    tracing::warn!(message, "twitch returned error");
+                    Ok(None)
+                }
+                _ => Err(e),
+            },
+        }
+    }
+
+    async fn get_display_name(&self, user_id: &str) -> Result<Option<String>> {
+        match self
+            .0
+            .call(async |t| t.helix.get_user_from_id(user_id, &t.token).await)
+            .await
+        {
+            Ok(user) => Ok(user.map(|u| u.display_name.take())),
             Err(e) => match e.downcast_ref::<ClientRequestError<reqwest::Error>>() {
                 Some(ClientRequestError::HelixRequestGetError(HelixRequestGetError::Error {
                     message,
@@ -129,7 +151,10 @@ mod tests {
         let service = TwitchServiceImpl::new(twitch);
 
         let user_id = service.get_user_id("lasiace").await?;
-        println!("{user_id:?}");
+        let name = service
+            .get_display_name(user_id.as_deref().unwrap())
+            .await?;
+        println!("{user_id:?} = {name:?}");
 
         Ok(())
     }

@@ -1,20 +1,27 @@
-use maud::{Markup, html};
+use std::{iter, time::Duration};
+
+use maud::{DOCTYPE, Markup, html};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tokio::task::JoinHandle;
 
 use crate::{
     commands::{
         CommandResult,
         args::{Chatter, RestOfArgs},
         command,
+        runner::CommandError,
     },
     context::{app::AppContext, cmd::CommandContext},
     fail,
+    integration::justfile::just,
     services::{
         bets::{Bet, BetsServiceExt},
+        caches::CacheServiceExt,
         charges::{Charges, ChargesServiceExt},
         status_wall::{EntryKey, StatusServiceExt},
         storage::StorageServiceExt,
+        twitch::TwitchServiceExt,
     },
 };
 
@@ -368,10 +375,10 @@ async fn rollback(ctx: CommandContext) -> CommandResult {
     };
 
     let charges = ctx.charges();
-    for (user_id, amount) in wins {
+    for (user_id, _, payout) in wins {
         // add negative instead of consume to put people into negatives
         // if they managed to immediately spend the win
-        charges.add(&user_id, -amount).await?;
+        charges.add(&user_id, -payout).await?;
     }
 
     storage.save("bet:current", &bet).await?;
@@ -387,7 +394,30 @@ async fn rollback(ctx: CommandContext) -> CommandResult {
 struct LastBet {
     bet: BetSetup,
     result: String,
-    wins: Vec<(String, Charges)>,
+    wins: Vec<(String, Charges, Charges)>,
+}
+
+fn get_name_task(ctx: &CommandContext, user_id: &str) -> JoinHandle<Result<String, CommandError>> {
+    let ctx = ctx.clone();
+    let user_id = user_id.to_owned();
+    tokio::spawn(async move {
+        Ok(ctx
+            .caches()
+            .get_cached(
+                "twitch-name",
+                Duration::from_secs(24 * 60 * 60),
+                &user_id,
+                async || {
+                    anyhow::Ok(
+                        ctx.twitch()
+                            .get_display_name(&user_id)
+                            .await?
+                            .unwrap_or_else(|| format!("unknown twitch user {user_id}")),
+                    )
+                },
+            )
+            .await?)
+    })
 }
 
 /// Settle the current bet, paying out the users who bet on the given option.
@@ -408,32 +438,34 @@ async fn settle(ctx: CommandContext, option: String) -> CommandResult {
     let bets = ctx.bets().finalize("current").await?;
 
     let mut wins = Vec::new();
+    let mut losers = Vec::new();
 
     let mut total_pool = 0;
     let mut winner_pool = 0;
-    let mut losers = 0;
+
     for (user_id, bet) in bets {
         total_pool += bet.amount.as_u64();
         if bet.option.eq_ignore_ascii_case(&option) {
             winner_pool += bet.amount.as_u64();
-            wins.push((user_id, bet.amount));
+            wins.push((user_id, bet.amount, Charges::ZERO));
         } else {
-            losers += 1;
+            losers.push((user_id, -bet.amount));
         }
     }
 
     // huh
     if winner_pool != 0 {
-        for (_, amount) in &mut wins {
-            *amount = (amount.as_u64() * total_pool / winner_pool)
-                .max(1000)
-                .into();
+        for (_, bet, payout) in &mut wins {
+            *payout = (bet.as_u64() * total_pool / winner_pool).max(1000).into();
         }
     } else {
-        for (_, amount) in &mut wins {
-            *amount = Charges::ONE;
+        for (_, _, payout) in &mut wins {
+            *payout = Charges::ONE;
         }
     }
+
+    wins.sort_by_key(|(_, bet, payout)| (*bet - *payout).as_i64());
+    losers.sort_by_key(|(_, loss)| loss.as_i64());
 
     let last_bet = LastBet {
         bet,
@@ -442,8 +474,8 @@ async fn settle(ctx: CommandContext, option: String) -> CommandResult {
     };
 
     let charges = ctx.charges();
-    for (user_id, amount) in &last_bet.wins {
-        charges.add(user_id, *amount).await?;
+    for (user_id, _, payout) in &last_bet.wins {
+        charges.add(user_id, *payout).await?;
     }
 
     ctx.status().remove(last_bet.bet.status_key).await;
@@ -452,10 +484,89 @@ async fn settle(ctx: CommandContext, option: String) -> CommandResult {
     storage.save("last-bet", &last_bet).await?;
     storage.del("bet:current").await?;
 
+    let zipped = last_bet
+        .wins
+        .iter()
+        .map(|(uid, bet, payout)| Some((get_name_task(&ctx, uid), *bet, (*payout - *bet))))
+        .chain(iter::repeat_with(|| None))
+        .zip(
+            losers
+                .iter()
+                .map(|(uid, loss)| Some((get_name_task(&ctx, uid), *loss)))
+                .chain(iter::repeat_with(|| None)),
+        )
+        .take_while(|(a, b)| a.is_some() || b.is_some());
+
+    let html = html! {
+        (DOCTYPE)
+        html lang="en" style="background: #1d1f21; color: #c9cacc; height: 100%;" {
+            head {
+                meta charset="utf-8";
+                meta name="viewport" content="width=device-width, initial-scale=1.0";
+                title { "Last Bet" }
+                style { "
+                    td {
+                      padding: 0 2.5rem;
+                    }
+                    * {
+                      font-family: 'JetBrains Mono',mono;
+                      font-size: 1.75rem;
+                      white-space: nowrap;
+                    }
+                " }
+            }
+            body style="height: 100%; margin:0; display: flex" {
+                div style="margin: auto" {
+                    div style="padding-bottom: 3rem" { "Bet result for: " (last_bet.bet.premise) }
+                    table {
+                        tr {
+                            th style="color: aquamarine" { "Winners" }
+                            th style="color: brown" { "Losers" }
+                        }
+                        @for (winner, loser) in zipped {
+                            tr {
+                                @if let Some((name_task, amount, win)) = winner {
+                                    td {
+                                        (name_task.await.unwrap()?) ": "
+
+                                        @if win.is_zero() {
+                                            span style="color: orange" { "+" (win) }
+                                        } @else {
+                                            "+" (win)
+                                        }
+
+                                        " (bet " (amount) ")"
+                                    }
+                                } @else {
+                                    td {}
+                                }
+                                @if let Some((name_task, amount)) = loser {
+                                    td {
+                                        (name_task.await.unwrap()?) ": "
+                                        @if amount.is_zero() {
+                                            span style="color: green" { (amount) }
+                                        } @else {
+                                            (amount)
+                                        }
+                                    }
+                                } @else {
+                                    td {}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    };
+    just("upload-large-reply", &[&html.0, "last-bet"])?
+        .check()
+        .await?;
+
     ctx.send(format!(
-        "[!!!] Bet settled! ↑{}/{}↓ (total pool {})",
+        "[!!!] Bet settled! ↑{}/{}↓ (total pool {}) | uq.rs/last-bet",
         last_bet.wins.len(),
-        losers,
+        losers.len(),
         Charges::from(total_pool),
     ))
     .await?;

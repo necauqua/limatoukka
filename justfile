@@ -13,9 +13,11 @@ is-game-running:
     done
     exit 1
 
-upload-large-reply msg:
-    echo {{quote(msg)}} > /tmp/last-reply.html
-    rsync -e 'ssh -o IdentitiesOnly=yes -i ~/.ssh/main-deployer' /tmp/last-reply.html main-deployer@necauq.ua:.
+upload-large-reply msg name:
+    echo {{quote(msg)}} > /tmp/limatoukka-large-reply.html
+    rsync -e 'ssh -o IdentitiesOnly=yes -i ~/.ssh/main-deployer' \
+        /tmp/limatoukka-large-reply.html \
+        'main-deployer@necauq.ua:limatoukka/{{name}}.html'
 
 aws-tts text:
     echo {{quote(text)}} > /tmp/last-tts.txt

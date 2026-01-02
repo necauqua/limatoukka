@@ -1,4 +1,9 @@
-use std::{borrow::Cow, fmt::Display, ops::Neg, str::FromStr};
+use std::{
+    borrow::Cow,
+    fmt::Display,
+    ops::{Add, Neg, Sub},
+    str::FromStr,
+};
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -21,6 +26,7 @@ use crate::{
 pub struct Charges(i64);
 
 impl Charges {
+    pub const ZERO: Self = Self::whole(0);
     pub const ONE: Self = Self::whole(1);
 
     pub const fn is_zero(&self) -> bool {
@@ -49,6 +55,22 @@ impl Neg for Charges {
 
     fn neg(self) -> Self::Output {
         Self(-self.0)
+    }
+}
+
+impl Add for Charges {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self(self.0 + rhs.0)
+    }
+}
+
+impl Sub for Charges {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self(self.0 - rhs.0)
     }
 }
 

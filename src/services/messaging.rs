@@ -259,7 +259,10 @@ impl MessagingService for MessagingServiceTwitch {
                 }
             }
         };
-        just("upload-large-reply", &[&html.0])?.check().await?;
+        just("upload-large-reply", &[&html.0, "last-reply"])?
+            .check()
+            .await?;
+
         self.client
             .say_in_reply_to(
                 &(&message.source_channel, &message.id),
