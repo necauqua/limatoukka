@@ -172,11 +172,15 @@ async fn hello(ctx: CommandContext) -> CommandResult {
     if !ctx.twitch().is_live().await? {
         fail!("stream is offline lmao")
     }
-    ctx.reply(match ctx.sender() {
-        "39063397" => "Lasiacchi".into(),
-        _ => "hiii".into(),
-    })
-    .await?;
+    // separate gate for the actual reply so that unleash-me~ hello~ repeated does not spam like crazy
+    let key = format!("hello:reply:{}", ctx.sender());
+    if ctx.gate(&key, Duration::from_secs(60 * 60 * 12)).await? {
+        ctx.reply(match ctx.sender() {
+            "39063397" => "Lasiacchi".into(),
+            _ => "hiii".into(),
+        })
+        .await?;
+    }
     if let Some(bot) = ctx.bot_id() {
         ctx.charges().add(bot, Charges::from(200)).await?;
     }
