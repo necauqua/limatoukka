@@ -123,7 +123,7 @@ async fn ping(ctx: CommandContext) -> CommandResult {
         }
     }
 
-    if !ctx.twitch().is_live().await? {
+    if !ctx.storage().has("stream-online").await? {
         fail!("stream is offline lmao")
     }
 
