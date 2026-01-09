@@ -36,7 +36,11 @@ use tokio::{task::JoinSet, time::sleep};
 
 use tracing::{Instrument, instrument};
 use twitch_api::{
-    eventsub::{Event, Message, Payload},
+    eventsub::{
+        Event, Message, Payload,
+        channel::*,
+        stream::{StreamOfflineV1, StreamOnlineV1},
+    },
     types::SubscriptionTier,
 };
 
@@ -49,7 +53,21 @@ async fn run() -> Result<()> {
 
     let twitch_api = TwitchApi::new(&config).await?;
 
-    let eventsub = EventSub::new(twitch_api.clone());
+    let mut eventsub = EventSub::new(twitch_api.clone());
+
+    let id = twitch_api.caster_id();
+    eventsub.listen_to(ChannelAdBreakBeginV1::broadcaster_user_id(id));
+    eventsub.listen_to(ChannelPointsCustomRewardRedemptionAddV1::broadcaster_user_id(id));
+    eventsub.listen_to(ChannelSubscribeV1::broadcaster_user_id(id));
+    eventsub.listen_to(ChannelSubscriptionGiftV1::broadcaster_user_id(id));
+    eventsub.listen_to(ChannelSubscriptionMessageV1::broadcaster_user_id(id));
+    eventsub.listen_to(ChannelCheerV1::broadcaster_user_id(id));
+    eventsub.listen_to(ChannelRaidV1::to_broadcaster_user_id(id));
+    eventsub.listen_to(ChannelHypeTrainBeginV1::broadcaster_user_id(id));
+    eventsub.listen_to(ChannelHypeTrainEndV1::broadcaster_user_id(id));
+    eventsub.listen_to(StreamOnlineV1::broadcaster_user_id(id));
+    eventsub.listen_to(StreamOfflineV1::broadcaster_user_id(id));
+
     let (mut incoming, messaging) = messaging::connect_to_twitch(twitch_api.clone());
 
     let mut eventsub_rx = eventsub.subscribe();

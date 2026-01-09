@@ -17,13 +17,22 @@ use tokio_tungstenite::{
 };
 use twitch_api::{
     TWITCH_EVENTSUB_WEBSOCKET_URL,
-    eventsub::{self, Event, EventsubWebsocketData, ReconnectPayload, SessionData, WelcomePayload},
+    eventsub::{
+        self, Event, EventSubscription, EventsubWebsocketData, ReconnectPayload, SessionData,
+        WelcomePayload,
+    },
     twitch_oauth2::url::Url,
 };
 
 use crate::{
     context::app::AppContext, integration::twitch_api::TwitchApi, services::caches::CacheServiceExt,
 };
+
+macro_rules! AsyncBox {
+    ($($t:tt)*) => {
+        Pin<Box<dyn $($t)* + Send>>
+    };
+}
 
 pub struct EventSub {
     twitch: TwitchApi,
@@ -32,6 +41,10 @@ pub struct EventSub {
     on_subscribed: Arc<Notify>,
     keepalive_timeout: Duration,
     canary: Pin<Box<Sleep>>,
+
+    #[allow(clippy::type_complexity)]
+    subscriptions:
+        Vec<AsyncBox![Fn(TwitchApi, eventsub::Transport) -> AsyncBox![Future<Output = ()>]]>,
 }
 
 impl EventSub {
@@ -43,7 +56,38 @@ impl EventSub {
             on_subscribed: Default::default(),
             keepalive_timeout: Duration::from_secs(10),
             canary: Box::pin(tokio::time::sleep(Duration::from_secs(15))),
+            subscriptions: Vec::new(),
         }
+    }
+
+    pub fn listen_to<E>(&mut self, subscription: E)
+    where
+        E: EventSubscription + Clone + Send + Sync + 'static,
+    {
+        self.subscriptions.push(Box::pin(
+            move |twitch: TwitchApi, transport: eventsub::Transport| {
+                let subscription = subscription.clone();
+                Box::pin(async move {
+                    let res = twitch
+                        .caster_call(|t| {
+                            let subscription = subscription.clone();
+                            let transport = transport.clone();
+                            async move {
+                                t.helix
+                                    .create_eventsub_subscription(subscription, transport, &t.token)
+                                    .await
+                            }
+                        })
+                        .await;
+                    match res {
+                        Ok(_) => tracing::info!("subscribed to {}", E::EVENT_TYPE),
+                        Err(e) => {
+                            tracing::error!(error=?e, "failed to subscribe to {}", E::EVENT_TYPE)
+                        }
+                    }
+                })
+            },
+        ));
     }
 
     async fn process_welcome_message(&mut self, data: SessionData<'_>) -> Result<()> {
@@ -64,55 +108,9 @@ impl EventSub {
         let transport = eventsub::Transport::websocket(data.id.clone());
 
         let mut join_set = JoinSet::new();
-
-        macro_rules! subscribe {
-            ($group:ident::$event:ident $method:ident) => {
-                let twitch = self.twitch.clone();
-                join_set.spawn({
-                    let transport = transport.clone();
-                    async move {
-                        let res = twitch.caster_call(|t| {
-                            let transport = transport.clone();
-                            async move {
-                                t.helix.create_eventsub_subscription(
-                                    eventsub::$group::$event::$method(t.caster_id),
-                                    transport,
-                                    &t.token,
-                                ).await
-                            }
-                        })
-                        .await;
-                        match res {
-                            Ok(_) => tracing::info!("subscribed to {}", stringify!($event)),
-                            Err(e) => tracing::error!(error=?e, "failed to subscribe to {}", stringify!($event)),
-                        }
-                    }
-                });
-            };
-            ($group:ident::$event:ident) => {
-                subscribe!($group::$event broadcaster_user_id);
-            };
-            ($($group:ident::$event:ident $($method:ident)?),* $(,)?) => {
-                $(
-                    subscribe!($group::$event $($method)?);
-                )*
-            };
+        for sub in &mut self.subscriptions {
+            join_set.spawn(sub(self.twitch.clone(), transport.clone()));
         }
-
-        subscribe![
-            channel::ChannelAdBreakBeginV1,
-            channel::ChannelPointsCustomRewardRedemptionAddV1,
-            channel::ChannelSubscribeV1,
-            channel::ChannelSubscriptionGiftV1,
-            channel::ChannelSubscriptionMessageV1,
-            channel::ChannelCheerV1,
-            channel::ChannelRaidV1 to_broadcaster_user_id,
-            channel::ChannelHypeTrainBeginV1,
-            channel::ChannelHypeTrainEndV1,
-            stream::StreamOnlineV1,
-            stream::StreamOfflineV1,
-        ];
-
         join_set.join_all().await;
 
         self.on_subscribed.notify_waiters();
