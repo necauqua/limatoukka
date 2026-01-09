@@ -162,7 +162,7 @@ async fn skip(ctx: CommandContext) -> CommandResult {
 }
 
 /// A "back" button, undoes skips or otherwise goes back to the previous song.
-#[command(global_gate = 15s, cost = 1.1, free_for = Vip)]
+#[command(global_gate = 15s, cost = 2, free_for = Vip)]
 async fn unskip(ctx: CommandContext) -> CommandResult {
     if ctx.music().unskip().await? {
         ctx.reply("unskipped 😌".into()).await?
