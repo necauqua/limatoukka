@@ -19,7 +19,7 @@ use crate::{
         bets::{Bet, BetsServiceExt},
         caches::CacheServiceExt,
         charges::{Charges, ChargesServiceExt},
-        status_wall::{EntryKey, StatusServiceExt},
+        display::DisplayServiceExt,
         storage::StorageServiceExt,
         twitch::TwitchServiceExt,
     },
@@ -30,7 +30,6 @@ struct BetSetup {
     premise: String,
     options: Vec<String>,
     closed: bool,
-    status_key: EntryKey,
     auto: bool,
 }
 
@@ -67,14 +66,10 @@ async fn mkbet(
         _ => options.into_iter().map(|s| s.unwrap_or_default()).collect(),
     };
 
-    let wall = ctx.status();
-    let status_key = wall.new_key();
-
     let bet = BetSetup {
         premise,
         options,
         closed: false,
-        status_key,
         auto: auto_close.unwrap_or_default(),
     };
 
@@ -82,7 +77,7 @@ async fn mkbet(
     ctx.send(format!("[!!!] New bet started: {}", bet.premise))
         .await?;
 
-    wall.set_and_bump(status_key, render_status(0, &bet.premise).into());
+    ctx.display().set("bets", render_status(0, &bet.premise));
 
     Ok(())
 }
@@ -115,7 +110,7 @@ pub async fn close_bet(ctx: &AppContext, auto: bool) -> Result<(), BetCloseError
     bet.closed = true;
     storage.save("bet:current", &bet).await?;
 
-    ctx.status().remove(bet.status_key);
+    ctx.display().set("bets", html! {});
 
     Ok(())
 }
@@ -152,8 +147,9 @@ async fn reopen(ctx: CommandContext) -> CommandResult {
     ctx.send("[!!!] Bet was reopened".into()).await?;
 
     let total = ctx.bets().count("current").await?.unwrap_or_default();
-    ctx.status()
-        .set_and_bump(bet.status_key, render_status(total, &bet.premise).into());
+
+    ctx.display()
+        .set("bets", render_status(total, &bet.premise));
 
     Ok(())
 }
@@ -232,8 +228,8 @@ async fn bet(ctx: CommandContext, option: String, wager: Option<Charges>) -> Com
     })
     .await?;
 
-    ctx.status()
-        .set_and_bump(bet.status_key, render_status(total, &bet.premise).into());
+    ctx.display()
+        .set("bets", render_status(total, &bet.premise));
 
     Ok(())
 }
@@ -298,8 +294,8 @@ async fn unbet(ctx: CommandContext) -> CommandResult {
         }
     };
 
-    ctx.status()
-        .set_and_bump(bet.status_key, render_status(total, &bet.premise).into());
+    ctx.display()
+        .set("bets", render_status(total, &bet.premise));
 
     Ok(())
 }
@@ -339,7 +335,7 @@ pub async fn do_cancel_bet(ctx: &AppContext, auto: bool) -> Result<(), BetCancel
 
     storage.del("bet:current").await?;
 
-    ctx.status().remove(bet.status_key);
+    ctx.display().set("bets", html! {});
 
     Ok(())
 }
@@ -474,7 +470,7 @@ async fn settle(ctx: CommandContext, option: String) -> CommandResult {
         charges.add(user_id, *payout).await?;
     }
 
-    ctx.status().remove(last_bet.bet.status_key);
+    ctx.display().set("bets", html! {});
 
     // for rollbacks
     storage.save("last-bet", &last_bet).await?;
