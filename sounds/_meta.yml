@@ -138,7 +138,7 @@ buhee:
 
 mission-failed:
   file: mission-failed.ogg
-  volume: 0.1
+  volume: 0.05
   exclusive: true
   sender-gate: 10m
 
@@ -223,6 +223,24 @@ sync:
   volume: 0.1
   exclusive: true
   sender-gate: 1m
+
+slap:
+  variants:
+    - file: soft-slap.ogg
+      volume: 0.2
+    - file: hard-slap.ogg
+      volume: 0.2
+      rarity: 0.05
+
+nothing-happens:
+  file: nothing-happens.ogg
+  volume: 0.05
+  sender-gate: 5m
+
+akuu:
+  file: akuu.ogg
+  volume: 0.1
+  sender-gate: 5m
 
 PING:
   variants:
