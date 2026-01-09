@@ -296,7 +296,7 @@ async fn repeat(ctx: CommandContext, times: InRange<0, 1000>, script: RawScript)
     let times = times.get();
 
     let wall = ctx.status();
-    let entry = wall.allocate().await;
+    let entry = wall.allocate();
 
     for i in (1..=times).rev() {
         if ctx.inc_repeats() > REPEAT_LIMIT {
@@ -304,7 +304,7 @@ async fn repeat(ctx: CommandContext, times: InRange<0, 1000>, script: RawScript)
         }
         entry.set(html! {
             span style="color: #E38AF0" { (ctx.message().sender.name) } ": repeat:" (i) " " (ctx.nesting_str())
-        }.0).await;
+        }.0);
 
         ctx.runner()
             .eval(
@@ -392,7 +392,7 @@ async fn r#try(ctx: CommandContext, script: Script, catch: Option<Script>) -> Co
 /// ```
 #[command(permission=Subscriber, NoWall)]
 async fn r#loop(ctx: CommandContext, script: RawScript) -> CommandResult {
-    let status = ctx.status().allocate().await;
+    let status = ctx.status().allocate();
 
     let mut i = 0;
     loop {
@@ -400,7 +400,7 @@ async fn r#loop(ctx: CommandContext, script: RawScript) -> CommandResult {
         ctx.reset_repeats();
         status.set(html! {
             span style="color: #E38AF0" { (ctx.message().sender.name) } ": loop:" (i) " " (ctx.nesting_str())
-        }.0).await;
+        }.0);
         let start = Instant::now();
 
         ctx.runner()

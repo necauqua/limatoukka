@@ -82,8 +82,7 @@ async fn mkbet(
     ctx.send(format!("[!!!] New bet started: {}", bet.premise))
         .await?;
 
-    wall.set_and_bump(status_key, render_status(0, &bet.premise).into())
-        .await;
+    wall.set_and_bump(status_key, render_status(0, &bet.premise).into());
 
     Ok(())
 }
@@ -116,7 +115,7 @@ pub async fn close_bet(ctx: &AppContext, auto: bool) -> Result<(), BetCloseError
     bet.closed = true;
     storage.save("bet:current", &bet).await?;
 
-    ctx.status().remove(bet.status_key).await;
+    ctx.status().remove(bet.status_key);
 
     Ok(())
 }
@@ -154,8 +153,7 @@ async fn reopen(ctx: CommandContext) -> CommandResult {
 
     let total = ctx.bets().count("current").await?.unwrap_or_default();
     ctx.status()
-        .set_and_bump(bet.status_key, render_status(total, &bet.premise).into())
-        .await;
+        .set_and_bump(bet.status_key, render_status(total, &bet.premise).into());
 
     Ok(())
 }
@@ -235,8 +233,7 @@ async fn bet(ctx: CommandContext, option: String, wager: Option<Charges>) -> Com
     .await?;
 
     ctx.status()
-        .set_and_bump(bet.status_key, render_status(total, &bet.premise).into())
-        .await;
+        .set_and_bump(bet.status_key, render_status(total, &bet.premise).into());
 
     Ok(())
 }
@@ -302,8 +299,7 @@ async fn unbet(ctx: CommandContext) -> CommandResult {
     };
 
     ctx.status()
-        .set_and_bump(bet.status_key, render_status(total, &bet.premise).into())
-        .await;
+        .set_and_bump(bet.status_key, render_status(total, &bet.premise).into());
 
     Ok(())
 }
@@ -343,7 +339,7 @@ pub async fn do_cancel_bet(ctx: &AppContext, auto: bool) -> Result<(), BetCancel
 
     storage.del("bet:current").await?;
 
-    ctx.status().remove(bet.status_key).await;
+    ctx.status().remove(bet.status_key);
 
     Ok(())
 }
@@ -478,7 +474,7 @@ async fn settle(ctx: CommandContext, option: String) -> CommandResult {
         charges.add(user_id, *payout).await?;
     }
 
-    ctx.status().remove(last_bet.bet.status_key).await;
+    ctx.status().remove(last_bet.bet.status_key);
 
     // for rollbacks
     storage.save("last-bet", &last_bet).await?;

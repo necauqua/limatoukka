@@ -86,7 +86,7 @@ async fn wait(ctx: CommandContext, duration: HoldTime<500, 300_000>) -> CommandR
     );
 
     let wall = ctx.status();
-    let entry = wall.allocate().await;
+    let entry = wall.allocate();
     let inner_ctx = ctx.clone();
     let wall_task = tokio::spawn(async move {
         let name = &inner_ctx.message().sender.name;
@@ -95,7 +95,7 @@ async fn wait(ctx: CommandContext, duration: HoldTime<500, 300_000>) -> CommandR
             let status = html! {
                 span style="color: #E38AF0" { (name) } ": wait:" (i) "s " (nesting)
             };
-            entry.set(status.into()).await;
+            entry.set(status.into());
             sleep(Duration::from_secs(1)).await;
         }
     });

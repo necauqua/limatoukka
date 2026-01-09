@@ -11,6 +11,7 @@ pub mod bets;
 pub mod caches;
 pub mod charges;
 pub mod chat_log;
+pub mod display;
 pub mod gates;
 pub mod ipc;
 pub mod messaging;

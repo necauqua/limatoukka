@@ -17,6 +17,7 @@ use limatoukka::{
         caches::{CacheService, CacheServiceExt, CacheServiceValkey},
         charges::{Charges, ChargesService, ChargesServiceExt, ChargesServiceValkey},
         chat_log::{ChatLogService, ChatLogServiceElastic},
+        display::{DisplayServer, DisplayService, DisplayServiceWrap},
         gates::{GateService, GateServiceValkey},
         ipc::{IpcService, IpcServiceExt, IpcServiceValkey},
         messaging::{self, MessagingService},
@@ -73,7 +74,7 @@ async fn run() -> Result<()> {
     let mut eventsub_rx = eventsub.subscribe();
     let eventsub_init = eventsub.wait_for_full_init();
 
-    let status_wall = Arc::new(StatusWall::default());
+    let display_server = Arc::new(DisplayServer::default());
     let noita_handle = Arc::new(NoitaHandle::default());
 
     let music_player = Arc::new(
@@ -108,7 +109,8 @@ async fn run() -> Result<()> {
         )?))
         .with::<dyn SoundService>(Arc::new(SoundServiceImpl::default()))
         .with::<dyn TtsService>(Arc::new(TtsServiceImpl::default()))
-        .with::<dyn StatusService>(status_wall.clone())
+        .with::<dyn StatusService>(Arc::new(StatusWall::new(display_server.wrap("status"))))
+        .with::<dyn DisplayService>(display_server.clone())
         .with::<dyn NoitaService>(noita_handle.clone())
         .with::<dyn MusicService>(music_player.clone());
 
@@ -124,7 +126,7 @@ async fn run() -> Result<()> {
     let runner = Runner::new(discover_declared_commands(), &ctx);
 
     tokio::spawn(eventsub.run(ctx.clone()));
-    tokio::spawn(status_wall.start(&config.browser_source_bind));
+    tokio::spawn(display_server.start(&config.browser_source_bind));
     tokio::spawn(music_player.start(&config.music_player_bind));
 
     let mut noita_events = noita_handle.subscribe();

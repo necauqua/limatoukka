@@ -179,7 +179,7 @@ impl YouTubeMusicPlayer {
         Ok(())
     }
 
-    pub fn start(self: Arc<Self>, bind_addr: &str) -> impl Future<Output = Result<()>> + use<> {
+    pub fn start(self: &Arc<Self>, bind_addr: &str) -> impl Future<Output = Result<()>> + use<> {
         let app = Router::new()
             .route("/", get(Html(include_str!("./music-player.html"))))
             .route(
@@ -246,7 +246,7 @@ impl YouTubeMusicPlayer {
                     },
                 ),
             )
-            .with_state(self);
+            .with_state(self.clone());
 
         let bind_addr = bind_addr.to_owned(); // meh
         async move {
