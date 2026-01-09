@@ -132,7 +132,11 @@ impl LoginCredentials for TwitchApi {
             tracing::info!("(irc) token close to expiration, refreshing");
             token
                 .refresh_token(self.inner.client.helix.get_client())
-                .await?;
+                .await
+                .map_err(|e| {
+                    tracing::error!(error=?e, "(irc) failed to refresh token");
+                    e
+                })?;
             token.clone()
         } else {
             token
