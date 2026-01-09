@@ -1,6 +1,7 @@
 use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
+use tokio::sync::Mutex;
 
 use crate::{
     commands::{
@@ -100,8 +101,12 @@ struct LastPinger {
 /// Ping fails if you were the last person to do it!
 ///
 /// There is also some magical property to this command..
-#[command(cost = -1, sender_gate = 100ms)]
+#[command(cost = -1, sender_gate = 10s)]
 async fn ping(ctx: CommandContext) -> CommandResult {
+    static GIL: Mutex<()> = Mutex::const_new(()); // lmao
+
+    let _guard = GIL.lock().await;
+
     let storage = ctx.storage();
 
     let prev: Option<LastPinger> = storage.load("last-pinger").await?;
