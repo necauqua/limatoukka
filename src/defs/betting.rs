@@ -456,7 +456,7 @@ async fn settle(ctx: CommandContext, option: String) -> CommandResult {
     // huh
     if winner_pool != 0 {
         for (_, bet, payout) in &mut wins {
-            *payout = (bet.as_u64() * total_pool / winner_pool).max(1000).into();
+            *payout = (bet.as_u64() * total_pool / winner_pool + 1000).into();
         }
     } else {
         for (_, _, payout) in &mut wins {
