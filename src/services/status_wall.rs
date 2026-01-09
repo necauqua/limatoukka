@@ -35,7 +35,7 @@ pub trait StatusService: Service {
     async fn remove(&self, key: EntryKey) -> Option<String>;
 }
 
-injector_getter!(StatusService::status);
+injector_getter!(StatusService::status { MockStatusWall::default() });
 
 pub struct EntryGuard {
     key: EntryKey,
@@ -198,14 +198,12 @@ impl StatusService for StatusWall {
 }
 
 #[derive(Default)]
-pub struct TestStatusWall {
-    counter: AtomicUsize,
-}
+pub struct MockStatusWall(AtomicUsize);
 
 #[async_trait]
-impl StatusService for TestStatusWall {
+impl StatusService for MockStatusWall {
     fn new_key(&self) -> EntryKey {
-        EntryKey(self.counter.fetch_add(1, Ordering::Relaxed))
+        EntryKey(self.0.fetch_add(1, Ordering::Relaxed))
     }
 
     async fn set(&self, key: EntryKey, text: String) -> Option<String> {

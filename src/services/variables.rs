@@ -74,7 +74,9 @@ pub trait VariableStorage: Service {
     async fn clear(&self, tpe: VarType, scope: VarScope<'_>) -> Result<()>;
 }
 
-injector_getter!(VariableStorage::vars);
+injector_getter!(VariableStorage::vars {
+    VariableStorageMock
+});
 
 pub struct VariableStorageValkey {
     client: ValkeyClient,

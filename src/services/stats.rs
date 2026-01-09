@@ -33,7 +33,7 @@ pub trait StatsService: Service {
     async fn total_count(&self, event: &str, data: &[(&str, &str)]) -> Result<u64>;
 }
 
-injector_getter!(StatsService::stats);
+injector_getter!(StatsService::stats { StatsServiceNoop });
 
 pub struct StatsServiceElastic {
     client: Elasticsearch,

@@ -31,7 +31,7 @@ pub trait BanishService: Service {
     async fn status(&self, user_id: &str) -> Result<BanishStatus>;
 }
 
-injector_getter!(BanishService::banishes);
+injector_getter!(BanishService::banishes { BanishServiceNoop });
 
 pub struct BanishServiceValkey {
     client: ValkeyClient,

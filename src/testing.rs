@@ -1,33 +1,6 @@
-use std::sync::{
-    Arc,
-    atomic::{AtomicU32, Ordering},
-};
+use std::sync::atomic::{AtomicU32, Ordering};
 
-use crate::{
-    context::app::AppContext,
-    services::{
-        Injector,
-        banishes::{BanishService, BanishServiceNoop},
-        gates::{GateService, GateServiceNoop},
-        messaging::{Message, PermissionLevel, Sender},
-        stats::{StatsService, StatsServiceNoop},
-        status_wall::{StatusService, TestStatusWall},
-        storage::{InMemoryStorageService, StorageService},
-        variables::{VariableStorage, VariableStorageMock},
-    },
-};
-
-pub fn mock_context() -> AppContext {
-    AppContext::new(
-        Injector::new()
-            .with::<dyn StorageService>(Arc::new(InMemoryStorageService::default()))
-            .with::<dyn VariableStorage>(Arc::new(VariableStorageMock))
-            .with::<dyn GateService>(Arc::new(GateServiceNoop))
-            .with::<dyn BanishService>(Arc::new(BanishServiceNoop))
-            .with::<dyn StatusService>(Arc::new(TestStatusWall::default()))
-            .with::<dyn StatsService>(Arc::new(StatsServiceNoop)),
-    )
-}
+use crate::services::messaging::{Message, PermissionLevel, Sender};
 
 pub trait MessageExt {
     fn permission(self, level: PermissionLevel) -> Self;

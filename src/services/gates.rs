@@ -22,7 +22,7 @@ pub trait GateService: Service {
     async fn ungate_all(&self, user: &str) -> Result<()>;
 }
 
-injector_getter!(GateService::gates);
+injector_getter!(GateService::gates { GateServiceNoop });
 
 impl dyn GateService {
     pub async fn command_gates(

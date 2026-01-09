@@ -366,7 +366,9 @@ mod tests {
 
     use crate::{
         commands::{discover_declared_commands, runner::Runner},
+        context::app::AppContext,
         logging,
+        services::Injector,
         testing::{self, MessageExt},
     };
 
@@ -416,7 +418,7 @@ mod tests {
     #[tokio::test]
     async fn song_request_extra_param() -> Result<()> {
         let _guard = logging::init();
-        let ctx = testing::mock_context();
+        let ctx = AppContext::new(Injector::new());
         let runner = Runner::new(discover_declared_commands(), &ctx);
 
         runner

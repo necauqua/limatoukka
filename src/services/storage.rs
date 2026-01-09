@@ -18,7 +18,7 @@ pub trait StorageService: Service {
     async fn del(&self, key: &str) -> Result<bool>;
 }
 
-injector_getter!(StorageService::storage);
+injector_getter!(StorageService::storage { InMemoryStorageService::default() });
 
 impl dyn StorageService {
     pub async fn has(&self, key: &str) -> Result<bool> {

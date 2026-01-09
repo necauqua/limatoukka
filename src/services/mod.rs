@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use dashmap::DashMap;
+use dashmap::{DashMap, mapref::entry::Entry};
 
 pub mod banishes;
 pub mod bets;
@@ -34,6 +34,13 @@ pub trait Service: Any + Send + Sync + 'static {}
 
 impl<T: ?Sized + Send + Sync + 'static> Service for T {}
 
+// without specialisation we cant implement this for <T> T, sadge, have to hack it into that macro
+pub trait ServiceDefault {
+    fn new_default() -> Option<Arc<Self>> {
+        None
+    }
+}
+
 impl Injector {
     pub fn new() -> Self {
         Self::default()
@@ -48,14 +55,19 @@ impl Injector {
         self.services.insert(TypeId::of::<T>(), Box::new(service));
     }
 
-    pub fn service_opt<T: Service + ?Sized>(&self) -> Option<Arc<T>> {
-        self.services
-            .get(&TypeId::of::<T>())
-            .and_then(|s| s.downcast_ref::<Arc<T>>().cloned())
+    pub fn service_opt<T: Service + ?Sized + ServiceDefault>(&self) -> Option<Arc<T>> {
+        match self.services.entry(TypeId::of::<T>()) {
+            Entry::Occupied(o) => Some(o.get().downcast_ref::<Arc<T>>().unwrap().clone()),
+            Entry::Vacant(v) => {
+                let d = T::new_default()?;
+                v.insert(Box::new(d.clone()));
+                Some(d)
+            }
+        }
     }
 
     #[track_caller]
-    pub fn service<T: Service + ?Sized>(&self) -> Arc<T> {
+    pub fn service<T: Service + ?Sized + ServiceDefault>(&self) -> Arc<T> {
         match self.service_opt() {
             Some(s) => s,
             None => panic!(
@@ -69,7 +81,7 @@ impl Injector {
 
 #[macro_export]
 macro_rules! injector_getter {
-    ($service:ident::$name:ident) => {
+    (__ext $service:ident::$name:ident) => {
         paste::paste! {
             pub trait [<$service Ext>] {
                 #[doc = concat!("Get the [`", stringify!($service), "`] service from the injector.")]
@@ -85,6 +97,20 @@ macro_rules! injector_getter {
             }
         }
     };
+    ($service:ident::$name:ident) => {
+        $crate::injector_getter!(__ext $service::$name);
+
+        impl $crate::services::ServiceDefault for dyn $service {}
+    };
+    ($service:ident::$name:ident { $($t:tt)* }) => {
+        $crate::injector_getter!(__ext $service::$name);
+
+        impl $crate::services::ServiceDefault for dyn $service {
+            fn new_default() -> Option<::std::sync::Arc<dyn $service>> {
+                Some(::std::sync::Arc::new({ $($t)* }))
+            }
+        }
+    };
 }
 
 #[cfg(test)]
@@ -93,6 +119,12 @@ mod tests {
 
     trait ServiceA: Send + Sync + Any {
         fn meow(&self) -> &'static str;
+    }
+
+    impl ServiceDefault for dyn ServiceA {
+        fn new_default() -> Option<Arc<dyn ServiceA>> {
+            Some(Arc::new(ServiceAImpl2))
+        }
     }
 
     struct ServiceAImpl1;
@@ -128,6 +160,13 @@ mod tests {
         let mut injector = Injector::default();
 
         injector.add::<dyn ServiceA>(Arc::new(ServiceAImpl2));
+
+        assert_eq!(test_command(&injector), "woof");
+    }
+
+    #[test]
+    fn service_default() {
+        let injector = Injector::default();
 
         assert_eq!(test_command(&injector), "woof");
     }
