@@ -7,7 +7,6 @@ use std::{
 use dashmap::{DashMap, mapref::entry::Entry};
 
 pub mod banishes;
-pub mod bets;
 pub mod caches;
 pub mod charges;
 pub mod chat_log;

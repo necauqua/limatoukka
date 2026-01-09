@@ -86,7 +86,7 @@ impl StatusWall {
                 .fold(String::new(), |acc, (_, entry)| acc + entry + "\n");
             (r, text)
         };
-        self.display.set(html! {
+        self.display.render(html! {
             div style="text-align: right;" {
                 (PreEscaped(&text))
             }

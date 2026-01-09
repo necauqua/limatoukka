@@ -9,7 +9,7 @@ use axum::{
     routing::get,
 };
 use dashmap::{DashMap, mapref::entry::Entry};
-use maud::{Markup, PreEscaped, html};
+use maud::{Markup, PreEscaped, Render, html};
 use tokio::sync::broadcast::Sender;
 
 use crate::{injector_getter, services::Service};
@@ -96,16 +96,29 @@ pub struct DisplayHandle {
 }
 
 impl DisplayHandle {
-    pub fn set(&self, html: Markup) {
-        self.service.set(&self.key, html)
+    pub fn render(&self, html: impl Render) {
+        self.service.set(&self.key, html.render())
     }
 }
 
-pub trait DisplayServiceWrap {
+pub trait DisplayServiceAux {
     fn wrap(&self, key: impl Into<String>) -> DisplayHandle;
+
+    fn render(&self, key: impl Into<String>, html: impl Render) {
+        self.wrap(key).render(html)
+    }
 }
 
-impl<T: DisplayService> DisplayServiceWrap for Arc<T> {
+impl<T: DisplayService> DisplayServiceAux for Arc<T> {
+    fn wrap(&self, key: impl Into<String>) -> DisplayHandle {
+        DisplayHandle {
+            service: self.clone(),
+            key: key.into(),
+        }
+    }
+}
+
+impl DisplayServiceAux for Arc<dyn DisplayService> {
     fn wrap(&self, key: impl Into<String>) -> DisplayHandle {
         DisplayHandle {
             service: self.clone(),

@@ -13,11 +13,10 @@ use limatoukka::{
     services::{
         Injector,
         banishes::{BanishService, BanishServiceValkey},
-        bets::{BetsService, BetsServiceValkey},
         caches::{CacheService, CacheServiceExt, CacheServiceValkey},
         charges::{Charges, ChargesService, ChargesServiceExt, ChargesServiceValkey},
         chat_log::{ChatLogService, ChatLogServiceElastic},
-        display::{DisplayServer, DisplayService, DisplayServiceWrap},
+        display::{DisplayServer, DisplayService, DisplayServiceAux},
         gates::{GateService, GateServiceValkey},
         ipc::{IpcService, IpcServiceExt, IpcServiceValkey},
         messaging::{self, MessagingService},
@@ -95,7 +94,6 @@ async fn run() -> Result<()> {
         .with::<dyn BanishService>(Arc::new(BanishServiceValkey::new(valkey.clone())))
         .with::<dyn ChargesService>(Arc::new(ChargesServiceValkey::new(valkey.clone())))
         .with::<dyn GateService>(Arc::new(GateServiceValkey::new(valkey.clone())))
-        .with::<dyn BetsService>(Arc::new(BetsServiceValkey::new(valkey.clone())))
         .with::<dyn TwitchService>(Arc::new(TwitchServiceImpl::new(twitch_api.clone())))
         .with::<dyn StatsService>(Arc::new(StatsServiceElastic::new(
             &config.stats.url,
