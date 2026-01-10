@@ -11,7 +11,7 @@ use crate::{injector_getter, integration::justfile::just, services::Service};
 
 #[async_trait]
 pub trait SoundService: Service {
-    async fn select(&self, sound_id: &str) -> Result<Option<SoundEntry>>;
+    async fn get_sound_entry(&self, sound_id: &str) -> Result<Option<SoundEntry>>;
 
     async fn play(
         &self,
@@ -27,7 +27,7 @@ injector_getter!(SoundService::sounds);
 impl dyn SoundService {
     pub async fn play_builtin(&self, id: &str) -> Result<()> {
         let sound = self
-            .select(id)
+            .get_sound_entry(id)
             .await?
             .with_context(|| format!("'{id}' sound not found"))?;
         let sound_variant = sound
@@ -58,6 +58,8 @@ pub struct SoundEntry {
     pub cost: Option<u64>,
     #[serde(flatten)]
     pub variants: SoundVariants,
+    #[serde(default)]
+    pub internal: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -102,7 +104,7 @@ impl SoundEntry {
 
 #[async_trait]
 impl SoundService for SoundServiceImpl {
-    async fn select(&self, sound_id: &str) -> Result<Option<SoundEntry>> {
+    async fn get_sound_entry(&self, sound_id: &str) -> Result<Option<SoundEntry>> {
         // just read it every time for runtime editing (like with justfile)
         let mut data: SoundMeta = serde_yml::from_str(
             &std::fs::read_to_string("./sounds/_meta.yml").map_err(|e| anyhow!(e))?,

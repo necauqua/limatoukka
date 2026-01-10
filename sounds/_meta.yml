@@ -243,6 +243,7 @@ akuu:
   sender-gate: 5m
 
 PING:
+  internal: true
   variants:
     - file: AUGH.ogg
       volume: 0.1
@@ -250,16 +251,19 @@ PING:
       volume: 0.1
 
 lasiace-raid:
+  internal: true
   file: lasiace-raid.ogg
   volume: 0.4
   exclusive: true
 
 nutty-raid:
+  internal: true
   file: nutty-raid.ogg
   volume: 0.1
   exclusive: true
 
 RAID:
+  internal: true
   file: pipes.ogg
   volume: 0.25
   exclusive: true

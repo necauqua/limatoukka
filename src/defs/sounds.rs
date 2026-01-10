@@ -51,19 +51,23 @@ async fn play_sound(
 ) -> CommandResult {
     let sound_service = ctx.sounds();
 
-    let Some(s) = sound_service.select(&sound_id).await? else {
+    let Some(s) = sound_service.get_sound_entry(&sound_id).await? else {
         fail!("Sound not found");
     };
 
     let gate_key = format!("play-sound:{}", s.group.as_deref().unwrap_or(&*sound_id));
 
     if ctx.message().sender.level != PermissionLevel::Caster {
+        if s.internal {
+            fail!("Internal sounds not allowed in global macros");
+        }
+
         ctx.gates()
             .command_gates(ctx.sender(), &gate_key, s.global_gate, s.sender_gate)
             .await?;
 
         if let Some(cost) = s.cost {
-            let cost = Charges::from(cost);
+            let cost = cost.into();
             let paid = ctx.charges().consume(ctx.sender(), cost).await?;
             if !paid {
                 fail!("poor (sound costs {cost})");
@@ -83,14 +87,8 @@ async fn play_sound(
             .await?;
     }
 
-    sound_service
-        .play(
-            v,
-            start,
-            time,
-            s.cost.is_none().then(|| ctx.interrupt_signal()),
-        )
-        .await?;
+    let int = s.cost.is_none().then(|| ctx.interrupt_signal());
+    sound_service.play(v, start, time, int).await?;
 
     Ok(())
 }
