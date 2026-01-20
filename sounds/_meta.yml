@@ -238,9 +238,18 @@ nothing-happens:
   sender-gate: 5m
 
 akuu:
-  file: akuu.ogg
-  volume: 0.1
+  variants:
+    - file: akuu.ogg
+      volume: 0.05
+    - file: atuu.ogg
+      volume: 0.05
+      rarity: 0.05
   sender-gate: 5m
+
+fish:
+  file: fish.ogg
+  volume: 0.05
+  sender-gate: 1m
 
 PING:
   internal: true
@@ -265,5 +274,5 @@ nutty-raid:
 RAID:
   internal: true
   file: pipes.ogg
-  volume: 0.25
+  volume: 0.1
   exclusive: true
