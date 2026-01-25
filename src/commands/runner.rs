@@ -344,11 +344,11 @@ impl Runner {
             .as_ref()
             .is_err_and(|e| !matches!(e, CommandError::Interrupt))
         {
-            if level != PermissionLevel::Caster {
-                ctx.gates()
-                    .command_ungate(ctx.sender(), m.name, m.global_gate, m.sender_gate)
-                    .await?;
-            }
+            // if level != PermissionLevel::Caster {
+            //     ctx.gates()
+            //         .command_ungate(ctx.sender(), m.name, m.global_gate, m.sender_gate)
+            //         .await?;
+            // }
             if let Some(cost) = refund {
                 ctx.charges().add(ctx.sender(), cost).await?;
             }
