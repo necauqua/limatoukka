@@ -105,10 +105,9 @@ struct LastPinger {
 async fn ping(ctx: CommandContext) -> CommandResult {
     static GIL: Mutex<()> = Mutex::const_new(()); // lmao
 
-    let _guard = GIL.lock().await;
-
     let storage = ctx.storage();
 
+    let guard = GIL.lock().await;
     let prev: Option<LastPinger> = storage.load("last-pinger").await?;
 
     if let Some(prev) = prev {
@@ -118,9 +117,7 @@ async fn ping(ctx: CommandContext) -> CommandResult {
             );
         }
         let elapsed = prev.timestamp.elapsed().unwrap_or_default();
-        if elapsed < Duration::from_secs(600)
-            && ctx.gate("ping:ulost", Duration::from_secs(2)).await?
-        {
+        if elapsed < Duration::from_secs(600) {
             ctx.fail("KEKW U LOST KEKW").await?;
         }
         if elapsed < prev.next_gate {
@@ -144,6 +141,7 @@ async fn ping(ctx: CommandContext) -> CommandResult {
             },
         )
         .await?;
+    drop(guard);
 
     // Xeanthorn
     if ctx.sender() == "132627333" {
