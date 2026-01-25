@@ -368,12 +368,13 @@ pub async fn do_cancel_bet(ctx: &AppContext, auto: bool) -> Result<(), BetCancel
         }
     }
 
-    for (user_id, (_, amount)) in bet.wagers {
+    for (user_id, (_, amount)) in &bet.wagers {
         if amount.non_zero() {
-            ctx.charges().add(&user_id, amount).await?;
+            ctx.charges().add(user_id, *amount).await?;
         }
     }
 
+    storage.save("last-bet", &bet).await?;
     storage.del("bet:current").await?;
     drop(guard);
 
