@@ -75,7 +75,7 @@ pub struct NoitaHandle {
 
 #[derive(Debug, Clone)]
 pub enum NoitaEvent {
-    PlayerDeath,
+    PlayerDeath { killed_by: String },
     Polymorphed,
     LowOxygen,
     WormSummoned,
@@ -127,7 +127,20 @@ impl NoitaHandle {
         loop {
             sleep(Duration::from_millis(200)).await;
 
-            if let Err(e) = self.with(|n| state.update(n)).await {
+            let mut killed_by = None;
+
+            if let Err(e) = self
+                .with(|n| {
+                    killed_by = Some(
+                        n.read_config_player_stats()?
+                            .stats
+                            .killed_by
+                            .read(n.proc())?,
+                    );
+                    state.update(n)
+                })
+                .await
+            {
                 if let NoitaError::NoNoita = e {
                     sleep(Duration::from_secs(5)).await;
                     continue;
@@ -152,7 +165,9 @@ impl NoitaHandle {
             if rising.contains(NoitaFlags::DEAD) {
                 tracing::info!("died");
 
-                self.send(NoitaEvent::PlayerDeath);
+                self.send(NoitaEvent::PlayerDeath {
+                    killed_by: killed_by.unwrap_or_default(),
+                });
 
                 state = NoitaState {
                     previous: NoitaFlags::DEAD,

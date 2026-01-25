@@ -262,7 +262,7 @@ async fn noita_event(ctx: AppContext, event: NoitaEvent) -> Result<()> {
                 _ => {},
             }
         }
-        NoitaEvent::PlayerDeath => {
+        NoitaEvent::PlayerDeath { killed_by } => {
             match ctx.noita().get_win_state().await? {
                 WinState::Loss => {
                     match do_cancel_bet(&ctx, true).await {
@@ -271,7 +271,12 @@ async fn noita_event(ctx: AppContext, event: NoitaEvent) -> Result<()> {
                         },
                         Err(BetCancelError::Internal(e)) => return Err(e),
                         _ => {
-                            ctx.send("died lmao".into()).await?
+                            let killed_by = killed_by.trim_matches(|ch: char| ch.is_ascii_whitespace() || ch == '|');
+                            ctx.send(if killed_by.is_empty() {
+                                "died lmao".into()
+                            } else {
+                                format!("died lmao (death reason: {killed_by})")
+                            }).await?
                         },
                     }
                 },
