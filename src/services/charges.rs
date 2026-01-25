@@ -152,14 +152,18 @@ impl FromStr for Charges {
 
 #[async_trait]
 impl CommandArg for Charges {
-    async fn parse(_ctx: &CommandContext, input: CompactString) -> ArgResult<Self> {
+    async fn parse(ctx: &CommandContext, input: CompactString) -> ArgResult<Self> {
+        if input == "*" {
+            return Ok(ctx.charges().get(ctx.sender()).await?);
+        }
+
         input
             .parse()
             .map_err(|e: &str| ArgError::Precondition(e.into()))
     }
 
     fn type_desc() -> Cow<'static, str> {
-        "a number of charges, in form of a number with up to 3 decimal places".into()
+        "a number of charges, in form of a number with up to 3 decimal places. Alternatively, `*` for your current balance.".into()
     }
 }
 
