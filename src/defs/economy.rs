@@ -16,7 +16,6 @@ use crate::{
         gates::GateServiceExt,
         sounds::SoundServiceExt,
         storage::StorageServiceExt,
-        twitch::TwitchServiceExt,
     },
 };
 
@@ -172,7 +171,7 @@ async fn last_pinger(ctx: CommandContext) -> CommandResult {
 /// Say hi to the stream!
 #[command(sender_gate = 12h, cost = -0.2, shortcode=hi)]
 async fn hello(ctx: CommandContext) -> CommandResult {
-    if !ctx.twitch().is_live().await? {
+    if !ctx.storage().has("stream-online").await? {
         fail!("stream is offline lmao")
     }
     // separate gate for the actual reply so that unleash-me~ hello~ repeated does not spam like crazy
