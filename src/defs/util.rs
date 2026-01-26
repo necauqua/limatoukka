@@ -223,6 +223,8 @@ async fn what_is(ctx: CommandContext, name: String, to: Chatter) -> CommandResul
             write!(&mut s, ". Takes {required}-{all} arguments").unwrap();
         }
 
+        write!(&mut s, " (uq.rs/help#{})", meta.name).unwrap();
+
         ctx.reply(s).await?;
         return Ok(());
     }
