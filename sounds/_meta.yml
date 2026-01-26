@@ -244,12 +244,30 @@ akuu:
     - file: atuu.ogg
       volume: 0.05
       rarity: 0.05
+    - file: akuu-snek.ogg
+      volume: 0.1
+      rarity: 0.01
   sender-gate: 5m
 
 fish:
   file: fish.ogg
   volume: 0.05
   sender-gate: 1m
+
+dota:
+  file: dota.ogg
+  volume: 0.2
+  global-gate: 20m
+
+chainsaw:
+  file: chainsaw.ogg
+  volume: 0.75
+  global-gate: 5m
+
+gamer:
+  file: gamer.ogg
+  volume: 0.05
+  global-gate: 10m
 
 PING:
   internal: true
