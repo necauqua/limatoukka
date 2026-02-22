@@ -3,7 +3,12 @@ use reqwest::Url;
 use std::fmt::Write as _;
 
 use crate::{
-    commands::{CommandResult, args::InRange, command, runner::CommandError},
+    commands::{
+        CommandResult,
+        args::{InRange, RestOfArgs},
+        command,
+        runner::CommandError,
+    },
     context::cmd::CommandContext,
     fail,
     integration::yt_music_api::Song,
@@ -21,10 +26,19 @@ use crate::{
 
 /// Say something on stream through the TTS.
 #[command(sender_gate = 1m, cost=0.5, free_for = Subscriber, GlobalMacroExempt)]
-async fn tts(ctx: CommandContext, msg: String) -> CommandResult {
+async fn tts(ctx: CommandContext, msg: String, extra: RestOfArgs) -> CommandResult {
     if msg.is_empty() {
         fail!("message cannot be empty");
     }
+
+    let msg = if extra.is_empty() {
+        msg
+    } else {
+        std::iter::once(msg)
+            .chain(extra.get(&ctx).await?.into_iter().flatten())
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
 
     ctx.tts().tts(&msg, Some(ctx.interrupt_signal())).await?;
 
@@ -239,14 +253,19 @@ async fn song_request(
     ctx: CommandContext,
     url_or_id: String,
     extra: Option<String>,
+    extra_extra: RestOfArgs,
 ) -> CommandResult {
     if ctx.storage().has("setting:nosr").await? {
         ctx.fail("Song requests are disabled").await?;
     }
 
-    let url_or_id = match extra {
-        Some(e) => format!("{url_or_id}:{e}"),
-        None => url_or_id,
+    let url_or_id = match (&*url_or_id, extra) {
+        ("https", Some(e)) if extra_extra.is_empty() => format!("https:{e}"),
+        (_, extra) => std::iter::once(url_or_id)
+            .chain(extra)
+            .chain(extra_extra.get(&ctx).await?.into_iter().flatten())
+            .collect::<Vec<_>>()
+            .join(" "),
     };
 
     let query = unwrap_youtube_id(&url_or_id)?;
