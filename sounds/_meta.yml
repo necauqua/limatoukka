@@ -160,10 +160,10 @@ thank-you:
   sender-gate: 1m
   variants:
     - file: thank-you.ogg
-      volume: 0.4
+      volume: 0.2
       exclusive: true
     - file: thank-you-full.ogg
-      volume: 0.4
+      volume: 0.2
       rarity: 0.05
       exclusive: true
 
@@ -268,6 +268,11 @@ gamer:
   file: gamer.ogg
   volume: 0.05
   global-gate: 10m
+
+fast:
+  file: fast.ogg
+  volume: 0.1
+  global-gate: 5m
 
 PING:
   internal: true
