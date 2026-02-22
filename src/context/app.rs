@@ -139,6 +139,7 @@ struct Inner {
     state: Mutex<AppState>,
     caster_id: Option<String>,
     bot_id: Option<String>,
+    quit_requested: Notify,
 }
 
 #[derive(Clone)]
@@ -163,6 +164,7 @@ impl AppContext {
                 state: Default::default(),
                 caster_id: None,
                 bot_id: None,
+                quit_requested: Notify::new(),
             }),
             messaging: injector
                 .service_opt::<dyn MessagingService>()
@@ -191,6 +193,14 @@ impl AppContext {
 
     pub fn bot_id(&self) -> Option<&str> {
         self.inner.bot_id.as_deref()
+    }
+
+    pub async fn wait_for_quit(&self) {
+        self.inner.quit_requested.notified().await
+    }
+
+    pub fn quit(&self) {
+        self.inner.quit_requested.notify_waiters();
     }
 
     /// Returns true once (atomically) in the given period - per key.

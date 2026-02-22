@@ -8,7 +8,7 @@ use crate::{
         args::{Chatter, Required},
         command,
     },
-    context::cmd::CommandContext,
+    context::{app::InterruptKind, cmd::CommandContext},
     services::{
         banishes::{BanishServiceExt, BanishStatus},
         twitch::TwitchServiceExt,
@@ -69,5 +69,13 @@ async fn banished(ctx: CommandContext, chatter: Required<Chatter>) -> CommandRes
 #[command(permission = Moderator, global_gate = 5s)]
 async fn set_title(ctx: CommandContext, title: String) -> CommandResult {
     ctx.twitch().set_stream_title(&title).await?;
+    Ok(())
+}
+
+/// Kills the bot ¯\_(ツ)_/¯
+#[command(permission = Caster)]
+async fn die(ctx: CommandContext) -> CommandResult {
+    ctx.interrupt(None, InterruptKind::Interrupt);
+    ctx.quit();
     Ok(())
 }

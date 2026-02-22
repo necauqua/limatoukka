@@ -155,6 +155,7 @@ async fn run() -> Result<()> {
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => break,
+            _ = ctx.wait_for_quit() => break,
             _ = &mut restart_signal => {
                 tracing::info!("received a restart signal from new instance");
 
