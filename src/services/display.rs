@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use anyhow::{Ok, Result};
-use async_trait::async_trait;
 use axum::{
     Router,
     extract::Path,
@@ -147,7 +146,6 @@ impl DisplayService for DisplayServer {
 
 pub struct DisplayServiceNoop;
 
-#[async_trait]
 impl DisplayService for DisplayServiceNoop {
     fn set(&self, _key: &str, _html: Markup) {}
 }

@@ -10,6 +10,7 @@ use axum::{
     response::{Html, IntoResponse, Sse, sse::Event},
     routing::{get, post},
 };
+use maud::html;
 use rand::seq::SliceRandom;
 use reqwest::StatusCode;
 use rustis::{
@@ -25,7 +26,7 @@ use tokio::sync::broadcast::Sender;
 use crate::{
     injector_getter,
     integration::yt_music_api::{Restricted, Song, YouTubeMusic},
-    services::Service,
+    services::{Service, display::DisplayService},
 };
 
 #[derive(Debug, Error)]
@@ -96,6 +97,7 @@ pub struct YouTubeMusicPlayer {
     playlist_id: String,
     valkey: ValkeyClient,
     broadcast: Sender<Event>,
+    display: Arc<dyn DisplayService>,
 }
 
 const PLAYLIST: &str = "music:playlist";
@@ -105,7 +107,12 @@ const VOLUME: &str = "music:volume";
 const PAUSED: &str = "music:paused";
 
 impl YouTubeMusicPlayer {
-    pub async fn new(ytm: YouTubeMusic, playlist_id: &str, valkey: ValkeyClient) -> Result<Self> {
+    pub async fn new(
+        ytm: YouTubeMusic,
+        playlist_id: &str,
+        valkey: ValkeyClient,
+        display: Arc<dyn DisplayService>,
+    ) -> Result<Self> {
         valkey
             .set_with_options(VOLUME, "15", SetCondition::NX, SetExpiration::None, false)
             .await?;
@@ -115,7 +122,24 @@ impl YouTubeMusicPlayer {
             playlist_id: playlist_id.to_string(),
             valkey,
             broadcast: tokio::sync::broadcast::channel(16).0,
+            display,
         })
+    }
+
+    fn set_display(&self, song: Option<&Song>) {
+        if let Some(song) = song {
+            self.display.set(
+                "now-playing",
+                html! {
+                    span class="np" { "NP: " }
+                    span class="artist" { (song.author) }
+                    span class="separator" { " - " }
+                    span class="title" { (song.title) }
+                },
+            );
+        } else {
+            self.display.set("now-playing", html! {});
+        }
     }
 
     async fn next(&self) -> Result<(Song, SongSource)> {
@@ -133,7 +157,14 @@ impl YouTubeMusicPlayer {
             .lmove::<_, _, String>(PLAYLIST, PLAYLIST, LMoveWhere::Left, LMoveWhere::Right)
             .await?;
         self.valkey.lpush(HISTORY, &next).await?;
-        Ok(serde_json::from_str(&next)?)
+
+        let (song, src) = serde_json::from_str::<(Song, SongSource)>(&next)?;
+
+        if !self.is_paused().await? {
+            self.set_display(Some(&song));
+        }
+
+        Ok((song, src))
     }
 
     async fn prev(&self) -> Result<Option<(Song, SongSource)>> {
@@ -142,7 +173,14 @@ impl YouTubeMusicPlayer {
             .lmove::<_, _, Option<String>>(HISTORY, REQUESTS, LMoveWhere::Left, LMoveWhere::Left)
             .await?
         {
-            Some(_) => Ok(self.current().await?),
+            Some(_) => {
+                let song = self.current().await?;
+
+                let paused = self.is_paused().await?;
+                self.set_display(song.as_ref().map(|(s, _)| s).filter(|_| !paused));
+
+                Ok(song)
+            }
             _ => Ok(None),
         }
     }
@@ -239,8 +277,11 @@ impl YouTubeMusicPlayer {
                     async |State(s): State<Arc<Self>>, Path(state): Path<bool>| {
                         if state {
                             s.valkey.set(PAUSED, "1").await?;
+                            s.set_display(None);
                         } else {
                             s.valkey.del(PAUSED).await?;
+                            let song = s.current().await?;
+                            s.set_display(song.as_ref().map(|(s, _)| s));
                         }
                         Ok::<_, MusicError>(())
                     },
@@ -427,7 +468,7 @@ impl MusicService for YouTubeMusicPlayer {
 
 #[cfg(test)]
 mod tests {
-    use crate::{config::Config, logging};
+    use crate::{config::Config, logging, services::display::DisplayServiceNoop};
 
     use super::*;
 
@@ -442,6 +483,7 @@ mod tests {
                 YouTubeMusic::new(config.youtube.api_key, config.youtube.country_code),
                 &config.youtube.playlist,
                 ValkeyClient::connect(config.valkey).await?,
+                Arc::new(DisplayServiceNoop),
             )
             .await?,
         );

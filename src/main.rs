@@ -87,6 +87,7 @@ async fn run() -> Result<()> {
             YouTubeMusic::new(config.youtube.api_key, config.youtube.country_code),
             &config.youtube.playlist,
             valkey.clone(),
+            display_server.clone(),
         )
         .await?,
     );
