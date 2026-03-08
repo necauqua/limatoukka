@@ -18,7 +18,7 @@ use crate::{
 /// Instantly banish a user to the shadow realm.
 ///
 /// Can be temporary if a duration is provided.
-#[command(permission = TwitchStaff)]
+#[command(permission = TwitchStaff, GlobalMacroExempt)]
 async fn banish(
     ctx: CommandContext,
     chatter: Required<Chatter>,
