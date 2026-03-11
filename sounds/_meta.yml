@@ -260,8 +260,12 @@ dota:
   global-gate: 20m
 
 chainsaw:
-  file: chainsaw.ogg
-  volume: 0.75
+  variants:
+    - file: chainsaw.ogg
+      volume: 0.75
+    - file: chainsaw-lasi.ogg
+      volume: 0.2
+      rarity: 0.1
   global-gate: 5m
 
 gamer:
