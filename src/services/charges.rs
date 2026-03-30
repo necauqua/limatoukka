@@ -153,7 +153,7 @@ impl FromStr for Charges {
 #[async_trait]
 impl CommandArg for Charges {
     async fn parse(ctx: &CommandContext, input: CompactString) -> ArgResult<Self> {
-        if input == "*" {
+        if ["*", "all", "allin", "everything"].contains(&&*input) {
             return Ok(ctx.charges().get(ctx.sender()).await?);
         }
 
@@ -163,7 +163,7 @@ impl CommandArg for Charges {
     }
 
     fn type_desc() -> Cow<'static, str> {
-        "a number of charges, in form of a number with up to 3 decimal places. Alternatively, `*` for your current balance.".into()
+        "a number of charges, in form of a number with up to 3 decimal places. Alternatively, `*`/`all`/`allin`/`everything` for your current balance.".into()
     }
 }
 
