@@ -8,6 +8,7 @@ scream:
     - file: scream/awful.ogg
       volume: 0.05
       rarity: 0.005
+      message: F U
 
 snek-moan-scare:
   file: snek-moan.ogg
@@ -47,6 +48,7 @@ quack:
     - file: quack/flamingo.ogg
       volume: 0.2
       rarity: 0.05
+      message: A rare one!
       # reward: 100
 
 factorio-alert:
@@ -80,6 +82,7 @@ bald:
       volume: 0.4
       rarity: 0.005
       reward: 3000
+      message: I am become bald, the destroyer of runs!
 
 yolksium:
   file: yolksium.ogg
@@ -111,8 +114,10 @@ meow:
     - file: meow/meow-snek.ogg
       volume: 0.5
       rarity: 0.005
+      message: That cat was a bit too cold blooded
     - file: meow/meow-hp.ogg
       rarity: 0.005
+      message: That cat was 1 horse power
 
 two-headpats:
   file: two-headpats.ogg
@@ -126,6 +131,7 @@ nya:
   global-gate: 20m
   cost: 3000
   exclusive: true
+  message: That'll be 3⚡, you're welcome
 
 lizard:
   file: lizard.ogg

@@ -86,8 +86,6 @@ async fn play_sound(
             if !paid {
                 fail!("poor (sound costs {cost})");
             }
-            ctx.reply(format!("That will be {cost}, you're welcome"))
-                .await?;
         }
     }
 
@@ -99,6 +97,9 @@ async fn play_sound(
         ctx.charges()
             .add(ctx.sender(), Charges::from(v.reward))
             .await?;
+    }
+    if let Some(message) = &v.message {
+        ctx.reply(message.clone()).await?;
     }
 
     let int = s.cost.is_none().then(|| ctx.interrupt_signal());

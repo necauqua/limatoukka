@@ -80,6 +80,8 @@ pub struct SoundVariant {
     pub rarity: Option<f32>,
     #[serde(default)]
     pub exclusive: bool,
+    #[serde(default)]
+    pub message: Option<String>,
 }
 
 impl SoundEntry {
