@@ -15,7 +15,7 @@ use tokio::task::JoinSet;
 use tracing::{Instrument, debug_span};
 
 use crate::{
-    commands::CommandTag,
+    commands::{CommandTag, args::ArgError},
     context::{app::AppContext, eval::EvalContext, msg::MessageContext},
     services::{
         Injector,
@@ -443,7 +443,12 @@ impl From<serde_json::Error> for CommandError {
 
 impl CommandError {
     pub fn is_internal(&self) -> bool {
-        matches!(self, CommandError::Internal(_) | CommandError::Panic(_))
+        matches!(
+            self,
+            CommandError::Internal(_)
+                | CommandError::Panic(_)
+                | CommandError::BadArgs(ExtractorError::BadArgument(_, ArgError::Internal(_)))
+        )
     }
 }
 
