@@ -24,11 +24,11 @@ uwu:
 uguu:
   variants:
     - file: uguu/uguu1.ogg
-      volume: 0.15
+      volume: 0.05
     - file: uguu/uguu2.ogg
-      volume: 0.15
+      volume: 0.05
     - file: uguu/uguu3.ogg
-      volume: 0.15
+      volume: 0.05
 
 wrrr:
   file: wrrr.ogg
