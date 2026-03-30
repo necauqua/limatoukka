@@ -55,6 +55,8 @@ pub trait NoitaService: Service {
 
     async fn get_kick_count(&self) -> NoitaResult<u32>;
 
+    async fn get_shift_count(&self) -> NoitaResult<u32>;
+
     async fn get_perk_counts(&self) -> NoitaResult<Vec<(String, u32)>>;
 
     async fn get_damage_multipliers(&self) -> Result<Vec<(&'static str, f32)>>;
@@ -288,6 +290,71 @@ impl NoitaHandle {
     }
 }
 
+#[rustfmt::skip]
+const SHIFT_GROUPS: &[&[&str]] = &[
+    &["water", "water_static", "water_salt", "water_ice"],
+    &["radioactive_liquid", "poison", "material_darkness"],
+    &["oil", "swamp", "peat"],
+    &["blood_fungi", "fungi", "fungisoil"],
+    &["blood_cold", "blood_worm"],
+    &["acid_gas", "acid_gas_static", "poison_gas", "fungal_gas", "radioactive_gas", "radioactive_gas_static"],
+    &["magic_liquid_polymorph", "magic_liquid_unstable_polymorph"],
+    &["magic_liquid_berserk", "magic_liquid_charm", "magic_liquid_invisibility"],
+    &["silver", "brass", "copper"],
+    &["steam", "smoke"],
+    &["gold", "gold_box2d"],
+];
+
+#[derive(Debug, PartialEq, Eq)]
+struct FungalShift {
+    from: Vec<String>,
+    to: String,
+}
+
+impl FungalShift {
+    fn from_changed_materials(materials: Vec<String>) -> Vec<Self> {
+        let mut iter = materials.as_chunks::<2>().0.iter();
+
+        let mut result = vec![];
+
+        'outer: loop {
+            // peek heh
+            let Some([_, to]) = iter.clone().next() else {
+                break;
+            };
+            for group in SHIFT_GROUPS {
+                let group = group.iter().filter(|next_to| next_to != &to);
+                if iter
+                    .clone() // peek the following shifts without consuming
+                    .chain(std::iter::repeat(&[String::new(), String::new()]))
+                    .zip(group.clone())
+                    .all(|([from, next_to], group_from)| next_to == to && from == group_from)
+                {
+                    let from = group.map(|&s| s.to_owned()).collect::<Vec<_>>();
+
+                    // if everything matched consume it
+                    iter.by_ref().take(from.len()).count();
+
+                    result.push(Self {
+                        from,
+                        to: to.to_owned(),
+                    });
+                    continue 'outer;
+                }
+            }
+            let Some([from, to]) = iter.next() else {
+                break;
+            };
+            result.push(Self {
+                from: vec![from.to_owned()],
+                to: to.to_owned(),
+            });
+        }
+
+        result
+    }
+}
+
 #[async_trait]
 impl NoitaService for NoitaHandle {
     async fn get_flags(&self) -> NoitaResult<HashSet<String>> {
@@ -335,6 +402,17 @@ impl NoitaService for NoitaHandle {
     async fn get_kick_count(&self) -> NoitaResult<u32> {
         self.with(|n| Ok(n.read_config_player_stats()?.stats.kicks))
             .await
+    }
+
+    async fn get_shift_count(&self) -> NoitaResult<u32> {
+        self.with(|n| {
+            Ok(n.get_world_state()?
+                .map(|ws| ws.changed_materials.read_storage(n.proc()))
+                .transpose()?
+                .map(|mats| FungalShift::from_changed_materials(mats).len() as _)
+                .unwrap_or_default())
+        })
+        .await
     }
 
     async fn get_perk_counts(&self) -> NoitaResult<Vec<(String, u32)>> {

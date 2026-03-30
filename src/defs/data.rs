@@ -43,6 +43,14 @@ async fn kicks(ctx: CommandContext) -> CommandResult {
     Ok(())
 }
 
+/// The amount of fungal shifts in the current run
+#[command(global_gate = 15s, NoitaData)]
+async fn shifts(ctx: CommandContext) -> CommandResult {
+    let shifts = ctx.noita().get_shift_count().await?;
+    ctx.reply(shifts.to_string()).await?;
+    Ok(())
+}
+
 /// Read the currently picked up perks. Look ma, streamer wands at home!
 #[command(global_gate = 5s, NoitaData)]
 async fn perks(ctx: CommandContext, top_n: Option<u32>) -> CommandResult {
