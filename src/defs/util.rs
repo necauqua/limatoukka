@@ -109,6 +109,38 @@ async fn wait(ctx: CommandContext, duration: HoldTime<500, 300_000>) -> CommandR
     Ok(())
 }
 
+/// Caster-only uninterruptible wait for a specified duration milliseconds.
+#[command(shortcode=fw, NoWall, permission = Caster)]
+async fn force_wait(ctx: CommandContext, duration: HoldTime<500, 300_000>) -> CommandResult {
+    let duration = duration.get();
+    tracing::debug!(
+        duration.ms = duration.as_millis(),
+        "waiting for {}",
+        humantime::format_duration(duration)
+    );
+
+    let wall = ctx.status();
+    let entry = wall.allocate();
+    let inner_ctx = ctx.clone();
+    let _wall_task = tokio::spawn(async move {
+        let name = &inner_ctx.message().sender.name;
+        let nesting = inner_ctx.nesting_str();
+        for i in (1..=duration.as_secs()).rev() {
+            let status = html! {
+                span style="color: #E38AF0" { (name) } ": force-wait:" (i) "s " (nesting)
+            };
+            entry.set(status.into());
+            sleep(Duration::from_secs(1)).await;
+        }
+    });
+
+    sleep(duration).await;
+
+    // _wall_task.abort();
+
+    Ok(())
+}
+
 /// Complete all current holds immediately.
 ///
 /// "Holds" here are referring to all "non-instantaneous" commands that are
