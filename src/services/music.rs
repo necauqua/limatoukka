@@ -35,6 +35,8 @@ pub enum MusicError {
     SongNotFound,
     #[error("Already in queue")]
     SongAlreadyInQueue,
+    #[error("Too many songs already in queue")]
+    RequestLimitReached,
     #[error("The video is age-restricted")]
     AgeRestricted,
     #[error("The video is region-restricted")]
@@ -386,11 +388,24 @@ impl MusicService for YouTubeMusicPlayer {
                 .lrange::<_, _, Vec<String>>(REQUESTS, 0, -1)
                 .await?;
 
-            if queue.iter().any(|s| {
-                serde_json::from_str::<(Song, SongSource)>(s)
-                    .is_ok_and(|(s, _)| s.video_id == song.video_id)
-            }) {
+            let queue = queue
+                .iter()
+                .filter_map(|s| serde_json::from_str::<(Song, SongSource)>(s).ok())
+                .collect::<Vec<_>>();
+
+            if queue.iter().any(|(s, _)| s.video_id == song.video_id) {
                 return Err(MusicError::SongAlreadyInQueue);
+            }
+            if queue
+                .iter()
+                .filter(|(_, r)| match r {
+                    SongSource::Request { requester: r } => r == requester,
+                    _ => false,
+                })
+                .count()
+                > 2
+            {
+                return Err(MusicError::RequestLimitReached);
             }
 
             self.do_request(

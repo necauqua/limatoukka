@@ -248,7 +248,7 @@ fn unwrap_youtube_id(raw: &str) -> Result<String, CommandError> {
 /// The `extra` parameter is used to allow specifying full URLs without quotes.
 /// For example, `sr:https://youtu.be/dQw4w9WgXcQ` <- here the first argument
 /// is actually `"https"` and the `extra` is `"//youtu.be/dQw4w9WgXcQ"`.
-#[command(sender_gate = 1m, shortcode=sr)]
+#[command(shortcode=sr)]
 async fn song_request(
     ctx: CommandContext,
     url_or_id: String,
@@ -311,6 +311,9 @@ async fn song_request(
         },
         Err(MusicError::AgeAndRegionRestricted) => {
             ctx.fail("How tf did you find a video thats *BOTH* age- and region-locked lmao").await?
+        },
+        Err(MusicError::RequestLimitReached) => {
+            ctx.fail("Too many of your songs in queue already").await?
         },
         Err(MusicError::Internal(e)) => return Err(CommandError::Internal(e)),
     }
