@@ -384,10 +384,17 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
                 auto = data.is_automatic,
                 "ad start"
             );
-            ctx.send(
-                "ADS TIME! Avoiding prerolls so people can check the stream without getting blasted. You can sub or get turbo xdd".into(),
-            )
-            .await?;
+            if data.is_automatic {
+                ctx.send(
+                    "ADS TIME! Avoiding prerolls so people can check the stream without getting blasted. You can sub or get turbo xdd".into(),
+                )
+                .await?;
+            } else {
+                ctx.send(
+                    "ADS TIME! Bro actually pressed the button to run ads, get ad'ed kek".into(),
+                )
+                .await?;
+            }
             sleep(Duration::from_secs(data.duration_seconds as _)).await;
             ctx.send("ADS over".into()).await?;
         }
