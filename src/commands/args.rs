@@ -73,8 +73,10 @@ async fn var_resolvers(ctx: &CommandContext, name: &str) -> anyhow::Result<Optio
                 return Ok(Some(i.to_string()));
             }
         }
-        "self" => return Ok(Some(ctx.owner().login.clone())),
-        "self.id" => return Ok(Some(ctx.owner().id.clone())),
+        "self" => return Ok(Some(ctx.message().sender.login.clone())),
+        "self.id" => return Ok(Some(ctx.message().sender.id.clone())),
+        "owner" => return Ok(Some(ctx.owner().login.clone())),
+        "owner.id" => return Ok(Some(ctx.owner().id.clone())),
         "rand" => return Ok(Some(rand::random_range(0..100_i32).to_string())),
         "volume" => {
             return Ok(Some(ctx.music().get_volume().await?.to_string()));
