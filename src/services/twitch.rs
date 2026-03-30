@@ -1,24 +1,34 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use futures::TryStreamExt;
-use twitch_api::helix::{
-    ClientRequestError, HelixRequestGetError,
-    channels::{
-        ModifyChannelInformation, ModifyChannelInformationBody, ModifyChannelInformationRequest,
+use twitch_api::{
+    helix::{
+        ClientRequestError, HelixRequestGetError,
+        channels::{
+            ModifyChannelInformation, ModifyChannelInformationBody, ModifyChannelInformationRequest,
+        },
+        chat::SendAShoutoutRequest,
+        moderation::GetBannedUsersRequest,
+        points::{
+            CustomRewardRedemptionStatus, UpdateRedemptionStatusBody, UpdateRedemptionStatusRequest,
+        },
     },
-    chat::SendAShoutoutRequest,
-    points::{
-        CustomRewardRedemptionStatus, UpdateRedemptionStatusBody, UpdateRedemptionStatusRequest,
-    },
+    types::UserId,
 };
 
 use crate::{injector_getter, integration::twitch_api::TwitchApi, services::Service};
+
+pub enum UserIdResponse {
+    Found(UserId),
+    NotFound,
+    Banned,
+}
 
 #[async_trait]
 pub trait TwitchService: Service {
     async fn is_live(&self) -> Result<bool>;
 
-    async fn get_user_id(&self, login: &str) -> Result<Option<String>>;
+    async fn get_user_id(&self, login: &str) -> Result<UserIdResponse>;
 
     async fn get_display_name(&self, user_id: &str) -> Result<Option<String>>;
 
@@ -54,20 +64,39 @@ impl TwitchService for TwitchServiceImpl {
         Ok(!streams.is_empty())
     }
 
-    async fn get_user_id(&self, login: &str) -> Result<Option<String>> {
+    async fn get_user_id(&self, login: &str) -> Result<UserIdResponse> {
         match self
             .0
-            .call(async |t| t.helix.get_user_from_login(login, &t.token).await)
+            .call(async |t| {
+                let Some(user) = t.helix.get_user_from_login(login, &t.token).await? else {
+                    return Ok(UserIdResponse::NotFound);
+                };
+                let banned = t
+                    .helix
+                    .req_get(
+                        GetBannedUsersRequest::broadcaster_id(t.caster_id).users(&[&user.id]),
+                        &t.token,
+                    )
+                    .await?
+                    .data
+                    .iter()
+                    .any(|b| b.expires_at.is_none());
+                Ok(if banned {
+                    UserIdResponse::Banned
+                } else {
+                    UserIdResponse::Found(user.id)
+                })
+            })
             .await
         {
-            Ok(user) => Ok(user.map(|u| u.id.take())),
+            Ok(res) => Ok(res),
             Err(e) => match e.downcast_ref::<ClientRequestError<reqwest::Error>>() {
                 Some(ClientRequestError::HelixRequestGetError(HelixRequestGetError::Error {
                     message,
                     ..
                 })) => {
                     tracing::warn!(message, "twitch returned error");
-                    Ok(None)
+                    Ok(UserIdResponse::NotFound)
                 }
                 _ => Err(e),
             },
@@ -150,10 +179,10 @@ mod tests {
         let twitch = TwitchApi::new(&Config::load()?).await?;
         let service = TwitchServiceImpl::new(twitch);
 
-        let user_id = service.get_user_id("lasiace").await?;
-        let name = service
-            .get_display_name(user_id.as_deref().unwrap())
-            .await?;
+        let UserIdResponse::Found(user_id) = service.get_user_id("lasiace").await? else {
+            panic!("user not found or banned");
+        };
+        let name = service.get_display_name(user_id.as_str()).await?;
         println!("{user_id:?} = {name:?}");
 
         Ok(())

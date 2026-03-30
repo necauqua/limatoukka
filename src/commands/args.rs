@@ -19,7 +19,7 @@ use crate::{
         charges::ChargesServiceExt,
         music::MusicServiceExt,
         noita::NoitaServiceExt,
-        twitch::TwitchServiceExt,
+        twitch::{TwitchServiceExt, UserIdResponse},
         variables::{VarType, VariableStorageExt},
     },
 };
@@ -549,12 +549,14 @@ impl CommandArg for Chatter {
                 "twitch-id",
                 Duration::from_secs(24 * 60 * 60),
                 &login,
-                async || {
-                    let user_id = ctx.twitch().get_user_id(&login).await?;
-                    let Some(user_id) = user_id else {
-                        return Err(ArgError::Precondition(format!("user {login} not found")));
-                    };
-                    Ok(user_id)
+                async || match ctx.twitch().get_user_id(&login).await? {
+                    UserIdResponse::Found(id) => Ok(id.take()),
+                    UserIdResponse::NotFound => {
+                        Err(ArgError::Precondition(format!("user {login} not found")))
+                    }
+                    UserIdResponse::Banned => {
+                        Err(ArgError::Precondition(format!("user {login} is banned")))
+                    }
                 },
             )
             .await?;
