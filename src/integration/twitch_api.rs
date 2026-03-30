@@ -130,13 +130,20 @@ impl LoginCredentials for TwitchApi {
         let token = if token.expires_in() < Duration::from_secs(1800) {
             let mut token = self.inner.bot_token.token.write().await;
             tracing::info!("(irc) token close to expiration, refreshing");
+
+            // workaround the bug with token losing the refresh token if refreshing fails
+            let rt = token.refresh_token.clone();
+
             token
                 .refresh_token(self.inner.client.helix.get_client())
                 .await
                 .map_err(|e| {
                     tracing::error!(error=?e, "(irc) failed to refresh token");
+                    // restore that token
+                    token.refresh_token = rt;
                     e
                 })?;
+
             token.clone()
         } else {
             token
