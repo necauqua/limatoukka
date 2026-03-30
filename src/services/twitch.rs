@@ -3,7 +3,6 @@ use async_trait::async_trait;
 use futures::TryStreamExt;
 use twitch_api::{
     helix::{
-        ClientRequestError, HelixRequestGetError,
         channels::{
             ModifyChannelInformation, ModifyChannelInformationBody, ModifyChannelInformationRequest,
         },
@@ -13,7 +12,7 @@ use twitch_api::{
             CustomRewardRedemptionStatus, UpdateRedemptionStatusBody, UpdateRedemptionStatusRequest,
         },
     },
-    types::UserId,
+    types::{DisplayName, UserId},
 };
 
 use crate::{injector_getter, integration::twitch_api::TwitchApi, services::Service};
@@ -30,7 +29,7 @@ pub trait TwitchService: Service {
 
     async fn get_user_id(&self, login: &str) -> Result<UserIdResponse>;
 
-    async fn get_display_name(&self, user_id: &str) -> Result<Option<String>>;
+    async fn get_display_name(&self, user_id: &str) -> Result<Option<DisplayName>>;
 
     async fn set_stream_title(&self, title: &str) -> Result<()>;
 
@@ -65,8 +64,7 @@ impl TwitchService for TwitchServiceImpl {
     }
 
     async fn get_user_id(&self, login: &str) -> Result<UserIdResponse> {
-        match self
-            .0
+        self.0
             .call(async |t| {
                 let Some(user) = t.helix.get_user_from_login(login, &t.token).await? else {
                     return Ok(UserIdResponse::NotFound);
@@ -88,39 +86,17 @@ impl TwitchService for TwitchServiceImpl {
                 })
             })
             .await
-        {
-            Ok(res) => Ok(res),
-            Err(e) => match e.downcast_ref::<ClientRequestError<reqwest::Error>>() {
-                Some(ClientRequestError::HelixRequestGetError(HelixRequestGetError::Error {
-                    message,
-                    ..
-                })) => {
-                    tracing::warn!(message, "twitch returned error");
-                    Ok(UserIdResponse::NotFound)
-                }
-                _ => Err(e),
-            },
-        }
     }
 
-    async fn get_display_name(&self, user_id: &str) -> Result<Option<String>> {
-        match self
-            .0
-            .call(async |t| t.helix.get_user_from_id(user_id, &t.token).await)
+    async fn get_display_name(&self, user_id: &str) -> Result<Option<DisplayName>> {
+        self.0
+            .call(async |t| {
+                Ok(t.helix
+                    .get_user_from_id(user_id, &t.token)
+                    .await?
+                    .map(|u| u.display_name))
+            })
             .await
-        {
-            Ok(user) => Ok(user.map(|u| u.display_name.take())),
-            Err(e) => match e.downcast_ref::<ClientRequestError<reqwest::Error>>() {
-                Some(ClientRequestError::HelixRequestGetError(HelixRequestGetError::Error {
-                    message,
-                    ..
-                })) => {
-                    tracing::warn!(message, "twitch returned error");
-                    Ok(None)
-                }
-                _ => Err(e),
-            },
-        }
     }
 
     async fn set_stream_title(&self, title: &str) -> Result<()> {

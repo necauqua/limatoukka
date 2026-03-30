@@ -442,7 +442,8 @@ fn get_name_task(ctx: &CommandContext, user_id: &str) -> JoinHandle<Result<Strin
                         ctx.twitch()
                             .get_display_name(&user_id)
                             .await?
-                            .unwrap_or_else(|| format!("unknown twitch user {user_id}")),
+                            .map(|dn| dn.take())
+                            .unwrap_or_else(|| format!("unknown (id: {user_id})")),
                     )
                 },
             )
