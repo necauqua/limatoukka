@@ -64,28 +64,31 @@ impl TwitchService for TwitchServiceImpl {
     }
 
     async fn get_user_id(&self, login: &str) -> Result<UserIdResponse> {
-        self.0
-            .call(async |t| {
-                let Some(user) = t.helix.get_user_from_login(login, &t.token).await? else {
-                    return Ok(UserIdResponse::NotFound);
-                };
-                let banned = t
-                    .helix
+        let Some(user) = self
+            .0
+            .call(async |t| t.helix.get_user_from_login(login, &t.token).await)
+            .await?
+        else {
+            return Ok(UserIdResponse::NotFound);
+        };
+
+        let ban_resp = self
+            .0
+            .caster_call(async |t| {
+                t.helix
                     .req_get(
-                        GetBannedUsersRequest::broadcaster_id(t.caster_id).users(&[&user.id]),
+                        GetBannedUsersRequest::broadcaster_id(t.caster_id).users(vec![&user.id]),
                         &t.token,
                     )
-                    .await?
-                    .data
-                    .iter()
-                    .any(|b| b.expires_at.is_none());
-                Ok(if banned {
-                    UserIdResponse::Banned
-                } else {
-                    UserIdResponse::Found(user.id)
-                })
+                    .await
             })
-            .await
+            .await?;
+
+        Ok(if ban_resp.data.iter().any(|b| b.expires_at.is_none()) {
+            UserIdResponse::Banned
+        } else {
+            UserIdResponse::Found(user.id)
+        })
     }
 
     async fn get_display_name(&self, user_id: &str) -> Result<Option<DisplayName>> {
