@@ -555,7 +555,7 @@ async fn get(ctx: CommandContext, name: String) -> CommandResult {
     };
 
     ctx.reply(match var {
-        Some(value) => format!("variable: {name} = {value}"),
+        Some(value) => format!(": {name} = {value}"),
         None => format!("no variable named `{name}`"),
     })
     .await?;
