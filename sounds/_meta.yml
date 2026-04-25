@@ -82,7 +82,7 @@ bald:
       volume: 0.4
       rarity: 0.005
       reward: 3000
-      message: I am become bald, the destroyer of runs!
+      message: I have become bald, thrower of runs!
 
 yolksium:
   file: yolksium.ogg
@@ -283,6 +283,43 @@ fast:
   file: fast.ogg
   volume: 0.1
   global-gate: 5m
+
+faa:
+  file: faa.ogg
+  volume: 0.05
+  global-gate: 15m
+
+senses:
+  file: senses.ogg
+  volume: 0.15
+  global-gate: 30m
+
+bonk:
+  file: bonk.ogg
+  volume: 0.1
+  sender-gate: 30s
+
+rizz:
+  file: rizz.ogg
+  volume: 0.1
+  sender-gate: 30s
+
+icant:
+  file: icant.ogg
+  volume: 0.1
+  global-gate: 30m
+
+morshu:
+  file: morshu.ogg
+  volume: 0.05
+  sender-gate: 5m
+  exclusive: true
+
+richer:
+  file: richer.ogg
+  volume: 0.05
+  sender-gate: 5m
+  exclusive: true
 
 PING:
   internal: true
