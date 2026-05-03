@@ -15,6 +15,7 @@ pub mod gates;
 pub mod ipc;
 pub mod messaging;
 pub mod music;
+pub mod names;
 pub mod noita;
 pub mod sounds;
 pub mod stats;

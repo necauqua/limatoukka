@@ -38,14 +38,9 @@ impl dyn CacheService {
         }
 
         let value = compute().await?;
+        let json = serde_json::to_string(&value).map_err(|e| anyhow!(e))?;
 
-        self.set(
-            cache,
-            ttl,
-            key,
-            &serde_json::to_string(&value).map_err(|e| anyhow!(e))?,
-        )
-        .await?;
+        self.set(cache, ttl, key, &json).await?;
 
         Ok(value)
     }

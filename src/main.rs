@@ -27,6 +27,7 @@ use limatoukka::{
         ipc::{IpcService, IpcServiceExt, IpcServiceValkey},
         messaging::{self, MessagingService},
         music::{MusicService, YouTubeMusicPlayer},
+        names::{NamesService, NamesServiceImpl},
         noita::{ItemFound, NoitaEvent, NoitaHandle, NoitaService, NoitaServiceExt, WinState},
         sounds::{SoundService, SoundServiceExt, SoundServiceImpl},
         stats::{StatsService, StatsServiceElastic},
@@ -92,11 +93,13 @@ async fn run() -> Result<()> {
         .await?,
     );
 
+    let caches = Arc::new(CacheServiceValkey::new(valkey.clone()));
+
     let services = Injector::new()
         .with::<dyn MessagingService>(messaging.into())
         .with::<dyn StorageService>(Arc::new(StorageServiceValkey::new(valkey.clone())))
         .with::<dyn VariableStorage>(Arc::new(VariableStorageValkey::new(valkey.clone())))
-        .with::<dyn CacheService>(Arc::new(CacheServiceValkey::new(valkey.clone())))
+        .with::<dyn CacheService>(caches.clone())
         .with::<dyn IpcService>(Arc::new(IpcServiceValkey::new(valkey.clone())))
         .with::<dyn BanishService>(Arc::new(BanishServiceValkey::new(valkey.clone())))
         .with::<dyn ChargesService>(Arc::new(ChargesServiceValkey::new(valkey.clone())))
@@ -117,7 +120,8 @@ async fn run() -> Result<()> {
         .with::<dyn StatusService>(Arc::new(StatusWall::new(display_server.wrap("status"))))
         .with::<dyn DisplayService>(display_server.clone())
         .with::<dyn NoitaService>(noita_handle.clone())
-        .with::<dyn MusicService>(music_player.clone());
+        .with::<dyn MusicService>(music_player.clone())
+        .with::<dyn NamesService>(Arc::new(NamesServiceImpl::new(caches, twitch_api.clone())));
 
     let ctx = AppContext::new(services)
         .with_caster_id(twitch_api.caster_id().to_owned())
