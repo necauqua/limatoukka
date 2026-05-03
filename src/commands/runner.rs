@@ -319,7 +319,7 @@ impl Runner {
             && let Some(cost) = m.cost
         {
             let cost = cost.into();
-            if !ctx.charges().consume(ctx.sender(), cost).await? {
+            if ctx.charges().consume(ctx.sender(), cost).await?.is_fail() {
                 return Err(CommandError::NotEnoughCharges { cost });
             }
             refund = Some(cost);

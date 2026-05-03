@@ -167,6 +167,17 @@ impl CommandArg for Charges {
     }
 }
 
+pub enum ConsumeResult {
+    Fail,
+    Success { bankrupt: bool },
+}
+
+impl ConsumeResult {
+    pub fn is_fail(&self) -> bool {
+        matches!(self, Self::Fail)
+    }
+}
+
 #[async_trait]
 pub trait ChargesService: Service {
     async fn get(&self, user_id: &str) -> Result<Charges>;
@@ -175,7 +186,7 @@ pub trait ChargesService: Service {
 
     async fn add(&self, user_id: &str, amount: Charges) -> Result<Charges>;
 
-    async fn consume(&self, user_id: &str, amount: Charges) -> Result<bool>;
+    async fn consume(&self, user_id: &str, amount: Charges) -> Result<ConsumeResult>;
 
     async fn transfer(&self, from_user_id: &str, to_user_id: &str, amount: Charges)
     -> Result<bool>;
@@ -221,27 +232,33 @@ impl ChargesService for ChargesServiceValkey {
             .into())
     }
 
-    async fn consume(&self, user_id: &str, amount: Charges) -> Result<bool> {
+    async fn consume(&self, user_id: &str, amount: Charges) -> Result<ConsumeResult> {
         // this is so very atomic wohoo
         const SCRIPT: &str = r#"
             local user_id = KEYS[1]
             local amount = tonumber(ARGV[1])
             local current = tonumber(redis.call("GET", user_id)) or 0
             if current < amount then
-                return
+                return 0
+            elseif current == amount then
+                redis.call("SET", user_id, 0)
+                return 2
             end
             redis.call("DECRBY", user_id, amount)
-            return true
+            return 1
         "#;
 
-        Ok(self
-            .client
-            .eval::<bool>(
-                CallBuilder::script(SCRIPT)
-                    .keys(key(user_id))
-                    .args(amount.as_i64()),
-            )
-            .await?)
+        let opts = CallBuilder::script(SCRIPT)
+            .keys(key(user_id))
+            .args(amount.as_i64());
+        let res = self.client.eval::<i64>(opts).await?;
+
+        Ok(match res {
+            0 => ConsumeResult::Fail,
+            1 => ConsumeResult::Success { bankrupt: false },
+            2 => ConsumeResult::Success { bankrupt: true },
+            _ => unreachable!(),
+        })
     }
 
     async fn transfer(

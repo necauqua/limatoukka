@@ -12,7 +12,7 @@ use twitch_api::{
             CustomRewardRedemptionStatus, UpdateRedemptionStatusBody, UpdateRedemptionStatusRequest,
         },
     },
-    types::{DisplayName, UserId},
+    types::UserId,
 };
 
 use crate::{injector_getter, integration::twitch_api::TwitchApi, services::Service};
@@ -28,8 +28,6 @@ pub trait TwitchService: Service {
     async fn is_live(&self) -> Result<bool>;
 
     async fn get_user_id(&self, login: &str) -> Result<UserIdResponse>;
-
-    async fn get_display_name(&self, user_id: &str) -> Result<Option<DisplayName>>;
 
     async fn set_stream_title(&self, title: &str) -> Result<()>;
 
@@ -91,17 +89,6 @@ impl TwitchService for TwitchServiceImpl {
         })
     }
 
-    async fn get_display_name(&self, user_id: &str) -> Result<Option<DisplayName>> {
-        self.0
-            .call(async |t| {
-                Ok(t.helix
-                    .get_user_from_id(user_id, &t.token)
-                    .await?
-                    .map(|u| u.display_name))
-            })
-            .await
-    }
-
     async fn set_stream_title(&self, title: &str) -> Result<()> {
         self.0
             .caster_call(async |t| {
@@ -142,28 +129,6 @@ impl TwitchService for TwitchServiceImpl {
                 Ok(())
             })
             .await?;
-        Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::config::Config;
-
-    use super::*;
-
-    #[tokio::test]
-    #[ignore = "manual test"]
-    async fn get_user_id() -> Result<()> {
-        let twitch = TwitchApi::new(&Config::load()?).await?;
-        let service = TwitchServiceImpl::new(twitch);
-
-        let UserIdResponse::Found(user_id) = service.get_user_id("lasiace").await? else {
-            panic!("user not found or banned");
-        };
-        let name = service.get_display_name(user_id.as_str()).await?;
-        println!("{user_id:?} = {name:?}");
-
         Ok(())
     }
 }

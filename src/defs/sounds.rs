@@ -82,8 +82,7 @@ async fn play_sound(
 
         if let Some(cost) = s.cost {
             let cost = cost.into();
-            let paid = ctx.charges().consume(ctx.sender(), cost).await?;
-            if !paid {
+            if ctx.charges().consume(ctx.sender(), cost).await?.is_fail() {
                 fail!("poor (sound costs {cost})");
             }
         }

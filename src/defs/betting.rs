@@ -1,26 +1,24 @@
-use std::{collections::HashMap, iter, time::Duration};
+use std::collections::HashMap;
 
 use maud::{DOCTYPE, Markup, Render, html};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tokio::{sync::Mutex, task::JoinHandle};
+use tokio::sync::Mutex;
 
 use crate::{
     commands::{
         CommandResult,
         args::{Chatter, RestOfArgs},
         command,
-        runner::CommandError,
     },
     context::{app::AppContext, cmd::CommandContext},
     fail,
     integration::justfile::just,
     services::{
-        caches::CacheServiceExt,
-        charges::{Charges, ChargesServiceExt},
+        charges::{Charges, ChargesServiceExt, ConsumeResult},
         display::{DisplayServiceAux, DisplayServiceExt},
+        names::NamesServiceExt,
         storage::StorageServiceExt,
-        twitch::TwitchServiceExt,
     },
 };
 
@@ -30,15 +28,16 @@ struct Bet {
     options: Vec<String>,
     closed: bool,
     auto: bool,
-    wagers: HashMap<String, (String, Charges)>, // twitch_uid -> (option, amount)
+    wagers: HashMap<String, (String, Charges, bool)>, // twitch_uid -> (option, amount)
 }
 
 impl Bet {
-    fn amounts_by_option(&self) -> Vec<(&String, Charges)> {
-        let mut amounts = HashMap::<_, Charges>::new();
-        for (option, amount) in self.wagers.values() {
-            let v = amounts.entry(option).or_default();
+    fn amounts_by_option(&self) -> Vec<(&String, (Charges, usize))> {
+        let mut amounts = HashMap::<_, (Charges, usize)>::new();
+        for (option, amount, _) in self.wagers.values() {
+            let (v, c) = amounts.entry(option).or_default();
             *v = *v + *amount;
+            *c += 1;
         }
         self.options
             .iter()
@@ -48,10 +47,18 @@ impl Bet {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+struct Win {
+    user_id: String,
+    bet: Charges,
+    payout: Charges,
+    all_in: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 struct LastBet {
     bet: Bet,
     result: String,
-    wins: Vec<(String, Charges, Charges)>, // (twitch_uid, bet, payout)[]
+    wins: Vec<Win>,
 }
 
 impl Render for Bet {
@@ -66,8 +73,8 @@ impl Render for Bet {
                 br;
                 span { (self.premise) }
                 br;
-                @for (option, amount) in &amounts {
-                    span style="margin-right: 1rem" { (option) ": " (*amount) }
+                @for (option, (amount, count)) in &amounts {
+                    span style="margin-right: 1rem" { (option) ": " (*amount) "(" (count) ")" }
                 }
             }
         }
@@ -214,7 +221,7 @@ async fn is_bet(ctx: CommandContext) -> CommandResult {
         bet.premise,
         amounts
             .iter()
-            .map(|(option, amount)| format!("{option}:{amount}"))
+            .map(|(option, (amount, count))| format!("{option}:{amount}({count})"))
             .collect::<Vec<_>>()
             .join("/"),
         bet.wagers.len(),
@@ -251,17 +258,19 @@ async fn bet(ctx: CommandContext, option: String, wager: Option<Charges>) -> Com
         );
     }
 
-    if let Some((_, amount)) = bet.wagers.remove(ctx.sender())
+    if let Some((_, amount, _)) = bet.wagers.remove(ctx.sender())
         && amount.non_zero()
     {
         ctx.charges().add(ctx.sender(), amount).await?;
     }
 
-    if let Some(wager) = wager
-        && !ctx.charges().consume(ctx.sender(), wager).await?
-    {
-        fail!("poor");
-    }
+    let all_in = match wager {
+        Some(wager) => match ctx.charges().consume(ctx.sender(), wager).await? {
+            ConsumeResult::Fail => fail!("poor"),
+            ConsumeResult::Success { bankrupt } => bankrupt,
+        },
+        _ => false,
+    };
 
     let wager = wager.unwrap_or_default();
     let msg = if wager.non_zero() {
@@ -270,7 +279,8 @@ async fn bet(ctx: CommandContext, option: String, wager: Option<Charges>) -> Com
         format!("zero-bet on '{option}' accepted")
     };
 
-    bet.wagers.insert(ctx.sender().to_owned(), (option, wager));
+    bet.wagers
+        .insert(ctx.sender().to_owned(), (option, wager, all_in));
 
     ctx.storage().save("bet:current", &bet).await?;
     drop(guard);
@@ -291,7 +301,7 @@ async fn get_bet(ctx: CommandContext, chatter: Chatter) -> CommandResult {
 
     let whom = chatter.them(ctx.owner(), "You", "They");
 
-    if let Some((option, amount)) = bet.wagers.get(&chatter.id) {
+    if let Some((option, amount, _)) = bet.wagers.get(&chatter.id) {
         if amount.non_zero() {
             ctx.reply(format!("{whom} bet {amount} on '{option}'"))
                 .await?
@@ -317,7 +327,7 @@ async fn unbet(ctx: CommandContext) -> CommandResult {
         fail!("Bet is closed");
     }
 
-    let Some((option, amount)) = bet.wagers.remove(ctx.sender()) else {
+    let Some((option, amount, _)) = bet.wagers.remove(ctx.sender()) else {
         ctx.fail("you did not bet").await?;
         return Ok(());
     };
@@ -368,7 +378,7 @@ pub async fn do_cancel_bet(ctx: &AppContext, auto: bool) -> Result<(), BetCancel
         }
     }
 
-    for (user_id, (_, amount)) in &bet.wagers {
+    for (user_id, (_, amount, _)) in &bet.wagers {
         if amount.non_zero() {
             ctx.charges().add(user_id, *amount).await?;
         }
@@ -411,10 +421,10 @@ async fn rollback(ctx: CommandContext) -> CommandResult {
     };
 
     let charges = ctx.charges();
-    for (user_id, _, payout) in wins {
+    for win in wins {
         // add negative instead of consume to put people into negatives
         // if they managed to immediately spend the win
-        charges.add(&user_id, -payout).await?;
+        charges.add(&win.user_id, -win.payout).await?;
     }
 
     storage.save("bet:current", &bet).await?;
@@ -425,30 +435,6 @@ async fn rollback(ctx: CommandContext) -> CommandResult {
         .await?;
 
     Ok(())
-}
-
-fn get_name_task(ctx: &CommandContext, user_id: &str) -> JoinHandle<Result<String, CommandError>> {
-    let ctx = ctx.clone();
-    let user_id = user_id.to_owned();
-    tokio::spawn(async move {
-        Ok(ctx
-            .caches()
-            .get_cached(
-                "twitch-name",
-                Duration::from_secs(24 * 60 * 60),
-                &user_id,
-                async || {
-                    anyhow::Ok(
-                        ctx.twitch()
-                            .get_display_name(&user_id)
-                            .await?
-                            .map(|dn| dn.take())
-                            .unwrap_or_else(|| format!("unknown (id: {user_id})")),
-                    )
-                },
-            )
-            .await?)
-    })
 }
 
 /// Settle the current bet, paying out the users who bet on the given option.
@@ -473,29 +459,34 @@ async fn settle(ctx: CommandContext, option: String) -> CommandResult {
     let mut total_pool = 0;
     let mut winner_pool = 0;
 
-    for (user_id, (bet_option, amount)) in &bet.wagers {
+    for (user_id, (bet_option, amount, all_in)) in &bet.wagers {
         total_pool += amount.as_u64();
         if bet_option.eq_ignore_ascii_case(&option) {
             winner_pool += amount.as_u64();
-            wins.push((user_id.clone(), *amount, Charges::ZERO));
+            wins.push(Win {
+                user_id: user_id.clone(),
+                bet: *amount,
+                payout: Charges::ZERO,
+                all_in: *all_in,
+            });
         } else {
-            losers.push((user_id.clone(), -*amount));
+            losers.push((user_id.clone(), -*amount, *all_in));
         }
     }
 
     // huh
     if winner_pool != 0 {
-        for (_, bet, payout) in &mut wins {
-            *payout = (bet.as_u64() * total_pool / winner_pool + 1000).into();
+        for win in &mut wins {
+            win.payout = (win.bet.as_u64() * total_pool / winner_pool + 1000).into();
         }
     } else {
-        for (_, _, payout) in &mut wins {
-            *payout = Charges::ONE;
+        for win in &mut wins {
+            win.payout = Charges::ONE;
         }
     }
 
-    wins.sort_by_key(|(_, bet, payout)| (*bet - *payout).as_i64());
-    losers.sort_by_key(|(_, loss)| loss.as_i64());
+    wins.sort_by_key(|win| (win.bet - win.payout).as_i64());
+    losers.sort_by_key(|(_, loss, _)| loss.as_i64());
 
     let last_bet = LastBet {
         bet,
@@ -504,8 +495,8 @@ async fn settle(ctx: CommandContext, option: String) -> CommandResult {
     };
 
     let charges = ctx.charges();
-    for (user_id, _, payout) in &last_bet.wins {
-        charges.add(user_id, *payout).await?;
+    for win in &last_bet.wins {
+        charges.add(&win.user_id, win.payout).await?;
     }
 
     ctx.display().set("bets", html! {});
@@ -515,18 +506,17 @@ async fn settle(ctx: CommandContext, option: String) -> CommandResult {
     storage.del("bet:current").await?;
     drop(guard);
 
-    let zipped = last_bet
-        .wins
-        .iter()
-        .map(|(uid, bet, payout)| Some((get_name_task(&ctx, uid), *bet, (*payout - *bet))))
-        .chain(iter::repeat_with(|| None))
-        .zip(
-            losers
+    let names = ctx.names();
+    names
+        .warm_up(
+            &last_bet
+                .wins
                 .iter()
-                .map(|(uid, loss)| Some((get_name_task(&ctx, uid), *loss)))
-                .chain(iter::repeat_with(|| None)),
+                .map(|win| &*win.user_id)
+                .chain(losers.iter().map(|(id, _, _)| &**id))
+                .collect::<Vec<_>>(),
         )
-        .take_while(|(a, b)| a.is_some() || b.is_some());
+        .await?;
 
     let html = html! {
         (DOCTYPE)
@@ -544,44 +534,57 @@ async fn settle(ctx: CommandContext, option: String) -> CommandResult {
                       font-size: 1.75rem;
                       white-space: nowrap;
                     }
+                    .column {
+                        display: flex;
+                        flex-direction: column;
+                    }
                 " }
             }
             body style="height: 100%; margin:0; display: flex" {
                 div style="margin: auto" {
                     div style="padding-bottom: 3rem" { "Bet result for: " (last_bet.bet.premise) }
-                    table {
-                        tr {
-                            th style="color: aquamarine" { "Winners" }
-                            th style="color: brown" { "Losers" }
-                        }
-                        @for (winner, loser) in zipped {
-                            tr {
-                                @if let Some((name_task, amount, win)) = winner {
-                                    td {
-                                        (name_task.await.unwrap()?) ": "
 
-                                        @if win.is_zero() {
-                                            span style="color: orange" { "+" (win) }
+                    div style="display: flex; gap: 2rem" {
+                        div.column {
+                            div style="color: aquamarine; text-align: center" {
+                                "Winners"
+                            }
+                            @for win in &last_bet.wins {
+                                div {
+                                    @let profit = win.payout - win.bet;
+                                    @if win.bet.is_zero() {
+                                        span style="color: orange" { (names.lookup(&win.user_id).await?) ": +" (profit) }
+                                    } @else {
+                                        (names.lookup(&win.user_id).await?) ": +" (profit) " ("
+
+                                        @if win.all_in {
+                                            span style="color: yellow" { "bet " (win.bet) }
                                         } @else {
-                                            "+" (win)
+                                            "bet " (win.bet)
                                         }
 
-                                        " (bet " (amount) ")"
+                                        ")"
                                     }
-                                } @else {
-                                    td {}
                                 }
-                                @if let Some((name_task, amount)) = loser {
-                                    td {
-                                        (name_task.await.unwrap()?) ": "
-                                        @if amount.is_zero() {
-                                            span style="color: green" { (amount) }
+                            }
+                        }
+                        div.column {
+                            div style="color: brown; text-align: center" {
+                                "Losers"
+                            }
+                            @for (id, loss, all_in) in &losers {
+                                div {
+                                    @let name = names.lookup(id).await?;
+                                    @if loss.is_zero() {
+                                        span style="color: green" { (name) }
+                                    } @else {
+                                        (name) ": "
+                                        @if *all_in {
+                                            span style="color: yellow" { (loss) }
                                         } @else {
-                                            (amount)
+                                            (loss)
                                         }
                                     }
-                                } @else {
-                                    td {}
                                 }
                             }
                         }
