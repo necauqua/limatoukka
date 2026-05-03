@@ -26,12 +26,6 @@ pub struct Song {
     pub restricted: Option<Restricted>,
 }
 
-// ughghghghfghghgh
-fn surf_to_anyhow(e: surf::Error) -> anyhow::Error {
-    let ctx = format!("Status code {}", e.status());
-    e.into_inner().context(ctx)
-}
-
 impl YouTubeMusic {
     pub fn new(api_key: String, country: String) -> Self {
         Self { api_key, country }
@@ -51,15 +45,16 @@ impl YouTubeMusic {
             Error { error: serde_json::Value },
         }
 
-        let res = surf::get(format!(
-            "https://www.googleapis.com/youtube/v3/{endpoint}?key={}",
-            self.api_key
-        ))
-        .query(&query)
-        .map_err(surf_to_anyhow)?
-        .recv_json::<YoutubeResult<T>>()
-        .await
-        .map_err(surf_to_anyhow)?;
+        let url = format!("https://www.googleapis.com/youtube/v3/{endpoint}");
+
+        let res = reqwest::Client::new()
+            .get(url)
+            .query(&query)
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<YoutubeResult<T>>()
+            .await?;
 
         match res {
             YoutubeResult::Ok(r) => Ok(r),
