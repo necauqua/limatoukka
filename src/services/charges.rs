@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use compact_str::CompactString;
 use rustis::{
     client::Client as ValkeyClient,
-    commands::{CallBuilder, ScriptingCommands, StringCommands},
+    commands::{CallBuilder, GenericCommands, ScanOptions, ScriptingCommands, StringCommands},
 };
 use serde::{Deserialize, Serialize};
 
@@ -190,6 +190,8 @@ pub trait ChargesService: Service {
 
     async fn transfer(&self, from_user_id: &str, to_user_id: &str, amount: Charges)
     -> Result<bool>;
+
+    async fn get_all(&self) -> Result<Vec<(String, Charges)>>;
 }
 
 injector_getter!(ChargesService::charges);
@@ -294,6 +296,35 @@ impl ChargesService for ChargesServiceValkey {
                     .args(amount.as_i64()),
             )
             .await?)
+    }
+
+    async fn get_all(&self) -> Result<Vec<(String, Charges)>> {
+        let mut result = Vec::new();
+
+        let mut cursor = 0u64;
+        loop {
+            let (next, batch): (u64, Vec<String>) = self
+                .client
+                .scan(
+                    cursor,
+                    ScanOptions::default().match_pattern(key("*")).count(500),
+                )
+                .await?;
+            if !batch.is_empty() {
+                let values: Vec<Option<String>> = self.client.mget(&*batch).await?;
+                for (k, v) in batch.into_iter().zip(values) {
+                    result.push((
+                        k.strip_prefix("charges:").unwrap_or(&k).to_owned(),
+                        Charges::from(v.and_then(|s| s.parse::<i64>().ok()).unwrap_or_default()),
+                    ));
+                }
+            }
+            if next == 0 {
+                break;
+            }
+            cursor = next;
+        }
+        Ok(result)
     }
 }
 

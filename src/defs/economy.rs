@@ -1,3 +1,4 @@
+use std::fmt::Write;
 use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
@@ -6,7 +7,7 @@ use tokio::sync::Mutex;
 use crate::{
     commands::{
         CommandResult,
-        args::{Chatter, Required},
+        args::{Chatter, InRange, Required},
         command,
     },
     context::cmd::CommandContext,
@@ -14,6 +15,7 @@ use crate::{
     services::{
         charges::{Charges, ChargesServiceExt},
         gates::GateServiceExt,
+        names::NamesServiceExt,
         sounds::SoundServiceExt,
         storage::StorageServiceExt,
     },
@@ -27,6 +29,62 @@ async fn balance(ctx: CommandContext, chatter: Chatter) -> CommandResult {
     let whom = chatter.them(ctx.owner(), "Your", "Their");
 
     ctx.reply(format!("{whom} balance is {charges}")).await?;
+
+    Ok(())
+}
+
+/// Get a list of top-N chatters by their charge balance
+#[command(sender_gate = 1m)]
+async fn oilers(ctx: CommandContext, n: Option<InRange<1, 15>>) -> CommandResult {
+    let mut charges = ctx.charges().get_all().await?;
+
+    charges.retain(|(id, c)| c.non_zero() && Some(&**id) != ctx.bot_id());
+    charges.sort_by_key(|(_, c)| -c.as_i64());
+
+    let charges = &charges[..charges.len().min(n.map_or(5, |n| n.get() as _))];
+    let names = ctx.names();
+
+    names
+        .warm_up(&charges.iter().map(|(uid, _)| &**uid).collect::<Vec<_>>())
+        .await?;
+
+    let mut msg = String::new();
+    for (uid, charges) in charges {
+        write!(&mut msg, "{}: {charges}; ", names.lookup(uid).await?).unwrap();
+    }
+
+    // strip last `; `
+    if !msg.is_empty() {
+        msg.truncate(msg.len() - 2);
+    }
+
+    ctx.reply(msg).await?;
+
+    Ok(())
+}
+
+/// Get the place of the chatter (or you) in the "leaderboard" of how many charges they have
+#[command(sender_gate = 1m)]
+async fn oil(ctx: CommandContext, chatter: Chatter) -> CommandResult {
+    let mut charges = ctx.charges().get_all().await?;
+
+    charges.retain(|(id, _)| Some(&**id) != ctx.bot_id());
+    charges.sort_by_key(|(_, c)| -c.as_i64());
+
+    let whom = chatter.them(ctx.owner(), "You", "They");
+
+    ctx.reply(match charges.iter().position(|(id, _)| id == &chatter.id) {
+        None => format!("{whom} never interacted with the economy"),
+        Some(0) => format!("{whom} are the richest person in the chat"),
+        Some(pos) => {
+            format!(
+                "{whom} are a top-{} oiler; {} charges left to climb up",
+                pos + 1,
+                charges[pos - 1].1 - charges[pos].1,
+            )
+        }
+    })
+    .await?;
 
     Ok(())
 }

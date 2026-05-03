@@ -82,7 +82,7 @@ async fn last_message(ctx: CommandContext, chatter: Chatter) -> CommandResult {
 }
 
 /// Get a list of top-N chatters of all time, by number of sent messages.
-#[command(sender_gate = 10m)]
+#[command(sender_gate = 1m)]
 async fn top(ctx: CommandContext, n: Option<InRange<1, 15>>) -> CommandResult {
     let exclude: &[&str] = match ctx.bot_id() {
         Some(bot_id) => &[bot_id],
