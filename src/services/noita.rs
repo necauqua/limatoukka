@@ -15,7 +15,7 @@ use noita_engine_reader::{
         Bitset512, Vec2,
         components::{
             AbilityComponent, DamageModelComponent, GameEffect, GameEffectComponent,
-            ItemActionComponent, ItemComponent, UIIconComponent,
+            ItemActionComponent, ItemComponent, MaterialInventoryComponent, UIIconComponent,
         },
     },
 };
@@ -77,7 +77,11 @@ pub struct NoitaHandle {
 
 #[derive(Debug, Clone)]
 pub enum NoitaEvent {
-    PlayerDeath { killed_by: String },
+    PlayerDeath {
+        killed_by: String,
+        run_duration: String,
+        had_ambro: bool,
+    },
     Polymorphed,
     LowOxygen,
     WormSummoned,
@@ -129,16 +133,15 @@ impl NoitaHandle {
         loop {
             sleep(Duration::from_millis(200)).await;
 
-            let mut killed_by = None;
+            let mut death_data = None;
 
             if let Err(e) = self
                 .with(|n| {
-                    killed_by = Some(
-                        n.read_config_player_stats()?
-                            .stats
-                            .killed_by
-                            .read(n.proc())?,
-                    );
+                    let stats = n.read_config_player_stats()?.stats;
+                    death_data = Some((
+                        stats.killed_by.read(n.proc())?,
+                        stats.playtime_str.read(n.proc())?,
+                    ));
                     state.update(n)
                 })
                 .await
@@ -167,8 +170,12 @@ impl NoitaHandle {
             if rising.contains(NoitaFlags::DEAD) {
                 tracing::info!("died");
 
+                let (killed_by, run_duration) = death_data.unwrap_or_default();
+
                 self.send(NoitaEvent::PlayerDeath {
-                    killed_by: killed_by.unwrap_or_default(),
+                    killed_by,
+                    run_duration,
+                    had_ambro: state.current.contains(NoitaFlags::AMBROSIA),
                 });
 
                 state = NoitaState {
@@ -656,7 +663,8 @@ bitflags! {
         const TEN_SEVEN = 1 << 8;
 
         const ITEMS = Self::TABLET.bits() | Self::BEST_TABLET.bits()
-                  | Self::EVIL_EYE.bits() | Self::EARTH_STONE.bits() | Self::TEN_SEVEN.bits();
+                  | Self::EVIL_EYE.bits() | Self::EARTH_STONE.bits() | Self::TEN_SEVEN.bits()
+                  | Self::AMBROSIA.bits();
 
         const TOUCH_OF_GOLD = 1 << 9;
         const TAIKASAUVA = 1 << 10;
@@ -667,6 +675,7 @@ bitflags! {
         const WORM_SUMMON = 1 << 12;
         const PORTAL_ENTERED = 1 << 13;
         const HAS_SAVING_GRACE = 1 << 14;
+        const AMBROSIA = 1 << 15;
     }
 }
 
@@ -744,6 +753,7 @@ impl NoitaFlags {
         if !self.contains(NoitaFlags::ITEMS) {
             let wand_store = noita.component_store::<AbilityComponent>()?;
             let store = noita.component_store::<ItemComponent>()?;
+            let material_inv_store = noita.component_store::<MaterialInventoryComponent>()?;
 
             for child in inv_quick.children.read(p)?.read(p)? {
                 let child = child.read(p)?;
@@ -758,6 +768,17 @@ impl NoitaFlags {
                         *self |= NoitaFlags::TEN_SEVEN;
                         continue;
                     }
+                }
+
+                if let Some(mat_inv) = material_inv_store.get(&child)?
+                    && let Some(cf) = noita.read_cell_factory()?
+                    && let Some(ambro_idx) = cf
+                        .material_id_indices
+                        .get(noita.proc(), "magic_liquid_protection_all")?
+                    && let Some(ptr) = mat_inv.count_per_material_type.get(ambro_idx)
+                    && ptr.read(noita.proc())? > 0.0
+                {
+                    *self |= NoitaFlags::AMBROSIA;
                 }
 
                 let Some(item_comp) = store.get(&child)? else {

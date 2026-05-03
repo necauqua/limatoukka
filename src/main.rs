@@ -264,7 +264,7 @@ async fn noita_event(ctx: AppContext, event: NoitaEvent) -> Result<()> {
                 _ => {},
             }
         }
-        NoitaEvent::PlayerDeath { killed_by } => {
+        NoitaEvent::PlayerDeath { killed_by, run_duration, had_ambro } => {
             match ctx.noita().get_win_state().await? {
                 WinState::Loss => {
                     match do_cancel_bet(&ctx, true).await {
@@ -274,16 +274,17 @@ async fn noita_event(ctx: AppContext, event: NoitaEvent) -> Result<()> {
                         Err(BetCancelError::Internal(e)) => return Err(e),
                         _ => {
                             let killed_by = killed_by.trim_matches(|ch: char| ch.is_ascii_whitespace() || ch == '|');
+                            let ambro = if had_ambro { " AmbroFU" } else { "" };
                             ctx.send(if killed_by.is_empty() {
-                                "died lmao".into()
+                                format!("died lmao {ambro}")
                             } else {
-                                format!("died lmao (death reason: {killed_by})")
+                                format!("died lmao (death reason: {killed_by}){ambro}")
                             }).await?
                         },
                     }
                 },
-                WinState::Win { cheese: false } => ctx.send("won GIGACHAD".into()).await?,
-                WinState::Win { cheese: true } => ctx.send("won StinkyCheese".into()).await?,
+                WinState::Win { cheese: false } => ctx.send(format!("won GIGACHAD (took {run_duration})")).await?,
+                WinState::Win { cheese: true } => ctx.send(format!("won StinkyCheese (took {run_duration})")).await?,
             }
         },
         NoitaEvent::WormSummoned => ctx.send("WORM ayo".into()).await?,
