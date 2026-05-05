@@ -485,7 +485,7 @@ async fn settle(ctx: CommandContext, option: String) -> CommandResult {
         }
     }
 
-    wins.sort_by_key(|win| (win.bet - win.payout).as_i64());
+    wins.sort_by_key(|win| -win.bet.as_i64());
     losers.sort_by_key(|(_, loss, _)| loss.as_i64());
 
     let last_bet = LastBet {
