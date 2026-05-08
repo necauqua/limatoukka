@@ -240,7 +240,7 @@ impl ChargesService for ChargesServiceValkey {
             local user_id = KEYS[1]
             local amount = tonumber(ARGV[1])
             local current = tonumber(redis.call("GET", user_id)) or 0
-            if current < amount then
+            if amount > 0 and current < amount then
                 return 0
             elseif current == amount then
                 redis.call("SET", user_id, 0)
