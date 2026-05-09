@@ -87,6 +87,7 @@ pub enum NoitaEvent {
     WormSummoned,
     PortalEntered,
     OneHpClutch,
+    Blinded,
     ItemFound(ItemFound),
     PillarCompleted(String),
     OtherPermanentFlag(String),
@@ -166,6 +167,9 @@ impl NoitaHandle {
             }
             if rising.contains(NoitaFlags::POLIED) {
                 self.send(NoitaEvent::Polymorphed);
+            }
+            if rising.contains(NoitaFlags::BLIND) {
+                self.send(NoitaEvent::Blinded);
             }
             if rising.contains(NoitaFlags::DEAD) {
                 tracing::info!("died");
@@ -676,6 +680,7 @@ bitflags! {
         const PORTAL_ENTERED = 1 << 13;
         const HAS_SAVING_GRACE = 1 << 14;
         const AMBROSIA = 1 << 15;
+        const BLIND = 1 << 16;
     }
 }
 
@@ -688,10 +693,10 @@ impl NoitaFlags {
             self.remove(NoitaFlags::DEAD);
         }
 
-        let entity = match noita.get_player()? {
-            Some((e, PlayerState::Normal)) => {
+        let player = match noita.get_player()? {
+            Some((entity, PlayerState::Normal)) => {
                 self.remove(NoitaFlags::POLIED);
-                e
+                entity
             }
             Some((_, PlayerState::Polymorphed)) => {
                 *self |= NoitaFlags::POLIED;
@@ -702,7 +707,7 @@ impl NoitaFlags {
 
         if let Some(dmc) = noita
             .component_store::<DamageModelComponent>()?
-            .get(&entity)?
+            .get(&player)?
         {
             self.set(
                 NoitaFlags::LOW_OXYGEN,
@@ -712,7 +717,7 @@ impl NoitaFlags {
             self.set(NoitaFlags::AT_ONE_HP_OR_BELOW, dmc.hp.get() <= 1.0 / 25.0);
         }
 
-        if entity.transform.pos.y > 1200.0 {
+        if player.transform.pos.y > 1200.0 {
             *self |= NoitaFlags::PORTAL_ENTERED;
         }
 
@@ -724,16 +729,21 @@ impl NoitaFlags {
         let p = noita.proc().clone();
         let p = &p;
 
-        for child in entity.children.read(p)?.read(p)? {
+        for child in player.children.read(p)?.read(p)? {
             if child.is_null() {
                 continue;
             }
             let child = child.read(p)?;
 
-            if let Some(game_effect_comp) = game_effect_store.get(&child)?
-                && game_effect_comp.effect == GameEffect::SavingGrace
-            {
-                *self |= NoitaFlags::HAS_SAVING_GRACE;
+            if let Some(game_effect_comp) = game_effect_store.get(&child)? {
+                if game_effect_comp.effect == GameEffect::SavingGrace {
+                    *self |= NoitaFlags::HAS_SAVING_GRACE;
+                    continue;
+                }
+                if game_effect_comp.effect == GameEffect::Blindness {
+                    *self |= NoitaFlags::BLIND;
+                    continue;
+                }
             }
 
             match &*child.name.read(p)? {

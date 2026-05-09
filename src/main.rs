@@ -305,6 +305,9 @@ async fn noita_event(ctx: AppContext, event: NoitaEvent) -> Result<()> {
         NoitaEvent::OneHpClutch => {
             ctx.send("1 hp is all we needed EZ Clap".into()).await?
         },
+        NoitaEvent::Blinded => {
+            ctx.send("Now you see me, now you don't Blindge".into()).await?
+        },
         NoitaEvent::ItemFound(item) => ctx.send(match item {
             ItemFound::TreeTablet => "The best TABLET in the game acquired!",
             ItemFound::OtherTablet => "TABLET acquired",
