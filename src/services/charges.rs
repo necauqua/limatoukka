@@ -157,6 +157,14 @@ impl CommandArg for Charges {
             return Ok(ctx.charges().get(ctx.sender()).await?);
         }
 
+        if let Some(percent) = input.strip_suffix("%") {
+            let percent = percent
+                .parse::<i64>()
+                .map_err(|_| ArgError::Precondition("invalid percentage".into()))?;
+            let balance = ctx.charges().get(ctx.sender()).await?;
+            return Ok((balance.as_i64() * percent / 100).into());
+        }
+
         input
             .parse()
             .map_err(|e: &str| ArgError::Precondition(e.into()))
