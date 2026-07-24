@@ -475,6 +475,8 @@ async fn settle(ctx: CommandContext, option: String) -> CommandResult {
     }
 
     // huh
+    #[allow(clippy::manual_checked_ops)]
+    // seems to be false positive? we check once outside of the loop
     if winner_pool != 0 {
         for win in &mut wins {
             win.payout = (win.bet.as_u64() * total_pool / winner_pool + 1000).into();

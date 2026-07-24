@@ -231,7 +231,7 @@ async fn entity_tag_counts(ctx: CommandContext) -> CommandResult {
     let mut top = data
         .all_tags
         .into_iter()
-        .zip(tag_counts.into_iter())
+        .zip(tag_counts)
         .filter(|(_, count)| *count > 0)
         .collect::<Vec<_>>();
 

@@ -258,8 +258,10 @@ fn mainloop_task(tasks: &mut JoinSet<()>, task: impl Future<Output = Result<()>>
 }
 
 async fn noita_event(ctx: AppContext, event: NoitaEvent) -> Result<()> {
+    use ItemFound as I;
+    use NoitaEvent as E;
     match event {
-        NoitaEvent::PortalEntered => {
+        E::PortalEntered => {
             match close_bet(&ctx, true).await {
                 Ok(()) => {
                     ctx.send("[!!!] Bet was auto-closed".into()).await?;
@@ -268,7 +270,7 @@ async fn noita_event(ctx: AppContext, event: NoitaEvent) -> Result<()> {
                 _ => {},
             }
         }
-        NoitaEvent::PlayerDeath { killed_by, run_duration, had_ambro } => {
+        E::PlayerDeath { killed_by, run_duration, had_ambro } => {
             match ctx.noita().get_win_state().await? {
                 WinState::Loss => {
                     match do_cancel_bet(&ctx, true).await {
@@ -291,35 +293,36 @@ async fn noita_event(ctx: AppContext, event: NoitaEvent) -> Result<()> {
                 WinState::Win { cheese: true } => ctx.send(format!("won StinkyCheese (took {run_duration})")).await?,
             }
         },
-        NoitaEvent::WormSummoned => ctx.send("WORM ayo".into()).await?,
-        NoitaEvent::LowOxygen => {
+        E::WormSummoned => ctx.send("WORM ayo".into()).await?,
+        E::LowOxygen => {
             if ctx.gate("low-oxygen", Duration::from_secs(60)).await? {
                 ctx.send("Kinda getting low on O₂ btw HelloHowAreYouIAmUnderTheWater".into()).await?
             }
         },
-        NoitaEvent::Polymorphed => {
+        E::Polymorphed => {
             if ctx.gate("polymorphed", Duration::from_secs(60)).await? {
                 ctx.send("Polymorphed ICANT".into()).await?
             }
         },
-        NoitaEvent::OneHpClutch => {
+        E::OneHpClutch => {
             ctx.send("1 hp is all we needed EZ Clap".into()).await?
         },
-        NoitaEvent::Blinded => {
+        E::Blinded => {
             ctx.send("Now you see me, now you don't Blindge".into()).await?
         },
-        NoitaEvent::ItemFound(item) => ctx.send(match item {
-            ItemFound::TreeTablet => "The best TABLET in the game acquired!",
-            ItemFound::OtherTablet => "TABLET acquired",
-            ItemFound::EvilEye => "Got the EVILEYE",
-            ItemFound::EarthStone => "The final frontier before all the wacky shit, EARTHSTONE acquired! POGGIES",
-            ItemFound::TouchOfGold => "TOUCHOFGOLD - Infinite money glitch? Midas at home? A boss-killer even ( Clueless )?",
-            ItemFound::Taikasauva => "Got the SUMMONTAIKASAUVA , the whole world is in your hands now",
-            ItemFound::CircleOfVigour => "POGGIES ADDCOVS",
-            ItemFound::TenSeven => "10-7 acquired",
+        E::ItemFound(item) => ctx.send(match item {
+            I::TreeTablet => "The best TABLET in the game acquired!",
+            I::OtherTablet => "TABLET acquired",
+            I::EvilEye => "Got the EVILEYE",
+            I::EarthStone => "The final frontier before all the wacky shit, EARTHSTONE acquired! POGGIES",
+            I::TouchOfGold => "TOUCHOFGOLD - Infinite money glitch? Midas at home? A boss-killer even ( Clueless )?",
+            I::Taikasauva => "Got the SUMMONTAIKASAUVA , the whole world is in your hands now",
+            I::CircleOfVigour => "POGGIES ADDCOVS",
+            I::TenSeven => "10-7 acquired",
+            I::Brine => "BRINEbtw",
         }.into()).await?,
-        NoitaEvent::PillarCompleted(pillar) => ctx.send(format!("A new pillar level was erected! '{pillar}' is complete! shadowWizardJAM")).await?,
-        NoitaEvent::OtherPermanentFlag(flag) => ctx.send(format!("A permanent flag was set: {flag}")).await?,
+        E::PillarCompleted(pillar) => ctx.send(format!("A new pillar level was erected! '{pillar}' is complete! shadowWizardJAM")).await?,
+        E::OtherPermanentFlag(flag) => ctx.send(format!("A permanent flag was set: {flag}")).await?,
     }
     Ok(())
 }

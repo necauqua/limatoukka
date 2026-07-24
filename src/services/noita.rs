@@ -104,6 +104,7 @@ pub enum ItemFound {
     Taikasauva,
     CircleOfVigour,
     TenSeven,
+    Brine,
 }
 
 impl Default for NoitaHandle {
@@ -170,6 +171,9 @@ impl NoitaHandle {
             }
             if rising.contains(NoitaFlags::BLIND) {
                 self.send(NoitaEvent::Blinded);
+            }
+            if rising.contains(NoitaFlags::BRINE) {
+                self.send(NoitaEvent::ItemFound(I::Brine));
             }
             if rising.contains(NoitaFlags::DEAD) {
                 tracing::info!("died");
@@ -328,11 +332,8 @@ impl FungalShift {
 
         let mut result = vec![];
 
-        'outer: loop {
-            // peek heh
-            let Some([_, to]) = iter.clone().next() else {
-                break;
-            };
+        // peek heh
+        'outer: while let Some([_, to]) = iter.clone().next() {
             for group in SHIFT_GROUPS {
                 let group = group.iter().filter(|next_to| next_to != &to);
                 if iter
@@ -681,6 +682,7 @@ bitflags! {
         const HAS_SAVING_GRACE = 1 << 14;
         const AMBROSIA = 1 << 15;
         const BLIND = 1 << 16;
+        const BRINE = 1 << 17;
     }
 }
 
@@ -782,13 +784,22 @@ impl NoitaFlags {
 
                 if let Some(mat_inv) = material_inv_store.get(&child)?
                     && let Some(cf) = noita.read_cell_factory()?
-                    && let Some(ambro_idx) = cf
+                {
+                    if let Some(ambro_idx) = cf
                         .material_id_indices
                         .get(noita.proc(), "magic_liquid_protection_all")?
-                    && let Some(ptr) = mat_inv.count_per_material_type.get(ambro_idx)
-                    && ptr.read(noita.proc())? > 0.0
-                {
-                    *self |= NoitaFlags::AMBROSIA;
+                        && let Some(ptr) = mat_inv.count_per_material_type.get(ambro_idx)
+                        && ptr.read(noita.proc())? > 0.0
+                    {
+                        *self |= NoitaFlags::AMBROSIA;
+                    }
+                    if let Some(ambro_idx) =
+                        cf.material_id_indices.get(noita.proc(), "water_salt")?
+                        && let Some(ptr) = mat_inv.count_per_material_type.get(ambro_idx)
+                        && ptr.read(noita.proc())? > 0.0
+                    {
+                        *self |= NoitaFlags::BRINE;
+                    }
                 }
 
                 let Some(item_comp) = store.get(&child)? else {
