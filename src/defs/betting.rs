@@ -544,7 +544,11 @@ async fn settle(ctx: CommandContext, option: String) -> CommandResult {
             }
             body style="height: 100%; margin:0; display: flex" {
                 div style="margin: auto" {
-                    div style="padding-bottom: 3rem" { "Bet result for: " (last_bet.bet.premise) }
+                    div style="padding-bottom: 3rem" {
+                        "Bet result is `" (last_bet.result) "` for: "
+                        br;
+                        (last_bet.bet.premise)
+                    }
 
                     div style="display: flex; gap: 2rem" {
                         div.column {
