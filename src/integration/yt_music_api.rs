@@ -70,9 +70,16 @@ impl YouTubeMusic {
 
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
+        struct VideoLocalization {
+            title: String,
+        }
+
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
         struct VideoItem {
             snippet: VideoSnippet,
             content_details: VideoContentDetails,
+            localizations: HashMap<String, VideoLocalization>,
         }
 
         #[derive(Deserialize)]
@@ -103,10 +110,13 @@ impl YouTubeMusic {
             live_broadcast_content: String, // "none", "live"
         }
 
-        let Some(item) = self
+        let Some(mut item) = self
             .query::<VideoResponse>(
                 "videos",
-                HashMap::from([("part", "snippet,contentDetails"), ("id", video_id)]),
+                HashMap::from([
+                    ("part", "snippet,contentDetails,localizations"),
+                    ("id", video_id),
+                ]),
             )
             .await?
             .items
@@ -120,8 +130,13 @@ impl YouTubeMusic {
             return Ok(None); // skip live videos
         }
 
+        let title = item
+            .localizations
+            .remove("en")
+            .map_or(item.snippet.title, |l| l.title);
+
         let song = Song {
-            title: item.snippet.title,
+            title,
             author: item
                 .snippet
                 .channel_title
