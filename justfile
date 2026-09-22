@@ -47,3 +47,9 @@ aws-tts text voice="Brian":
     }")
 
     ffmpeg -ss "$skip_start" -i "sounds/{{sound}}" -t "$play_duration" -f wav - 2>/dev/null | pw-play --volume="{{volume}}" -
+
+### Manual stuff to be run by me:
+
+@when-ping:
+    valkey-cli get storage:last-pinger \
+      | jq '.timestamp.secs_since_epoch + .next_gate.secs | strflocaltime("%H:%M:%S")' -r
