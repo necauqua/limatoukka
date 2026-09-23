@@ -24,3 +24,34 @@ vote-time = "1m"
 [reset-votes]
 trigger-interval = "30s"
 vote-time = "2m"
+
+#
+# Real values in gitignored config.private.toml, this might drift over time
+#
+
+# [twitch]
+# client-id = "<SECRET>"
+# client-secret = "<SECRET>"
+# redirect-url = "http://localhost:12312"
+# target-channel = "necauqua"
+
+# [elastic]
+# url = "<HOST>"
+# api-key = "<SECRET>"
+# index = "twitch-chat-necauqua"
+
+# [stats]
+# url = "<HOST>"
+# api-key = "<SECRET>"
+# index = "limatoukka-stats"
+
+# [youtube]
+# api-key = "<SECRET>"
+# playlist = "<PLAYLIST-ID>"
+# country-code = "UA"
+
+# [ntfy]
+# host = "<HOST>"
+
+# [ntfy.topic.kofi]
+# auth = "<SECRET>"
