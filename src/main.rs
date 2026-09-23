@@ -141,7 +141,7 @@ async fn run() -> Result<()> {
     let mut noita_events = noita_handle.subscribe();
     tokio::spawn(noita_handle.poll_state_updates(ctx.clone()));
 
-    let kofi = NtfyTopic::new(&config.ntfy, "kofi");
+    let kofi = NtfyTopic::new(&config.ntfy, "kofi")?;
     let mut kofi_events = kofi.subscribe();
     tokio::spawn(kofi.run());
 

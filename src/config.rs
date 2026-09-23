@@ -56,7 +56,8 @@ pub struct Ntfy {
 #[derive(Deserialize, Clone, Default)]
 #[serde(rename_all = "kebab-case")]
 pub struct NtfyTopicConfig {
-    pub auth: Option<String>,
+    /// The ntfy access token to use for this topic
+    pub token: Option<String>,
 }
 
 #[derive(Deserialize)]
