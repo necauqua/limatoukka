@@ -219,7 +219,7 @@ impl YouTubeMusic {
         #[serde(rename_all = "camelCase")]
         struct PlaylistSnippet {
             title: String,
-            video_owner_channel_title: String,
+            video_owner_channel_title: Option<String>,
             resource_id: ResourceId,
         }
 
@@ -247,11 +247,16 @@ impl YouTubeMusic {
                 .await?;
 
             for item in res.items {
+                let Some(video_owner_channel_title) = item.snippet.video_owner_channel_title else {
+                    tracing::warn!(
+                        "Skipping video {} because it has no channel title (was privated or something)",
+                        item.snippet.resource_id.video_id
+                    );
+                    continue;
+                };
                 songs.push(Song {
                     title: item.snippet.title,
-                    author: item
-                        .snippet
-                        .video_owner_channel_title
+                    author: video_owner_channel_title
                         .trim_end_matches(" - Topic")
                         .into(),
                     video_id: item.snippet.resource_id.video_id,
@@ -266,5 +271,28 @@ impl YouTubeMusic {
 
             page_token = res.next_page_token;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{config::Config, logging};
+
+    use super::*;
+
+    #[tokio::test]
+    #[ignore = "manual test"]
+    async fn youtube_music() -> Result<()> {
+        _ = logging::init();
+
+        let config = Config::load()?;
+
+        let ytm = YouTubeMusic::new(config.youtube.api_key, config.youtube.country_code);
+
+        let playlist = ytm.load_playlist(&config.youtube.playlist).await?;
+
+        println!("Playlist has {} songs", playlist.len());
+
+        Ok(())
     }
 }
