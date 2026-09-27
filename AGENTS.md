@@ -46,9 +46,8 @@ it is not made to be simple to run by other people.
 - `Config::load()` merges `conf/config.toml` (tracked) and
   `conf/config.private.toml` (gitignored, has all secrets). The paths are
   relative, so run from the repository root.
-- `src/config.rs` is the real schema. The commented sample in
-  `conf/config.toml` can drift (e.g. ntfy uses `token`, the sample says
-  `auth`; keys such as `vote-*` and `display` are not read at all).
+- `src/config.rs` is the real schema. Keep the commented sample of the
+  private values in `conf/config.toml` in sync with it.
 - Never put secrets in tracked files. The repository is public.
 
 ## Architecture (`src/`)

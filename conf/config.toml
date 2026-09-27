@@ -1,29 +1,11 @@
 # "$schema" = "../target/config-schema.json"
 
 env = "prod"
-target = "necauqua"
-
-display = ":17"
 
 valkey = "redis://localhost:6379"
 
 browser-source-bind = "localhost:7456"
 music-player-bind = "localhost:35354"
-
-vote-min-ratio = 0.7
-vote-trigger-people = 2
-
-[kick-votes]
-trigger-interval = "30s"
-vote-time = "1m"
-
-[restart-votes]
-trigger-interval = "30s"
-vote-time = "1m"
-
-[reset-votes]
-trigger-interval = "30s"
-vote-time = "2m"
 
 #
 # Real values in gitignored config.private.toml, this might drift over time
@@ -54,4 +36,4 @@ vote-time = "2m"
 # host = "<HOST>"
 
 # [ntfy.topic.kofi]
-# auth = "<SECRET>"
+# token = "<SECRET>"
