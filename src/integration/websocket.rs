@@ -54,7 +54,7 @@ impl<P: MessageProcessor> WebSocketConnection<P> {
             .map(|timeout| Box::pin(tokio::time::sleep(timeout)))
     }
 
-    async fn connect(&self) -> Result<WebSocket, tungstenite::Error> {
+    async fn connect(&self) -> anyhow::Result<WebSocket> {
         tracing::info!("websocket connect");
         let (stream, _) = tokio_tungstenite::connect_async(self.connect_request.clone()).await?;
         Ok(stream)
