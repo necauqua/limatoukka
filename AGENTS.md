@@ -121,8 +121,9 @@ it is not made to be simple to run by other people.
 ## Other folders
 
 - `macros/`: the `#[command]` proc-macro crate (own `Cargo.lock`).
-- `lexer/`: a WASM + webpack demo that highlights the command syntax. It uses
-  an older `neca-cmd` API (`CommandMessage`) and is probably stale.
+- `lexer/`: a WASM + webpack demo that shows how `neca-cmd` parses a chat
+  message (`npm run build`/`serve`). It is a separate crate, not a workspace
+  member; it also patches `neca-cmd` to `../../neca-cmd`.
 - `sounds/`: only `_meta.yml` (sound ids → file variants, volume, rarity,
   message) and `.gitignore` are tracked. The `.ogg` files are not tracked.
 - `lisp/`: a **separate nested jj repository** (a Lisp dialect, `.tpl`
