@@ -91,8 +91,8 @@ it is not made to be simple to run by other people.
     variable expansion. Macro recursion limit is 3. `fail!(...)` returns a
     user-visible precondition error. The last error per user is stored in
     `storage:last-error:<uid>`.
-  - Known quirk: `main.rs` filters `NoitaControl` commands into `commands`,
-    but passes a new, unfiltered `discover_declared_commands()` to `Runner`.
+  - `main.rs` removes `NoitaControl` commands before it gives the command
+    map to `Runner`, so they are disabled.
 - `defs/`: the chat commands, by area (betting, economy, macros, moderation,
   sounds/music, stats, data, util).
 - `integration/`: external APIs (Twitch Helix/OAuth, EventSub, YouTube,

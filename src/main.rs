@@ -132,7 +132,7 @@ async fn run() -> Result<()> {
     // todo make this less cringe
     commands.retain(|_, v| !v.is(CommandTag::NoitaControl));
 
-    let runner = Runner::new(discover_declared_commands(), &ctx);
+    let runner = Runner::new(commands, &ctx);
 
     tokio::spawn(eventsub.run(ctx.clone()));
     tokio::spawn(display_server.start(&config.browser_source_bind));
