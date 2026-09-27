@@ -81,7 +81,8 @@ it is not made to be simple to run by other people.
     (charges), `free_for = <PermissionLevel>`, and bare `CommandTag`s
     (`Hidden`, `NoWall`, `NoitaControl`, `NoitaData`, `GlobalMacroExempt`).
   - Argument types implement `CommandArg`/`ArgExtractor` (`commands/args.rs`):
-    `String`, numbers, `bool`, `Duration`, `Chatter`, `Charges`,
+    `String`, numbers, `bool`, `Duration`, `Chatter`, `ChargesAmount`
+    (exact, `all` or `<n>%`; the command resolves it against a balance),
     `HoldTime<DEF, MAX>`, `InRange<A, B>`, `Required<T>`, `RestOfArgs`,
     `RawScript`, `Script`, etc.
   - `runner.rs` evaluates a parsed `neca_cmd::Statement`: `|`-separated

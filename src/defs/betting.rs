@@ -15,7 +15,7 @@ use crate::{
     fail,
     integration::justfile::just,
     services::{
-        charges::{Charges, ChargesServiceExt, ConsumeResult},
+        charges::{Charges, ChargesAmount, ChargesServiceExt, ConsumeResult},
         display::{DisplayServiceAux, DisplayServiceExt},
         names::NamesServiceExt,
         storage::StorageServiceExt,
@@ -235,16 +235,13 @@ async fn is_bet(ctx: CommandContext) -> CommandResult {
 ///
 /// If you dont wager anything, you will still win 1⚡︎ if you were correct.
 #[command(sender_gate = 5s)]
-async fn bet(ctx: CommandContext, option: String, wager: Option<Charges>) -> CommandResult {
+async fn bet(ctx: CommandContext, option: String, wager: Option<ChargesAmount>) -> CommandResult {
     let guard = LOCK.lock().await;
     let Some(mut bet) = ctx.storage().load::<Bet>("bet:current").await? else {
         fail!("There is no active bet");
     };
     if bet.closed {
         fail!("Bet is closed");
-    }
-    if wager.is_some_and(|w| w.as_i64() < 0) {
-        fail!("Wager must be non-negative");
     }
     if !bet.options.iter().any(|o| o.eq_ignore_ascii_case(&option)) {
         let suffix = if ctx.in_global_macro {
@@ -258,18 +255,36 @@ async fn bet(ctx: CommandContext, option: String, wager: Option<Charges>) -> Com
         );
     }
 
-    if let Some((_, amount, _)) = bet.wagers.remove(ctx.sender())
-        && amount.non_zero()
-    {
-        ctx.charges().add(ctx.sender(), amount).await?;
+    let charges = ctx.charges();
+
+    // the previous wager is a part of the balance for the new bet
+    let prev_wager = bet
+        .wagers
+        .get(ctx.sender())
+        .map(|(_, amount, _)| *amount)
+        .unwrap_or_default();
+
+    let wager = match wager {
+        Some(amount) if amount.is_relative() => {
+            Some(amount.resolve(charges.get(ctx.sender()).await? + prev_wager))
+        }
+        Some(amount) => Some(amount.resolve(Charges::ZERO)),
+        None => None,
+    };
+    if wager.is_some_and(|w| w.as_i64() < 0) {
+        fail!("Wager must be non-negative");
     }
 
-    let all_in = match wager {
-        Some(wager) => match ctx.charges().consume(ctx.sender(), wager).await? {
+    // only move the difference between the new and the previous wager
+    let diff = wager.unwrap_or_default() - prev_wager;
+    let all_in = if diff.as_i64() > 0 {
+        match charges.consume(ctx.sender(), diff).await? {
             ConsumeResult::Fail => fail!("poor"),
-            ConsumeResult::Success { bankrupt } => bankrupt,
-        },
-        _ => false,
+            ConsumeResult::Success { bankrupt } => wager.is_some() && bankrupt,
+        }
+    } else {
+        let balance = charges.add(ctx.sender(), -diff).await?;
+        wager.is_some() && balance.is_zero()
     };
 
     let wager = wager.unwrap_or_default();
@@ -612,4 +627,95 @@ async fn settle(ctx: CommandContext, option: String) -> CommandResult {
     .await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use anyhow::Result;
+
+    use super::*;
+    use crate::{
+        commands::{discover_declared_commands, runner::Runner},
+        logging,
+        services::{
+            Injector,
+            charges::{ChargesService, ChargesServiceInMemory},
+            messaging::PermissionLevel,
+        },
+        testing::{self, MessageExt},
+    };
+
+    async fn setup() -> Result<(AppContext, Runner)> {
+        let _guard = logging::init();
+        let ctx = AppContext::new(
+            Injector::new().with::<dyn ChargesService>(Arc::new(ChargesServiceInMemory::default())),
+        );
+        let runner = Runner::new(discover_declared_commands(), &ctx);
+        runner
+            .process_message(
+                ctx.clone(),
+                testing::message("mkbet:premise~")
+                    .sender("caster-id", "caster")
+                    .permission(PermissionLevel::Caster),
+            )
+            .await?;
+        ctx.charges()
+            .set("mock-sender-id", Charges::whole(10))
+            .await?;
+        Ok((ctx, runner))
+    }
+
+    async fn bet(ctx: &AppContext, runner: &Runner, text: &str) -> Result<Option<String>> {
+        ctx.storage().del("last-error:mock-sender-id").await?;
+        runner
+            .process_message(ctx.clone(), testing::message(text))
+            .await?;
+        ctx.storage().get("last-error:mock-sender-id").await
+    }
+
+    async fn state(ctx: &AppContext) -> Result<(i64, i64, bool)> {
+        let balance = ctx.charges().get("mock-sender-id").await?;
+        let bet = ctx.storage().load::<Bet>("bet:current").await?.unwrap();
+        let (_, wager, all_in) = bet.wagers["mock-sender-id"];
+        Ok((balance.as_i64(), wager.as_i64(), all_in))
+    }
+
+    #[tokio::test]
+    async fn rebet_counts_previous_wager() -> Result<()> {
+        let (ctx, runner) = setup().await?;
+
+        assert_eq!(bet(&ctx, &runner, "bet:believe:4~").await?, None);
+        assert_eq!(state(&ctx).await?, (6000, 4000, false));
+
+        // more than the balance, but not more than the balance with the wager
+        assert_eq!(bet(&ctx, &runner, "bet:doubt:8~").await?, None);
+        assert_eq!(state(&ctx).await?, (2000, 8000, false));
+
+        assert_eq!(bet(&ctx, &runner, "bet:doubt:50%~").await?, None);
+        assert_eq!(state(&ctx).await?, (5000, 5000, false));
+
+        assert_eq!(bet(&ctx, &runner, "bet:doubt:all~").await?, None);
+        assert_eq!(state(&ctx).await?, (0, 10000, true));
+
+        assert_eq!(bet(&ctx, &runner, "bet:believe:2.5~").await?, None);
+        assert_eq!(state(&ctx).await?, (7500, 2500, false));
+
+        assert_eq!(bet(&ctx, &runner, "bet:believe~").await?, None);
+        assert_eq!(state(&ctx).await?, (10000, 0, false));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn failed_rebet_keeps_previous_wager() -> Result<()> {
+        let (ctx, runner) = setup().await?;
+
+        assert_eq!(bet(&ctx, &runner, "bet:believe:4~").await?, None);
+        assert!(bet(&ctx, &runner, "bet:believe:11~").await?.is_some());
+        assert_eq!(state(&ctx).await?, (6000, 4000, false));
+
+        Ok(())
+    }
 }

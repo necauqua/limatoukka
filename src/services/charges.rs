@@ -150,28 +150,70 @@ impl FromStr for Charges {
     }
 }
 
-#[async_trait]
-impl CommandArg for Charges {
-    async fn parse(ctx: &CommandContext, input: CompactString) -> ArgResult<Self> {
-        if ["*", "all", "allin", "everything"].contains(&&*input) {
-            return Ok(ctx.charges().get(ctx.sender()).await?);
-        }
+/// A command argument for an amount of charges: an exact amount, or an
+/// amount relative to a balance (all of it, or a percentage of it).
+///
+/// The command decides which balance to [resolve](Self::resolve) it against.
+#[derive(Debug, Clone, Copy)]
+pub enum ChargesAmount {
+    Exact(Charges),
+    All,
+    Percent(f64),
+}
 
+impl ChargesAmount {
+    pub fn is_relative(&self) -> bool {
+        !matches!(self, Self::Exact(_))
+    }
+
+    pub fn resolve(self, balance: Charges) -> Charges {
+        match self {
+            Self::Exact(amount) => amount,
+            Self::All => balance,
+            // truncates towards zero, so it never goes above the balance
+            Self::Percent(percent) => Charges((balance.as_i64() as f64 * percent / 100.0) as i64),
+        }
+    }
+
+    /// Resolve against the current balance of the given user. The balance
+    /// is only read if the amount is relative.
+    pub async fn resolve_for(self, charges: &dyn ChargesService, user_id: &str) -> Result<Charges> {
+        let balance = if self.is_relative() {
+            charges.get(user_id).await?
+        } else {
+            Charges::ZERO
+        };
+        Ok(self.resolve(balance))
+    }
+}
+
+impl FromStr for ChargesAmount {
+    type Err = &'static str;
+
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
+        if ["*", "all", "allin", "everything"].contains(&input) {
+            return Ok(Self::All);
+        }
         if let Some(percent) = input.strip_suffix("%") {
-            let percent = percent
-                .parse::<i64>()
-                .map_err(|_| ArgError::Precondition("invalid percentage".into()))?;
-            let balance = ctx.charges().get(ctx.sender()).await?;
-            return Ok((balance.as_i64() * percent / 100).into());
+            return match percent.parse::<f64>() {
+                Ok(percent) if percent.is_finite() => Ok(Self::Percent(percent)),
+                _ => Err("invalid percentage"),
+            };
         }
+        input.parse().map(Self::Exact)
+    }
+}
 
+#[async_trait]
+impl CommandArg for ChargesAmount {
+    async fn parse(_ctx: &CommandContext, input: CompactString) -> ArgResult<Self> {
         input
             .parse()
             .map_err(|e: &str| ArgError::Precondition(e.into()))
     }
 
     fn type_desc() -> Cow<'static, str> {
-        "a number of charges, in form of a number with up to 3 decimal places. Alternatively, `*`/`all`/`allin`/`everything` for your current balance.".into()
+        "a number of charges, in form of a number with up to 3 decimal places. Alternatively, `*`/`all`/`allin`/`everything` for your current balance, or `<n>%` (e.g. `50%` or `12.5%`) for a percentage of it.".into()
     }
 }
 
@@ -336,6 +378,65 @@ impl ChargesService for ChargesServiceValkey {
     }
 }
 
+#[derive(Default, Debug)]
+pub struct ChargesServiceInMemory {
+    balances: dashmap::DashMap<String, i64>,
+}
+
+#[async_trait]
+impl ChargesService for ChargesServiceInMemory {
+    async fn get(&self, user_id: &str) -> Result<Charges> {
+        Ok(self.balances.get(user_id).map_or(0, |v| *v).into())
+    }
+
+    async fn set(&self, user_id: &str, amount: Charges) -> Result<()> {
+        self.balances.insert(user_id.into(), amount.as_i64());
+        Ok(())
+    }
+
+    async fn add(&self, user_id: &str, amount: Charges) -> Result<Charges> {
+        let mut balance = self.balances.entry(user_id.into()).or_default();
+        *balance += amount.as_i64();
+        Ok((*balance).into())
+    }
+
+    async fn consume(&self, user_id: &str, amount: Charges) -> Result<ConsumeResult> {
+        let mut balance = self.balances.entry(user_id.into()).or_default();
+        let amount = amount.as_i64();
+        if amount > 0 && *balance < amount {
+            return Ok(ConsumeResult::Fail);
+        }
+        *balance -= amount;
+        Ok(ConsumeResult::Success {
+            bankrupt: *balance == 0,
+        })
+    }
+
+    async fn transfer(
+        &self,
+        from_user_id: &str,
+        to_user_id: &str,
+        amount: Charges,
+    ) -> Result<bool> {
+        if amount.as_i64() < 0 {
+            return Ok(false);
+        }
+        if self.consume(from_user_id, amount).await?.is_fail() {
+            return Ok(false);
+        }
+        self.add(to_user_id, amount).await?;
+        Ok(true)
+    }
+
+    async fn get_all(&self) -> Result<Vec<(String, Charges)>> {
+        Ok(self
+            .balances
+            .iter()
+            .map(|e| (e.key().clone(), (*e.value()).into()))
+            .collect())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -372,6 +473,28 @@ mod tests {
         assert_eq!("-1.12".parse::<Charges>().unwrap().as_i64(), -1120);
         assert_eq!("-1.123".parse::<Charges>().unwrap().as_i64(), -1123);
         assert_eq!("-1234.123".parse::<Charges>().unwrap().as_i64(), -1234123);
+    }
+
+    #[test]
+    fn charges_amount() {
+        let resolve = |s: &str, balance: i64| {
+            s.parse::<ChargesAmount>()
+                .map(|a| a.resolve(balance.into()).as_i64())
+        };
+        assert_eq!(resolve("1.5", 10_000), Ok(1500));
+        assert_eq!(resolve("-1", 10_000), Ok(-1000));
+        assert_eq!(resolve("all", 10_000), Ok(10_000));
+        assert_eq!(resolve("*", 10_000), Ok(10_000));
+        assert_eq!(resolve("50%", 10_000), Ok(5000));
+        assert_eq!(resolve("100%", 12_345), Ok(12_345));
+        assert_eq!(resolve("12.5%", 10_000), Ok(1250));
+        assert_eq!(resolve("33.3333%", 1000), Ok(333));
+        assert_eq!(resolve(".5%", 10_000), Ok(50));
+        assert_eq!(resolve("-50%", 10_000), Ok(-5000));
+        assert!(resolve("abc%", 10_000).is_err());
+        assert!(resolve("inf%", 10_000).is_err());
+        assert!(resolve("NaN%", 10_000).is_err());
+        assert!(resolve("1.2345", 10_000).is_err());
     }
 
     #[test]

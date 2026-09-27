@@ -13,7 +13,7 @@ use crate::{
     context::cmd::CommandContext,
     fail,
     services::{
-        charges::{Charges, ChargesServiceExt},
+        charges::{Charges, ChargesAmount, ChargesServiceExt},
         gates::GateServiceExt,
         names::NamesServiceExt,
         sounds::SoundServiceExt,
@@ -104,8 +104,9 @@ async fn unleash_me(ctx: CommandContext) -> CommandResult {
 async fn transfer(
     ctx: CommandContext,
     target: Required<Chatter>,
-    amount: Charges,
+    amount: ChargesAmount,
 ) -> CommandResult {
+    let amount = amount.resolve_for(&*ctx.charges(), ctx.sender()).await?;
     let from = ctx.sender();
     let to = &*target.id;
 
@@ -131,7 +132,8 @@ async fn transfer(
 ///
 /// The amount can be negative 🙃
 #[command(permission = Caster)]
-async fn award(ctx: CommandContext, target: Chatter, amount: Charges) -> CommandResult {
+async fn award(ctx: CommandContext, target: Chatter, amount: ChargesAmount) -> CommandResult {
+    let amount = amount.resolve_for(&*ctx.charges(), ctx.sender()).await?;
     ctx.charges().add(&target.id, amount).await?;
 
     ctx.reply(format!("Awarded {amount} to {}", target.login))
