@@ -431,7 +431,7 @@ mod tests {
             unwrap_youtube_id("https://www.youtube.com/") // no v query, no last path segment
                 .unwrap_err()
                 .to_string(),
-            "Malformed YouTube URL"
+            "YouTube URL had no video ID"
         );
     }
 

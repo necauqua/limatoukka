@@ -23,8 +23,7 @@ it is not made to be simple to run by other people.
   `/tmp/tpn-bot.fifo`, read by `messaging::connect_to_mock`, which is not
   connected in `main.rs` at the moment).
 - Tests: `direnv exec . cargo test`. Tests marked `#[ignore = "manual test"]`
-  need real config/credentials. `defs::sounds::tests::test_get_youtube_id`
-  fails at the moment (the error message text changed, the test did not).
+  need real config/credentials.
 - Logging: `tracing`; filter from `RUST_LOG`, default `limatoukka=info`.
 
 ## Runtime dependencies
