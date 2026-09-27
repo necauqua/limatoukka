@@ -246,10 +246,9 @@ pub fn command(attrs: TokenStream, input: TokenStream) -> TokenStream {
             line_number: line!(),
             action: |ctx, mut args| Box::pin(async move {
                 #arg_defs
-                let idx = args.current_idx();
-                if let Some(arg) = args.pop() {
-                    return Err(crate::commands::args::ExtractorError::UnexpectedArgument(idx, arg).into());
-                }
+                // extraneous arguments are ignored, the same as with macros;
+                // this also keeps `mut args` used for commands without arguments
+                let _ = &mut args;
                 #arg_gets
                 #ident(#args).await
             }),

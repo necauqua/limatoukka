@@ -248,3 +248,31 @@ async fn hello(ctx: CommandContext) -> CommandResult {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use anyhow::Result;
+
+    use super::*;
+    use crate::{
+        commands::{discover_declared_commands, runner::Runner},
+        context::app::AppContext,
+        logging, testing,
+    };
+
+    #[tokio::test]
+    async fn extraneous_arguments_are_ignored() -> Result<()> {
+        let _guard = logging::init();
+        let ctx = AppContext::new(Default::default());
+        let runner = Runner::new(discover_declared_commands(), &ctx);
+
+        runner
+            .process_message(ctx.clone(), testing::message("last-pinger:extra:args~"))
+            .await?;
+
+        let err = ctx.storage().get("last-error:mock-sender-id").await?;
+        assert_eq!(err, None);
+
+        Ok(())
+    }
+}

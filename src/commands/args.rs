@@ -34,8 +34,6 @@ use neca_cmd::{
 pub enum ExtractorError {
     #[error("argument #{idx}: {1}", idx = .0 + 1)]
     BadArgument(usize, ArgError),
-    #[error("unexpected argument #{idx}: {1}", idx = .0 + 1)]
-    UnexpectedArgument(usize, Param),
 }
 
 #[derive(Debug, Clone)]
