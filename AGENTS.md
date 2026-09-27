@@ -18,6 +18,11 @@ it is not made to be simple to run by other people.
   parser) and `../noita/noita-utility-box/noita-engine-reader`. The sandbox
   mounts only this folder, thus `cargo build` fails there. Use `unsafe-bash`,
   or a sandbox with a mount on `~/projects`.
+- `twitch_api` is a git dependency on a pinned upstream commit (for the hype
+  train V2 EventSub types, which are not in 0.8.0), with a
+  `[patch.crates-io]` for `twitch_types` from the same commit so that only
+  one `twitch_types` is in the build. Change both back to crates.io versions
+  when a release has these types.
 - Binaries: `limatoukka` (default, the bot), `docgen` (prints YAML docs of all
   commands to stdout), `mock_chat` (a REPL that writes lines to
   `/tmp/tpn-bot.fifo`, read by `messaging::connect_to_mock`, which is not

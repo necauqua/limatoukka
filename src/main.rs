@@ -70,8 +70,8 @@ async fn run() -> Result<()> {
     eventsub.listen_to(ChannelSubscriptionMessageV1::broadcaster_user_id(id));
     eventsub.listen_to(ChannelCheerV1::broadcaster_user_id(id));
     eventsub.listen_to(ChannelRaidV1::to_broadcaster_user_id(id));
-    eventsub.listen_to(ChannelHypeTrainBeginV1::broadcaster_user_id(id));
-    eventsub.listen_to(ChannelHypeTrainEndV1::broadcaster_user_id(id));
+    eventsub.listen_to(ChannelHypeTrainBeginV2::broadcaster_user_id(id));
+    eventsub.listen_to(ChannelHypeTrainEndV2::broadcaster_user_id(id));
     eventsub.listen_to(StreamOnlineV1::broadcaster_user_id(id));
     eventsub.listen_to(StreamOfflineV1::broadcaster_user_id(id));
 
@@ -538,14 +538,14 @@ async fn eventsub_event(ctx: AppContext, event: Event) -> Result<()> {
 
             sound.await??;
         }
-        Event::ChannelHypeTrainBeginV1(Payload {
+        Event::ChannelHypeTrainBeginV2(Payload {
             message: Message::Notification(_),
             ..
         }) => {
             tracing::info!("hype train start");
             ctx.send("Scam train ICANT".into()).await?;
         }
-        Event::ChannelHypeTrainEndV1(Payload {
+        Event::ChannelHypeTrainEndV2(Payload {
             message: Message::Notification(data),
             ..
         }) => {

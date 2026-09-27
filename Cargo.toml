@@ -43,8 +43,10 @@ serde_json = "1.0.140"
 strum = { version = "0.27.1", features = ["derive"] }
 lazy-regex = "3.4.1"
 bitflags = "2.9.0"
-twitch_api = { version = "0.7.2", features = ["client", "eventsub", "helix", "mock_api", "reqwest", "twitch_oauth2", "typed-builder"] }
-reqwest = "0.12.15"
+# unreleased upstream main for the hype train V2 eventsub types (not in 0.8.0);
+# change back to a crates.io version when a release has them
+twitch_api = { git = "https://github.com/twitch-rs/twitch_api", rev = "62e4c626644496bd619f7b58565e5d1cd8e243aa", features = ["client", "eventsub", "helix", "mock_api", "reqwest", "twitch_oauth2", "typed-builder"] }
+reqwest = { version = "0.13", features = ["json", "query"] }
 keyring = { version = "3.6.2", features = [
     "crypto-rust",
     "sync-secret-service",
@@ -63,7 +65,9 @@ jiff = "0.2.37"
 
 [dev-dependencies]
 insta = "1.42.2"
-reqwest-sse = "0.1.0"
+reqwest-sse = "0.2.0"
 
 [patch.crates-io]
 neca-cmd = { path = "../neca-cmd" }
+# the same twitch_types as the one of the twitch_api git dependency above
+twitch_types = { git = "https://github.com/twitch-rs/twitch_api", rev = "62e4c626644496bd619f7b58565e5d1cd8e243aa" }
