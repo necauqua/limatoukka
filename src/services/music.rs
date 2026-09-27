@@ -344,7 +344,8 @@ impl MusicService for YouTubeMusicPlayer {
         _ = self.broadcast.send(
             Event::default()
                 .event(if paused { "pause" } else { "play" })
-                .data(""),
+                // browsers ignore SSE events without data
+                .data("1"),
         );
         Ok(())
     }
