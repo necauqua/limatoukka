@@ -19,6 +19,9 @@ use crate::{context::cmd::CommandContext, services::messaging::PermissionLevel};
 
 pub type CommandResult = Result<(), CommandError>;
 pub type CommandFuture = Pin<Box<dyn Future<Output = CommandResult> + Send>>;
+/// A check that makes the command free for this use when it returns `true`.
+pub type FreeIf =
+    for<'a> fn(&'a CommandContext) -> Pin<Box<dyn Future<Output = anyhow::Result<bool>> + Send + 'a>>;
 
 #[derive(Debug)]
 pub struct CommandArgDesc {
@@ -48,6 +51,8 @@ pub struct NativeCommand {
     pub cost: Option<i64>,
     /// Minimum permission level that allows to use the command for free
     pub free_for: PermissionLevel,
+    /// A check that makes the command free for this use
+    pub free_if: Option<FreeIf>,
 }
 
 impl NativeCommand {

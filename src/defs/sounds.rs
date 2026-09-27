@@ -184,8 +184,18 @@ async fn set_global_volume(ctx: CommandContext, volume: InRange<0, 100>) -> Comm
     Ok(())
 }
 
+/// Whether the sender requested the song that's currently playing.
+async fn is_own_song(ctx: &CommandContext) -> Result<bool> {
+    Ok(matches!(
+        ctx.music().current().await?,
+        Some((_, SongSource::Request { requester })) if requester == ctx.message().sender.name
+    ))
+}
+
 /// Skips the song that's currently playing on stream, if any.
-#[command(global_gate = 15s, cost = 1, free_for = Vip)]
+///
+/// Free if you requested the song that's currently playing.
+#[command(global_gate = 15s, cost = 1, free_for = Vip, free_if = is_own_song)]
 async fn skip(ctx: CommandContext) -> CommandResult {
     if ctx.music().skip().await? {
         ctx.reply("song skipped Madge".into()).await?

@@ -83,7 +83,9 @@ it is not made to be simple to run by other people.
     `_` → `-`. Doc comments become the help/docgen text.
   - Attributes: `permission = <PermissionLevel>`, `global_gate`/
     `sender_gate = 5s` (durations), `shortcode = x` (must be unique), `cost`
-    (charges), `free_for = <PermissionLevel>`, and bare `CommandTag`s
+    (charges), `free_for = <PermissionLevel>`, `free_if = <fn>` (an
+    `async fn(&CommandContext) -> anyhow::Result<bool>`; `true` makes this
+    use free; docgen writes `free_if: true`), and bare `CommandTag`s
     (`Hidden`, `NoWall`, `NoitaControl`, `NoitaData`, `GlobalMacroExempt`).
   - Argument types implement `CommandArg`/`ArgExtractor` (`commands/args.rs`):
     `String`, numbers, `bool`, `Duration`, `Chatter`, `ChargesAmount`

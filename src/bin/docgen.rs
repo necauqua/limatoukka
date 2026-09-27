@@ -44,6 +44,8 @@ struct CommandOut {
     cost: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     free_for: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    free_if: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -133,6 +135,7 @@ fn main() -> Result<()> {
                         PermissionLevel::Caster => None,
                         _ => Some(<&'static str>::from(cmd.free_for).into()),
                     },
+                    free_if: cmd.free_if.map(|_| true),
                 })
                 .collect(),
         });

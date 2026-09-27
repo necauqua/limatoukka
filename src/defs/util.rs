@@ -231,8 +231,11 @@ async fn what_is(ctx: CommandContext, name: String, to: Chatter) -> CommandResul
         }
         if let Some(cost) = meta.cost {
             write!(&mut s, ", costs {}", Charges::from(cost)).unwrap();
-            if meta.free_for != PermissionLevel::Viewer {
+            if meta.free_for != PermissionLevel::Caster {
                 write!(&mut s, " (free for {:?}-level and above)", meta.free_for).unwrap();
+            }
+            if meta.free_if.is_some() {
+                s.push_str(" (can be free under some conditions, see the docs)");
             }
         }
 

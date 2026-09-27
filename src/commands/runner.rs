@@ -317,6 +317,10 @@ impl Runner {
         if !exempt
             && level < m.free_for
             && let Some(cost) = m.cost
+            && !match m.free_if {
+                Some(free_if) => free_if(&ctx).await?,
+                None => false,
+            }
         {
             let cost = cost.into();
             if ctx.charges().consume(ctx.sender(), cost).await?.is_fail() {

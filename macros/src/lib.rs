@@ -39,6 +39,7 @@ struct CommandMacroAttrs {
     shortcode: Option<MacroArg>,
     cost: Option<MacroArg>,
     free_for: Option<MacroArg>,
+    free_if: Option<MacroArg>,
     extras: Vec<MacroArg>,
 }
 
@@ -54,6 +55,7 @@ impl Parse for CommandMacroAttrs {
                 "shortcode" => args.shortcode.replace(arg),
                 "cost" => args.cost.replace(arg),
                 "free_for" => args.free_for.replace(arg),
+                "free_if" => args.free_if.replace(arg),
                 _ => {
                     let prev = args.extras.iter().position(|a| a.name == arg.name);
                     args.extras.push(arg);
@@ -224,6 +226,18 @@ pub fn command(attrs: TokenStream, input: TokenStream) -> TokenStream {
         }
         None => quote!(free_for: crate::services::messaging::PermissionLevel::Caster),
     };
+    // an `async fn(&CommandContext) -> anyhow::Result<bool>`
+    let free_if = match attrs.free_if {
+        Some(free_if) => {
+            let name = free_if.name;
+            if let Some(value) = free_if.value {
+                quote!(#name: Some(|ctx| ::std::boxed::Box::pin((#value)(ctx))))
+            } else {
+                quote_spanned!(name.span() => #name: compile_error!("missing free_if value"))
+            }
+        }
+        None => quote!(free_if: None),
+    };
 
     let tags = attrs.extras.into_iter().map(|attr| {
         if let Some(value) = attr.value {
@@ -259,6 +273,7 @@ pub fn command(attrs: TokenStream, input: TokenStream) -> TokenStream {
             #shortcode,
             #cost,
             #free_for,
+            #free_if,
         });
     }
     .into()
