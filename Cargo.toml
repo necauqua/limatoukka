@@ -59,6 +59,7 @@ compact_str = "0.9.0"
 dashmap = "6.1.0"
 tracing-chrome = "0.7.2"
 parse_duration = "2.1.1"
+jiff = "0.2.37"
 
 [dev-dependencies]
 insta = "1.42.2"

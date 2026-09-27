@@ -1,10 +1,11 @@
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use async_trait::async_trait;
 use futures::TryStreamExt;
 use twitch_api::{
     helix::{
         channels::{
-            ModifyChannelInformation, ModifyChannelInformationBody, ModifyChannelInformationRequest,
+            GetChannelFollowersRequest, ModifyChannelInformation, ModifyChannelInformationBody,
+            ModifyChannelInformationRequest,
         },
         chat::SendAShoutoutRequest,
         moderation::GetBannedUsersRequest,
@@ -34,6 +35,9 @@ pub trait TwitchService: Service {
     async fn shout_out(&self, user_id: &str) -> Result<()>;
 
     async fn fulfill_redemption(&self, reward_id: &str, id: &str) -> Result<()>;
+
+    /// When the user started to follow the channel, if they follow it.
+    async fn followed_at(&self, user_id: &str) -> Result<Option<jiff::Timestamp>>;
 }
 
 injector_getter!(TwitchService::twitch);
@@ -130,5 +134,24 @@ impl TwitchService for TwitchServiceImpl {
             })
             .await?;
         Ok(())
+    }
+
+    async fn followed_at(&self, user_id: &str) -> Result<Option<jiff::Timestamp>> {
+        let followers = self
+            .0
+            .caster_call(async |t| {
+                let request =
+                    GetChannelFollowersRequest::broadcaster_id(t.caster_id).user_id(user_id);
+                t.helix.req_get(request, &t.token).await
+            })
+            .await?
+            .data;
+
+        followers
+            .into_iter()
+            .find(|f| f.user_id.as_str() == user_id)
+            .map(|f| f.followed_at.as_str().parse())
+            .transpose()
+            .context("bad followed_at timestamp from Twitch")
     }
 }

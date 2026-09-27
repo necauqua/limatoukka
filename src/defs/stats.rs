@@ -1,5 +1,7 @@
 use std::borrow::Cow;
 
+use jiff::{Timestamp, Unit, tz::TimeZone};
+
 use crate::{
     commands::{
         CommandResult,
@@ -11,6 +13,7 @@ use crate::{
     services::{
         chat_log::{ChatLogServiceExt, Edge, Rank},
         stats::StatsServiceExt,
+        twitch::TwitchServiceExt,
     },
 };
 
@@ -81,6 +84,46 @@ async fn last_message(ctx: CommandContext, chatter: Chatter) -> CommandResult {
     Ok(())
 }
 
+/// Formats the calendar time from `since` to `now` in UTC, e.g.
+/// `2 years 3 months 5 days`.
+fn calendar_duration(since: Timestamp, now: Timestamp) -> anyhow::Result<String> {
+    let since = since.to_zoned(TimeZone::UTC);
+    let span = since.until((Unit::Year, &now.to_zoned(TimeZone::UTC)))?;
+
+    let parts = [
+        (span.get_years().into(), "year"),
+        (span.get_months(), "month"),
+        (span.get_days(), "day"),
+    ]
+    .into_iter()
+    .filter(|(n, _)| *n != 0)
+    .map(|(n, unit)| format!("{n} {unit}{}", if n == 1 { "" } else { "s" }))
+    .collect::<Vec<_>>();
+
+    Ok(if parts.is_empty() {
+        "less than a day".into()
+    } else {
+        parts.join(" ")
+    })
+}
+
+/// Get how long a user (or you) has been following the channel.
+#[command(sender_gate = 10s)]
+async fn followage(ctx: CommandContext, chatter: Chatter) -> CommandResult {
+    let whom = chatter.them(ctx.owner(), "You", "They");
+
+    let response = match ctx.twitch().followed_at(&chatter.id).await? {
+        Some(since) => format!(
+            "{whom} have been following for {} (since {})",
+            calendar_duration(since, Timestamp::now())?,
+            since.to_zoned(TimeZone::UTC).date(),
+        ),
+        None => format!("{whom} do not follow the channel ICANT"),
+    };
+    ctx.reply(response).await?;
+    Ok(())
+}
+
 /// Get a list of top-N chatters of all time, by number of sent messages.
 #[command(sender_gate = 1m)]
 async fn top(ctx: CommandContext, n: Option<InRange<1, 15>>) -> CommandResult {
@@ -144,4 +187,37 @@ async fn command_stat(ctx: CommandContext, name: String, chatter: Chatter) -> Co
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn duration(since: &str, now: &str) -> String {
+        calendar_duration(since.parse().unwrap(), now.parse().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn calendar_duration_format() {
+        assert_eq!(
+            duration("2023-06-21T10:00:00Z", "2025-09-26T12:00:00Z"),
+            "2 years 3 months 5 days"
+        );
+        assert_eq!(
+            duration("2025-09-01T10:00:00Z", "2026-09-27T09:00:00Z"),
+            "1 year 25 days"
+        );
+        assert_eq!(
+            duration("2026-08-27T10:00:00Z", "2026-09-27T10:00:00Z"),
+            "1 month"
+        );
+        assert_eq!(
+            duration("2026-09-15T10:00:00Z", "2026-09-27T10:00:00Z"),
+            "12 days"
+        );
+        assert_eq!(
+            duration("2026-09-26T10:00:00Z", "2026-09-27T09:59:59Z"),
+            "less than a day"
+        );
+    }
 }
