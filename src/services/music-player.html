@@ -60,7 +60,7 @@
                     onclick="togglePause()"
                     style="align-self: normal; width: 2rem; height: 2rem"
                 >
-                    ⏸︎
+                    ▶︎
                 </button>
                 <button
                     onclick="playNext().catch(console.error)"
@@ -79,49 +79,196 @@
             </div>
 
             <div style="display: flex; gap: 0.5rem; align-items: center">
-                <span id="volumeDisplay" style="width: 2rem">5</span>
+                <span
+                    id="volumeDisplay"
+                    style="min-width: 5rem; white-space: nowrap"
+                ></span>
                 <input
                     id="volume"
                     type="range"
                     min="0"
                     max="100"
-                    value="5"
-                    oninput="updateVolume()"
+                    oninput="volumeInput()"
+                    onchange="volumeChange()"
                 />
+                <label style="white-space: nowrap">
+                    <input id="localVolume" type="checkbox" />
+                    local volume
+                </label>
             </div>
         </div>
 
-        <script src="https://www.youtube.com/iframe_api"></script>
         <script>
             let player;
 
-            function updateVolume() {
-                volumeDisplay.innerText = volume.value;
-                player?.setVolume(volume.value);
-                fetch("/state/volume/" + volume.value, {
-                    method: "POST",
-                }).catch(console.error);
+            // the server has the true values, these are only copies
+            let globalVolume = 15;
+            // volume for the current song only, null for the global volume
+            let songVolume = null;
+
+            // show the volume and give it to the player; the slider shows
+            // the volume that plays now
+            function applyVolume() {
+                const effective = songVolume ?? globalVolume;
+                volume.value = effective;
+                volumeDisplay.innerText =
+                    songVolume === null
+                        ? globalVolume
+                        : globalVolume + " (" + songVolume + ")";
+                player?.setVolume(effective);
             }
 
-            function updatePause(state) {
-                if (state == YT.PlayerState.PAUSED) {
-                    pause.innerText = "▶︎";
-                    fetch("/state/paused/true", { method: "POST" }).catch(
-                        console.error,
-                    );
+            // while the slider is dragged
+            function volumeInput() {
+                const value = parseInt(volume.value);
+                if (localVolume.checked) {
+                    songVolume = value;
                 } else {
-                    pause.innerText = "⏸︎";
-                    fetch("/state/paused/false", { method: "POST" }).catch(
-                        console.error,
+                    globalVolume = value;
+                    songVolume = null;
+                }
+                applyVolume();
+            }
+
+            // when the slider is released
+            function volumeChange() {
+                volumeInput();
+                if (localVolume.checked) {
+                    localVolume.checked = false;
+                    fetch("/state/song-volume/" + songVolume, {
+                        method: "POST",
+                    }).catch(console.error);
+                } else {
+                    fetch("/state/volume/" + globalVolume, {
+                        method: "POST",
+                    }).catch(console.error);
+                }
+            }
+
+            function showTitle(current) {
+                if (!current) {
+                    currentTitle.textContent = "";
+                    return;
+                }
+                const [{ title, author }, source] = current;
+                currentTitle.textContent = title + " - " + author;
+                if (source) {
+                    currentTitle.textContent +=
+                        " (requested by " + source.requester + ")";
+                }
+            }
+
+            // the video in the player, its position and duration, to resume
+            // after a reload of the page
+            let currentVideoId = null;
+            // a cued video has no duration in the player until it plays
+            let currentDuration = 0;
+
+            function duration() {
+                const fromPlayer = player?.getDuration?.() ?? 0;
+                if (fromPlayer > 0) {
+                    currentDuration = fromPlayer;
+                }
+                return currentDuration;
+            }
+
+            function showPosition(time) {
+                const total = duration();
+                seek.value =
+                    total > 0 ? Math.min(1000, (time * 1000) / total) : 0;
+            }
+
+            function savePosition() {
+                if (currentVideoId && player?.getCurrentTime) {
+                    localStorage.setItem(
+                        "position",
+                        JSON.stringify({
+                            videoId: currentVideoId,
+                            time: player.getCurrentTime(),
+                            duration: duration(),
+                        }),
                     );
                 }
             }
 
-            function updateSeek() {
-                player?.seekTo(
-                    (seek.value * player.getDuration()) / 1000,
-                    true,
+            function savedPosition(videoId) {
+                try {
+                    const saved = JSON.parse(localStorage.getItem("position"));
+                    if (saved?.videoId === videoId) {
+                        return {
+                            time: saved.time,
+                            duration: saved.duration ?? 0,
+                        };
+                    }
+                } catch {}
+                return { time: 0, duration: 0 };
+            }
+
+            let resolvePlayerReady;
+            const playerReady = new Promise((r) => (resolvePlayerReady = r));
+
+            // load the current song from the server, at the saved position
+            async function resume(current, paused) {
+                await playerReady;
+                if (!current || currentVideoId) {
+                    return;
+                }
+                const [{ videoId, length }] = current;
+                currentVideoId = videoId;
+                const saved = savedPosition(videoId);
+                // songs from a playlist have no length
+                currentDuration =
+                    saved.duration > 0 ? saved.duration : (length?.secs ?? 0);
+                showPosition(saved.time);
+                const options = { videoId, startSeconds: saved.time };
+                if (paused) {
+                    player.cueVideoById(options);
+                } else {
+                    player.loadVideoById(options);
+                }
+            }
+
+            let firstLoad = true;
+
+            async function loadState() {
+                const res = await fetch("/state");
+                const { current, paused, volume } = await res.json();
+                globalVolume = volume.global;
+                songVolume = volume.song;
+                applyVolume();
+                showTitle(current);
+                if (firstLoad) {
+                    firstLoad = false;
+                    await resume(current, paused);
+                }
+            }
+
+            function setPaused(paused) {
+                pause.innerText = paused ? "▶︎" : "⏸︎";
+                fetch("/state/paused/" + paused, { method: "POST" }).catch(
+                    console.error,
                 );
+            }
+
+            // only playing and paused change the state on the server;
+            // unstarted, buffering and ended happen on each song change
+            function updatePause(state) {
+                switch (state) {
+                    case YT.PlayerState.PLAYING:
+                        setPaused(false);
+                        break;
+                    case YT.PlayerState.PAUSED:
+                        savePosition();
+                        setPaused(true);
+                        break;
+                    case YT.PlayerState.CUED:
+                        pause.innerText = "▶︎";
+                        break;
+                }
+            }
+
+            function updateSeek() {
+                player?.seekTo((seek.value * duration()) / 1000, true);
             }
 
             let seekUpdater = null;
@@ -132,10 +279,13 @@
                     height: "390",
                     width: "640",
                     events: {
-                        onReady: updateVolume,
+                        onReady() {
+                            applyVolume();
+                            resolvePlayerReady();
+                        },
                         onStateChange(e) {
                             updatePause(e.data);
-                            updateVolume();
+                            applyVolume();
 
                             if (e.data == YT.PlayerState.ENDED) {
                                 playNext().catch(console.error);
@@ -143,12 +293,8 @@
 
                             if (e.data == YT.PlayerState.PLAYING) {
                                 seekUpdater = setInterval(() => {
-                                    const current = player.getCurrentTime();
-                                    const duration = player.getDuration();
-                                    if (duration > 0) {
-                                        seek.value =
-                                            (current * 1000) / duration;
-                                    }
+                                    showPosition(player.getCurrentTime());
+                                    savePosition();
                                 }, 200);
                             } else if (seekUpdater) {
                                 clearInterval(seekUpdater);
@@ -168,16 +314,15 @@
                     seekUpdater = null;
                 }
                 seek.value = 0;
+                // the server removes the song volume on /next and /prev
+                songVolume = null;
+                applyVolume();
+                showTitle(res);
                 if (res) {
-                    const [{ videoId, title, author }, source] = res;
+                    const [{ videoId, length }] = res;
+                    currentVideoId = videoId;
+                    currentDuration = length?.secs ?? 0;
                     player.loadVideoById(videoId);
-                    currentTitle.textContent = title + " - " + author;
-                    if (source) {
-                        currentTitle.textContent +=
-                            " (requested by " + source.requester + ")";
-                    }
-                } else {
-                    currentTitle.textContent = "";
                 }
             }
 
@@ -202,9 +347,19 @@
             }
 
             const events = new EventSource("/events");
+            // also after a reconnect, to get the changes that were missed
+            events.addEventListener("open", () =>
+                loadState().catch(console.error),
+            );
+            // the server already stored the values of these two events
             events.addEventListener("volume", (e) => {
-                volume.value = parseInt(e.data);
-                updateVolume();
+                globalVolume = parseInt(e.data);
+                songVolume = null;
+                applyVolume();
+            });
+            events.addEventListener("song-volume", (e) => {
+                songVolume = parseInt(e.data);
+                applyVolume();
             });
             events.addEventListener("next", () =>
                 playNext().catch(console.error),
@@ -215,5 +370,8 @@
             events.addEventListener("pause", () => player.pauseVideo());
             events.addEventListener("play", () => player.playVideo());
         </script>
+        <!-- after the script above, which defines onYouTubeIframeAPIReady:
+             the API can call it as soon as it loads (e.g. from the cache) -->
+        <script src="https://www.youtube.com/iframe_api"></script>
     </body>
 </html>

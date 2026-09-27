@@ -148,6 +148,9 @@ async fn last_playing(ctx: CommandContext) -> CommandResult {
 }
 
 /// Get or set the YouTube Music volume.
+///
+/// The volume that you set is for the current song only. When the song
+/// changes, the global volume (see `set-global-volume~`) is used again.
 #[command(sender_gate = 3s, permission = Vip, shortcode = v)]
 async fn volume(ctx: CommandContext, volume: Option<InRange<0, 100>>) -> CommandResult {
     let music_service = ctx.music();
@@ -155,10 +158,29 @@ async fn volume(ctx: CommandContext, volume: Option<InRange<0, 100>>) -> Command
         Some(volume) => music_service.set_volume(volume.get()).await?,
         None => {
             let volume = music_service.get_volume().await?;
-            ctx.send(format!("Current volume is {volume}%")).await?;
+            match volume.song {
+                Some(song) => {
+                    ctx.send(format!(
+                        "Current volume is {song}% (global {}%)",
+                        volume.global
+                    ))
+                    .await?
+                }
+                None => {
+                    ctx.send(format!("Current volume is {}%", volume.global))
+                        .await?
+                }
+            }
         }
     }
 
+    Ok(())
+}
+
+/// Set the global YouTube Music volume, which stays for all next songs.
+#[command(sender_gate = 3s, permission = Vip)]
+async fn set_global_volume(ctx: CommandContext, volume: InRange<0, 100>) -> CommandResult {
+    ctx.music().set_global_volume(volume.get()).await?;
     Ok(())
 }
 

@@ -58,11 +58,31 @@ pub enum SongQuery<'s> {
     IdOnly(&'s str),
 }
 
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct Volume {
+    pub global: u32,
+    /// The volume for the current song only, if set.
+    pub song: Option<u32>,
+}
+
+impl Volume {
+    /// The volume that plays now.
+    pub fn effective(&self) -> u32 {
+        self.song.unwrap_or(self.global)
+    }
+}
+
 #[async_trait]
 pub trait MusicService: Service {
-    async fn get_volume(&self) -> Result<u32>;
+    async fn get_volume(&self) -> Result<Volume>;
 
+    /// Set the volume for the current song only; the next song plays at the
+    /// global volume.
     async fn set_volume(&self, volume: u32) -> Result<()>;
+
+    /// Set the global volume. This also removes the volume of the current
+    /// song.
+    async fn set_global_volume(&self, volume: u32) -> Result<()>;
 
     async fn is_paused(&self) -> Result<bool>;
 
@@ -106,6 +126,7 @@ const PLAYLIST: &str = "music:playlist";
 const REQUESTS: &str = "music:requests";
 const HISTORY: &str = "music:history";
 const VOLUME: &str = "music:volume";
+const SONG_VOLUME: &str = "music:volume:song";
 const PAUSED: &str = "music:paused";
 
 impl YouTubeMusicPlayer {
@@ -128,6 +149,19 @@ impl YouTubeMusicPlayer {
         })
     }
 
+    async fn store_global_volume(&self, volume: u32) -> Result<u32> {
+        let volume = volume.min(100);
+        self.valkey.set(VOLUME, volume.to_string()).await?;
+        self.valkey.del(SONG_VOLUME).await?;
+        Ok(volume)
+    }
+
+    async fn store_song_volume(&self, volume: u32) -> Result<u32> {
+        let volume = volume.min(100);
+        self.valkey.set(SONG_VOLUME, volume.to_string()).await?;
+        Ok(volume)
+    }
+
     fn set_display(&self, song: Option<&Song>) {
         if let Some(song) = song {
             self.display.set(
@@ -145,6 +179,8 @@ impl YouTubeMusicPlayer {
     }
 
     async fn next(&self) -> Result<(Song, SongSource)> {
+        self.valkey.del(SONG_VOLUME).await?;
+
         let request = self
             .valkey
             .lmove::<_, _, Option<String>>(REQUESTS, HISTORY, LMoveWhere::Left, LMoveWhere::Left)
@@ -170,6 +206,8 @@ impl YouTubeMusicPlayer {
     }
 
     async fn prev(&self) -> Result<Option<(Song, SongSource)>> {
+        self.valkey.del(SONG_VOLUME).await?;
+
         match self
             .valkey
             .lmove::<_, _, Option<String>>(HISTORY, REQUESTS, LMoveWhere::Left, LMoveWhere::Left)
@@ -265,10 +303,35 @@ impl YouTubeMusicPlayer {
                 }),
             )
             .route(
+                "/state",
+                get(async |State(s): State<Arc<Self>>| {
+                    #[derive(Serialize)]
+                    struct PlayerState {
+                        current: Option<(Song, SongSource)>,
+                        paused: bool,
+                        volume: Volume,
+                    }
+                    Ok::<_, MusicError>(Json(PlayerState {
+                        current: s.current().await?,
+                        paused: s.is_paused().await?,
+                        volume: s.get_volume().await?,
+                    }))
+                }),
+            )
+            .route(
                 "/state/volume/{volume}",
                 post(
                     async |State(s): State<Arc<Self>>, Path(volume): Path<u32>| {
-                        s.valkey.set(VOLUME, volume.min(100).to_string()).await?;
+                        s.store_global_volume(volume).await?;
+                        Ok::<_, MusicError>(())
+                    },
+                ),
+            )
+            .route(
+                "/state/song-volume/{volume}",
+                post(
+                    async |State(s): State<Arc<Self>>, Path(volume): Path<u32>| {
+                        s.store_song_volume(volume).await?;
                         Ok::<_, MusicError>(())
                     },
                 ),
@@ -314,21 +377,32 @@ impl IntoResponse for MusicError {
 
 #[async_trait]
 impl MusicService for YouTubeMusicPlayer {
-    async fn get_volume(&self) -> Result<u32> {
-        Ok(self
-            .valkey
-            .get::<_, Option<String>>(VOLUME)
-            .await?
-            .and_then(|v| v.parse().ok())
-            .unwrap_or_default())
+    async fn get_volume(&self) -> Result<Volume> {
+        let values: Vec<Option<String>> = self.valkey.mget([VOLUME, SONG_VOLUME]).await?;
+        let [global, song] = values
+            .try_into()
+            .map_err(|_| anyhow!("MGET returned a wrong number of values"))?;
+        Ok(Volume {
+            global: global.and_then(|v| v.parse().ok()).unwrap_or_default(),
+            song: song.and_then(|v| v.parse().ok()),
+        })
     }
 
     async fn set_volume(&self, volume: u32) -> Result<()> {
+        let volume = self.store_song_volume(volume).await?;
         _ = self.broadcast.send(
             Event::default()
-                .event("volume")
-                .data(volume.min(100).to_string()),
+                .event("song-volume")
+                .data(volume.to_string()),
         );
+        Ok(())
+    }
+
+    async fn set_global_volume(&self, volume: u32) -> Result<()> {
+        let volume = self.store_global_volume(volume).await?;
+        _ = self
+            .broadcast
+            .send(Event::default().event("volume").data(volume.to_string()));
         Ok(())
     }
 

@@ -77,7 +77,9 @@ async fn var_resolvers(ctx: &CommandContext, name: &str) -> anyhow::Result<Optio
         "owner.id" => return Ok(Some(ctx.owner().id.clone())),
         "rand" => return Ok(Some(rand::random_range(0..100_i32).to_string())),
         "volume" => {
-            return Ok(Some(ctx.music().get_volume().await?.to_string()));
+            return Ok(Some(
+                ctx.music().get_volume().await?.effective().to_string(),
+            ));
         }
         "paused" => {
             return Ok(Some(ctx.music().is_paused().await?.to_string()));
