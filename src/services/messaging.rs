@@ -99,7 +99,10 @@ impl PermissionLevel {
     pub fn from_badges(badges: &[Badge]) -> Self {
         if badges.iter().any(|b| b.name == "broadcaster") {
             PermissionLevel::Caster
-        } else if badges.iter().any(|b| "moderator".contains(&*b.name)) {
+        } else if badges
+            .iter()
+            .any(|b| b.name == "moderator" || b.name == "lead_moderator")
+        {
             PermissionLevel::Moderator
         } else if badges.iter().any(|b| b.name == "admin") {
             PermissionLevel::TwitchAdmin
