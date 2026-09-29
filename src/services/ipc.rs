@@ -1,7 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use futures::StreamExt;
-use rustis::{client::Client as ValkeyClient, commands::PubSubCommands};
+use rustis::{client::Client as ValkeyClient, commands::PubSubCommands, resp::RefBulkString};
 
 use crate::{injector_getter, services::Service};
 
@@ -27,7 +27,9 @@ impl IpcServiceValkey {
 #[async_trait]
 impl IpcService for IpcServiceValkey {
     async fn publish(&self, channel: &str, message: &[u8]) -> Result<()> {
-        self.client.publish(channel, message).await?;
+        self.client
+            .publish(channel, RefBulkString::new(message))
+            .await?;
         Ok(())
     }
 
@@ -39,6 +41,6 @@ impl IpcService for IpcServiceValkey {
             .next()
             .await
             .and_then(|r| r.ok())
-            .map(|msg| msg.payload))
+            .map(|msg| msg.payload().to_vec()))
     }
 }

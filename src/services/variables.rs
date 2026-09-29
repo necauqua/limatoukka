@@ -133,9 +133,9 @@ impl VariableStorage for VariableStorageValkey {
     async fn resolve(&self, tpe: VarType, owner: &str, name: &str) -> Result<VarResolution> {
         let mut p = self.client.create_pipeline();
 
-        p.hget::<_, _, Option<String>>(&*key(tpe, VarScope::Personal(owner)), name)
+        p.hget::<Option<String>>(&*key(tpe, VarScope::Personal(owner)), name)
             .queue();
-        p.hget::<_, _, Option<String>>(&*key(tpe, VarScope::Global), name)
+        p.hget::<Option<String>>(&*key(tpe, VarScope::Global), name)
             .queue();
 
         let (personal, global): (Option<String>, Option<String>) = p.execute().await?;

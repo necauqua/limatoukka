@@ -82,7 +82,6 @@ impl GateService for GateServiceValkey {
                 "1",
                 SetCondition::NX,
                 SetExpiration::Px(period.as_millis() as u64),
-                false,
             )
             .await?;
         if gate.is_some() {

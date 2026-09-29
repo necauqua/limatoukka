@@ -96,7 +96,6 @@ impl CacheService for CacheServiceValkey {
                 value,
                 SetCondition::NX,
                 SetExpiration::Px(ttl.as_millis() as _),
-                false,
             )
             .await?)
     }

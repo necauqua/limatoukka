@@ -16,7 +16,7 @@ use reqwest::StatusCode;
 use rustis::{
     client::Client as ValkeyClient,
     commands::{
-        GenericCommands, LMoveWhere, ListCommands, SetCondition, SetExpiration, StringCommands,
+        GenericCommands, LMoveWhere, ListCommands, SetCondition, StringCommands,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -137,7 +137,7 @@ impl YouTubeMusicPlayer {
         display: Arc<dyn DisplayService>,
     ) -> Result<Self> {
         valkey
-            .set_with_options(VOLUME, "15", SetCondition::NX, SetExpiration::None, false)
+            .set_with_options(VOLUME, "15", SetCondition::NX, None)
             .await?;
 
         Ok(Self {
@@ -183,7 +183,7 @@ impl YouTubeMusicPlayer {
 
         let request = self
             .valkey
-            .lmove::<_, _, Option<String>>(REQUESTS, HISTORY, LMoveWhere::Left, LMoveWhere::Left)
+            .lmove::<Option<String>>(REQUESTS, HISTORY, LMoveWhere::Left, LMoveWhere::Left)
             .await?;
 
         if let Some(request) = request {
@@ -192,7 +192,7 @@ impl YouTubeMusicPlayer {
 
         let next = self
             .valkey
-            .lmove::<_, _, String>(PLAYLIST, PLAYLIST, LMoveWhere::Left, LMoveWhere::Right)
+            .lmove::<String>(PLAYLIST, PLAYLIST, LMoveWhere::Left, LMoveWhere::Right)
             .await?;
         self.valkey.lpush(HISTORY, &next).await?;
 
@@ -210,7 +210,7 @@ impl YouTubeMusicPlayer {
 
         match self
             .valkey
-            .lmove::<_, _, Option<String>>(HISTORY, REQUESTS, LMoveWhere::Left, LMoveWhere::Left)
+            .lmove::<Option<String>>(HISTORY, REQUESTS, LMoveWhere::Left, LMoveWhere::Left)
             .await?
         {
             Some(_) => {
@@ -409,7 +409,7 @@ impl MusicService for YouTubeMusicPlayer {
     async fn is_paused(&self) -> Result<bool> {
         Ok(self
             .valkey
-            .get::<_, Option<String>>(PAUSED)
+            .get::<Option<String>>(PAUSED)
             .await?
             .is_some())
     }
@@ -425,7 +425,7 @@ impl MusicService for YouTubeMusicPlayer {
     }
 
     async fn current(&self) -> Result<Option<(Song, SongSource)>> {
-        let current = self.valkey.lindex::<_, Option<String>>(HISTORY, 0).await?;
+        let current = self.valkey.lindex::<Option<String>>(HISTORY, 0).await?;
         if let Some(current) = current {
             return Ok(Some(serde_json::from_str::<(Song, SongSource)>(&current)?));
         }
@@ -433,7 +433,7 @@ impl MusicService for YouTubeMusicPlayer {
     }
 
     async fn last(&self) -> Result<Option<(Song, SongSource)>> {
-        let current = self.valkey.lindex::<_, Option<String>>(HISTORY, 1).await?;
+        let current = self.valkey.lindex::<Option<String>>(HISTORY, 1).await?;
         if let Some(current) = current {
             return Ok(Some(serde_json::from_str::<(Song, SongSource)>(&current)?));
         }
@@ -460,7 +460,7 @@ impl MusicService for YouTubeMusicPlayer {
             // todo ehh technically this is not atomic
             let queue = self
                 .valkey
-                .lrange::<_, _, Vec<String>>(REQUESTS, 0, -1)
+                .lrange::<Vec<String>>(REQUESTS, 0, -1)
                 .await?;
 
             let queue = queue
@@ -500,7 +500,7 @@ impl MusicService for YouTubeMusicPlayer {
     async fn cancel_last(&self, requester: &str) -> Result<Option<Song>> {
         let queue = self
             .valkey
-            .lrange::<_, _, Vec<String>>(REQUESTS, 0, -1)
+            .lrange::<Vec<String>>(REQUESTS, 0, -1)
             .await?;
 
         let song = queue.iter().rfind(|s| {
@@ -542,7 +542,7 @@ impl MusicService for YouTubeMusicPlayer {
 
     async fn queue(&self) -> Result<Vec<(Song, SongSource)>> {
         self.valkey
-            .lrange::<_, _, Vec<String>>(REQUESTS, 0, -1)
+            .lrange::<Vec<String>>(REQUESTS, 0, -1)
             .await?
             .into_iter()
             .map(|s| serde_json::from_str::<(Song, SongSource)>(&s))
