@@ -19,11 +19,12 @@ upload-large-reply msg name:
         /tmp/limatoukka-large-reply.html \
         'main-deployer@necauq.ua:limatoukka/{{name}}.html'
 
-aws-tts text voice="Brian":
+aws-tts text voice="Brian" engine="standard":
     echo {{quote(text)}} > /tmp/last-tts.txt
     aws polly synthesize-speech \
         --output-format ogg_vorbis \
         --voice-id "{{voice}}" \
+        --engine "{{engine}}" \
         --text "$(cat /tmp/last-tts.txt)" \
         /tmp/last-tts.ogg
     # mpv \
