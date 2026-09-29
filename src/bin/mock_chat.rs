@@ -19,6 +19,7 @@ fn main() -> Result<()> {
         match sig {
             Ok(Signal::Success(buffer)) => writeln!(tx, "{buffer}")?,
             Ok(Signal::CtrlD) | Ok(Signal::CtrlC) => break Ok(()),
+            Ok(_) => {}
             Err(e) => bail!(e),
         }
     }

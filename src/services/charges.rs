@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use compact_str::CompactString;
 use rustis::{
     client::Client as ValkeyClient,
-    commands::{CallBuilder, GenericCommands, ScanOptions, ScriptingCommands, StringCommands},
+    commands::{GenericCommands, ScanOptions, ScriptingCommands, StringCommands},
 };
 use serde::{Deserialize, Serialize};
 
@@ -265,7 +265,7 @@ impl ChargesService for ChargesServiceValkey {
     async fn get(&self, user_id: &str) -> Result<Charges> {
         Ok(self
             .client
-            .get::<_, Option<i64>>(key(user_id))
+            .get::<Option<i64>>(key(user_id))
             .await?
             .unwrap_or_default()
             .into())
@@ -300,10 +300,10 @@ impl ChargesService for ChargesServiceValkey {
             return 1
         "#;
 
-        let opts = CallBuilder::script(SCRIPT)
-            .keys(key(user_id))
-            .args(amount.as_i64());
-        let res = self.client.eval::<i64>(opts).await?;
+        let res = self
+            .client
+            .eval::<i64>(SCRIPT, key(user_id), amount.as_i64())
+            .await?;
 
         Ok(match res {
             0 => ConsumeResult::Fail,
@@ -341,9 +341,9 @@ impl ChargesService for ChargesServiceValkey {
         Ok(self
             .client
             .eval::<bool>(
-                CallBuilder::script(SCRIPT)
-                    .keys([key(from_user_id), key(to_user_id)])
-                    .args(amount.as_i64()),
+                SCRIPT,
+                [key(from_user_id), key(to_user_id)],
+                amount.as_i64(),
             )
             .await?)
     }
@@ -357,7 +357,7 @@ impl ChargesService for ChargesServiceValkey {
                 .client
                 .scan(
                     cursor,
-                    ScanOptions::default().match_pattern(key("*")).count(500),
+                    ScanOptions::default().match_pattern(&key("*")).count(500),
                 )
                 .await?;
             if !batch.is_empty() {

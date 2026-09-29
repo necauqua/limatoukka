@@ -4,7 +4,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use rustis::{
     client::{BatchPreparedCommand, Client as ValkeyClient},
-    commands::{GenericCommands, StringCommands},
+    commands::{GenericCommands, SetExpiration, StringCommands},
 };
 
 use crate::{injector_getter, services::Service};
@@ -52,7 +52,8 @@ impl BanishService for BanishServiceValkey {
         t.exists(&key).queue();
 
         if let Some(duration) = duration {
-            t.psetex(key, duration.as_millis() as _, 1).forget();
+            t.set_with_options(key, 1, None, SetExpiration::Px(duration.as_millis() as _))
+                .forget();
         } else {
             t.set(key, 1).forget();
         }

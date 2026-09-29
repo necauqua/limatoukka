@@ -210,7 +210,7 @@ impl MessagingService for MessagingServiceTwitch {
             let message = chunk.replace('\n', " ");
 
             let mut tags = IRCTags::new();
-            tags.0.insert("source-only".into(), Some("1".into()));
+            tags.0.insert("source-only".into(), "1".into());
 
             self.client
                 .send_message(IRCMessage::new(
