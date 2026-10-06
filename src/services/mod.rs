@@ -13,6 +13,7 @@ pub mod chat_log;
 pub mod display;
 pub mod gates;
 pub mod ipc;
+pub mod jev;
 pub mod messaging;
 pub mod music;
 pub mod names;

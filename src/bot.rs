@@ -19,6 +19,7 @@ use crate::{
         display::{DisplayServer, DisplayService, DisplayServiceAux},
         gates::{GateService, GateServiceInMemory, GateServiceValkey},
         ipc::{IpcService, IpcServiceInMemory, IpcServiceValkey},
+        jev::{JevService, JevServiceTypeSafe},
         music::{MusicService, MusicServiceUnavailable, YouTubeMusicPlayer},
         names::{NamesService, NamesServiceImpl},
         noita::{NoitaHandle, NoitaService},
@@ -123,6 +124,7 @@ pub async fn services(
         )?))
         .with::<dyn SoundService>(Arc::new(SoundServiceImpl::default()))
         .with::<dyn TtsService>(Arc::new(TtsServiceImpl::default()))
+        .with::<dyn JevService>(Arc::new(JevServiceTypeSafe::new(&config.jev)))
         .with::<dyn StatusService>(Arc::new(StatusWall::new(display_server.wrap("status"))))
         .with::<dyn DisplayService>(display_server.clone())
         .with::<dyn NoitaService>(noita.clone())

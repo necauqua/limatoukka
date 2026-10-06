@@ -3,7 +3,7 @@ use std::{fmt::Write as _, time::Duration};
 use crate::{
     commands::{
         CommandResult, CommandTag,
-        args::{Chatter, HoldTime, Required},
+        args::{Chatter, HoldTime, Required, RestOfArgs},
         command,
     },
     context::{app::InterruptKind, cmd::CommandContext},
@@ -11,6 +11,8 @@ use crate::{
     integration::justfile::just,
     services::{
         charges::Charges,
+        chat_log::{ChatLine, ChatLogServiceExt},
+        jev::{Answer, JevService, JevServiceExt, Question},
         messaging::PermissionLevel,
         status_wall::StatusServiceExt,
         storage::StorageServiceExt,
@@ -18,7 +20,9 @@ use crate::{
     },
 };
 use humantime_serde::re::humantime;
+use indexmap::IndexMap;
 use maud::html;
+use serde_json::{Value, json};
 use tokio::time::sleep;
 
 /// A building block for basic static text commands.
@@ -281,4 +285,154 @@ async fn what_is(ctx: CommandContext, name: String, to: Chatter) -> CommandResul
     }
 
     Ok(())
+}
+
+/// The max number of chat messages to give to `ask` as context.
+const ASK_CONTEXT_SIZE: u64 = 150;
+/// The max age of the chat messages to give to `ask` as context.
+const ASK_CONTEXT_AGE: Duration = Duration::from_secs(30 * 60);
+
+/// The `ask` answers, in the order of the reply, with descriptions for the
+/// model.
+const ASK_ANSWERS: [(&str, &str); 3] = [
+    ("Yes", "the chat shows that the answer is yes"),
+    (
+        "Undetermined",
+        "the chat does not give enough information to answer, \
+         the chat shows both answers equally, \
+         or the question is not a yes/no question",
+    ),
+    ("No", "the chat shows that the answer is no"),
+];
+
+/// The last chat messages before the current one, without the command-only
+/// messages and the messages of the bot, oldest first.
+async fn ask_chat_context(ctx: &CommandContext) -> anyhow::Result<Vec<ChatLine>> {
+    let exclude: &[&str] = match ctx.bot_id() {
+        Some(bot_id) => &[bot_id],
+        None => &[],
+    };
+    ctx.chat_logs()
+        .recent(
+            ASK_CONTEXT_SIZE,
+            ASK_CONTEXT_AGE,
+            Some(&ctx.message().id),
+            exclude,
+        )
+        .await
+}
+
+/// Ask a yes/no question about what is going on in the chat.
+#[command(sender_gate = 3s, cost = 0.25)]
+async fn ask(ctx: CommandContext, question: String, extra: RestOfArgs) -> CommandResult {
+    let question = if extra.is_empty() {
+        question
+    } else {
+        std::iter::once(question)
+            .chain(extra.get(&ctx).await?.into_iter().flatten())
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let question = question.trim();
+    if question.is_empty() {
+        fail!("you forgot the question Stare");
+    }
+
+    let chat = ask_chat_context(&ctx).await?;
+    let answer = answer_question(&*ctx.jev(), &chat, &ctx.message().sender.name, question).await?;
+
+    ctx.reply(answer).await?;
+    Ok(())
+}
+
+/// Ask Jev to pick one of the [`ASK_ANSWERS`] for the question, and format
+/// the reply.
+async fn answer_question(
+    jev: &dyn JevService,
+    chat: &[ChatLine],
+    asked_by: &str,
+    question: &str,
+) -> anyhow::Result<String> {
+    let instructions = json!({
+        "question": question,
+        "asked_by": asked_by,
+        "task": "You analyze a Twitch chat. \
+            `asked_by` asks you `question` about the chat. \
+            The state is the recent chat before the question, oldest message first. \
+            Answer the question only from what the chat shows.",
+    });
+    let criteria: IndexMap<String, Value> = ASK_ANSWERS
+        .iter()
+        .map(|(answer, desc)| ((*answer).to_owned(), (*desc).into()))
+        .collect();
+
+    let answer = jev
+        .ask(
+            json!(chat),
+            Question::Choice {
+                instructions,
+                criteria,
+            },
+        )
+        .await?;
+
+    let Answer::Choice {
+        choice,
+        probabilities,
+        confidence,
+    } = answer
+    else {
+        anyhow::bail!("unexpected answer type: {answer:?}");
+    };
+    tracing::debug!(choice, confidence, ?probabilities, "ask answer");
+
+    let percentages = ASK_ANSWERS
+        .iter()
+        .map(|(answer, _)| {
+            let p = probabilities.get(*answer).copied().unwrap_or(0.0);
+            format!("{:.0}%", p * 100.0)
+        })
+        .collect::<Vec<_>>()
+        .join(" · ");
+
+    Ok(format!("{choice} ({percentages})"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Asks Jev with the real recent chat; set `ASK_QUESTION` to change
+    /// the question.
+    #[tokio::test]
+    #[ignore = "manual test"]
+    async fn ask_real() -> anyhow::Result<()> {
+        use crate::{
+            config::Config,
+            services::{
+                chat_log::{ChatLogService, ChatLogServiceElastic},
+                jev::JevServiceTypeSafe,
+            },
+        };
+
+        let config = Config::load()?;
+        let chat_logs = ChatLogServiceElastic::new(
+            &config.elastic.url,
+            &config.elastic.api_key,
+            &config.elastic.index,
+        )?;
+        let jev = JevServiceTypeSafe::new(&config.jev);
+
+        let chat = chat_logs
+            .recent(ASK_CONTEXT_SIZE, Duration::from_secs(30 * 86400), None, &[])
+            .await?;
+        for line in &chat {
+            println!("{}: {}", line.name, line.message);
+        }
+
+        let question = std::env::var("ASK_QUESTION").unwrap_or_else(|_| "is chat happy?".into());
+        let answer = answer_question(&jev, &chat, "necauqua", &question).await?;
+        println!("Q: {question}\nA: {answer}");
+        Ok(())
+    }
 }

@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use anyhow::{Context as _, Result, bail};
 use async_trait::async_trait;
 use elasticsearch::{
@@ -28,6 +30,13 @@ pub struct EdgeMessage {
     pub true_first: bool,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ChatLine {
+    /// The display name of the sender
+    pub name: String,
+    pub message: String,
+}
+
 #[derive(Debug, Clone)]
 pub enum Rank {
     Top1,
@@ -44,6 +53,17 @@ pub trait ChatLogService: Service {
     async fn top_n(&self, n: u64, exclude: &[&str]) -> Result<Vec<(String, i64)>>;
 
     async fn rank(&self, user_id: &str, exclude: &[&str]) -> Result<Rank>;
+
+    /// The last `limit` chat messages of the last `max_age`, oldest first,
+    /// without command-only messages, the given message and the messages of
+    /// the given users.
+    async fn recent(
+        &self,
+        limit: u64,
+        max_age: Duration,
+        exclude_message_id: Option<&str>,
+        exclude_users: &[&str],
+    ) -> Result<Vec<ChatLine>>;
 }
 
 injector_getter!(ChatLogService::chat_logs);
@@ -266,5 +286,65 @@ impl ChatLogService for ChatLogServiceElastic {
             Some((pos, Some(to_climb))) => Rank::Top1k { pos, to_climb },
             None => Rank::Bottom,
         })
+    }
+
+    #[tracing::instrument(skip(self))]
+    async fn recent(
+        &self,
+        limit: u64,
+        max_age: Duration,
+        exclude_message_id: Option<&str>,
+        exclude_users: &[&str],
+    ) -> Result<Vec<ChatLine>> {
+        let mut must_not = vec![
+            // set by the archiver for messages that have only commands
+            json!({ "term": { "commands.only": true } }),
+            json!({ "terms": { "tags.user-id": exclude_users } }),
+        ];
+        if let Some(id) = exclude_message_id {
+            must_not.push(json!({ "term": { "_id": id } }));
+        }
+
+        let response = self
+            .client
+            .search(SearchParts::Index(&[&self.index]))
+            .body(json!({
+                "query": {
+                    "bool": {
+                        "must": [
+                            { "term": { "irc.cmd": "PRIVMSG" } },
+                            { "range": { "@timestamp": { "gte": format!("now-{}s", max_age.as_secs()) } } },
+                        ],
+                        "must_not": must_not,
+                    },
+                },
+                "_source": ["name", "message"],
+                "sort": [{ "@timestamp": "desc" }],
+                "size": limit,
+            }))
+            .send()
+            .await?
+            .error_for_status_code()?
+            .json::<Value>()
+            .await?;
+
+        let hits = response
+            .pointer("/hits/hits")
+            .and_then(|v| v.as_array())
+            .context("malformed search reply")?;
+
+        let mut lines = hits
+            .iter()
+            .filter_map(|hit| {
+                let source = hit.get("_source")?;
+                Some(ChatLine {
+                    name: source.get("name")?.as_str()?.to_owned(),
+                    message: source.get("message")?.as_str()?.to_owned(),
+                })
+            })
+            .collect::<Vec<_>>();
+        lines.reverse();
+
+        Ok(lines)
     }
 }

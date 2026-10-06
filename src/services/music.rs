@@ -15,9 +15,7 @@ use rand::seq::SliceRandom;
 use reqwest::StatusCode;
 use rustis::{
     client::Client as ValkeyClient,
-    commands::{
-        GenericCommands, LMoveWhere, ListCommands, SetCondition, StringCommands,
-    },
+    commands::{GenericCommands, LMoveWhere, ListCommands, SetCondition, StringCommands},
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -407,11 +405,7 @@ impl MusicService for YouTubeMusicPlayer {
     }
 
     async fn is_paused(&self) -> Result<bool> {
-        Ok(self
-            .valkey
-            .get::<Option<String>>(PAUSED)
-            .await?
-            .is_some())
+        Ok(self.valkey.get::<Option<String>>(PAUSED).await?.is_some())
     }
 
     async fn set_pause(&self, paused: bool) -> Result<()> {
@@ -458,10 +452,7 @@ impl MusicService for YouTubeMusicPlayer {
             }
 
             // todo ehh technically this is not atomic
-            let queue = self
-                .valkey
-                .lrange::<Vec<String>>(REQUESTS, 0, -1)
-                .await?;
+            let queue = self.valkey.lrange::<Vec<String>>(REQUESTS, 0, -1).await?;
 
             let queue = queue
                 .iter()
@@ -498,10 +489,7 @@ impl MusicService for YouTubeMusicPlayer {
     }
 
     async fn cancel_last(&self, requester: &str) -> Result<Option<Song>> {
-        let queue = self
-            .valkey
-            .lrange::<Vec<String>>(REQUESTS, 0, -1)
-            .await?;
+        let queue = self.valkey.lrange::<Vec<String>>(REQUESTS, 0, -1).await?;
 
         let song = queue.iter().rfind(|s| {
             serde_json::from_str::<(Song, SongSource)>(s).is_ok_and(|(_, source)| match source {

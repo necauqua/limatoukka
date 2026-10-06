@@ -37,3 +37,7 @@ music-player-bind = "localhost:35354"
 
 # [ntfy.topic.kofi]
 # token = "<SECRET>"
+
+# [jev]
+# api-key = "<SECRET>"
+# model = "jev-latest" # optional

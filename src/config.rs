@@ -60,6 +60,20 @@ pub struct NtfyTopicConfig {
     pub token: Option<String>,
 }
 
+#[derive(Deserialize, Clone)]
+#[serde(rename_all = "kebab-case")]
+pub struct Jev {
+    /// The API key for the TypeSafe API
+    pub api_key: String,
+    /// The model to use for evaluations
+    #[serde(default = "default_jev_model")]
+    pub model: String,
+}
+
+fn default_jev_model() -> String {
+    "jev-latest".into()
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct Config {
@@ -75,6 +89,7 @@ pub struct Config {
 
     pub youtube: YouTube,
     pub ntfy: Ntfy,
+    pub jev: Jev,
 
     pub browser_source_bind: String,
     pub music_player_bind: String,

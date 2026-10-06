@@ -45,11 +45,19 @@ it is not made to be simple to run by other people.
 
 - Valkey (Redis) at `config.valkey`: all persistent state.
 - Elasticsearch: chat log (`[elastic]`) and command stats (`[stats]`).
+  The chat log is written by an external archiver (twitch-archiver). It
+  sets `commands.count`, and `commands.only: true` for messages that have
+  only commands; `_id` is the message id.
 - Twitch: IRC (`twitch-irc`) for chat, Helix + EventSub websocket
   (`twitch_api`). User tokens are in the system keyring (service
   `limatoukka-the-twitch-bot`). If there is no token, an OAuth flow starts
   with a local axum server on `redirect-url`.
 - YouTube Data API v3 (music player), ntfy (Ko-fi webhooks as topic `kofi`).
+- TypeSafe API (the Jev model, `[jev]`, `services/jev.rs`): typed
+  noul/choice/score questions about a state. It only classifies and does
+  not generate text. Used by `ask` (`defs/util.rs`, a yes/undetermined/no
+  question about the chat), with the recent chat from Elasticsearch as the
+  state.
 - `justfile` recipes that the bot calls through `setsid just <recipe>`
   (`src/integration/justfile.rs`): `is-game-running`, `aws-tts` (AWS Polly +
   `pw-play`), `upload-large-reply` (rsync to necauq.ua), `play-sound`.
@@ -110,8 +118,8 @@ it is not made to be simple to run by other people.
     `storage:last-error:<uid>`.
   - `main.rs` removes `NoitaControl` commands before it gives the command
     map to `Runner`, so they are disabled.
-- `defs/`: the chat commands, by area (betting, economy, macros, moderation,
-  sounds/music, stats, data, util).
+- `defs/`: the chat commands, by area (betting, economy, macros,
+  moderation, sounds/music, stats, data, util).
 - `integration/`: external APIs (Twitch Helix/OAuth, EventSub, YouTube,
   ntfy, Ko-fi payload, websocket, justfile runner).
 - `services/noita.rs`: polls the Noita process with `noita-engine-reader`
