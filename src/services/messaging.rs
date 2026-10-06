@@ -4,12 +4,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use maud::{DOCTYPE, PreEscaped, html};
 use strum::{EnumIter, EnumMessage, IntoStaticStr};
-use tokio::{
-    fs::File,
-    io::{AsyncBufReadExt, BufReader},
-    sync::mpsc::UnboundedReceiver,
-    time::sleep,
-};
+use tokio::{sync::mpsc::UnboundedReceiver, time::sleep};
 use twitch_irc::{
     ClientConfig, SecureTCPTransport, TwitchIRCClient,
     message::{Badge, IRCMessage, IRCTags, ServerMessage},
@@ -50,26 +45,9 @@ pub fn connect_to_twitch(api: TwitchApi) -> (MessageSource, Box<dyn MessagingSer
     )
 }
 
-pub async fn connect_to_mock() -> Result<(MessageSource, Box<dyn MessagingService>)> {
-    let input = BufReader::new(File::open("/tmp/tpn-bot.fifo").await?);
-    let sender = Sender {
-        id: "mock".into(),
-        login: "mock".into(),
-        name: "mock".into(),
-        level: PermissionLevel::Caster,
-    };
-    Ok((
-        MessageSource::Mock(sender, input, 0),
-        Box::new(MessagingServiceMock),
-    ))
-}
-
-/// Currently used for not having to deal with twitch when testing, but we
-/// could add something like Discord here in the future
-#[allow(clippy::large_enum_variant)]
+/// We could add something like Discord here in the future
 pub enum MessageSource {
     Twitch(UnboundedReceiver<ServerMessage>),
-    Mock(Sender, BufReader<File>, u64),
 }
 
 #[derive(
@@ -164,27 +142,6 @@ impl MessageSource {
                     _ => {}
                 }
             },
-            MessageSource::Mock(sender, fifo, count) => {
-                let mut text = String::new();
-                if fifo.read_line(&mut text).await.ok()? == 0 {
-                    return None;
-                }
-                text.pop(); // remove newline
-                *count += 1;
-                Message {
-                    id: format!("mock-{count}"),
-                    source_channel: "mock".into(),
-                    sender: Sender {
-                        // meh
-                        id: format!("{}-{}", sender.id, count),
-                        login: format!("{}-{}", sender.login, count),
-                        name: format!("{}-{}", sender.name, count),
-                        level: PermissionLevel::Caster,
-                    },
-                    text,
-                    replyable: true,
-                }
-            }
         })
     }
 }

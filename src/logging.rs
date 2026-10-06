@@ -3,7 +3,7 @@ use std::env;
 use anyhow::Result;
 use tracing_subscriber::{
     EnvFilter, Layer as _,
-    fmt::{Layer, time::LocalTime},
+    fmt::{Layer, MakeWriter, time::LocalTime},
     layer::SubscriberExt,
     util::SubscriberInitExt,
 };
@@ -14,6 +14,14 @@ pub struct LoggingGuard {
 }
 
 pub fn init() -> Result<LoggingGuard> {
+    init_with_writer(std::io::stdout, "limatoukka=info")
+}
+
+/// Send the logs to `writer`. `RUST_LOG` overrides `default_filter`.
+pub fn init_with_writer<W>(writer: W, default_filter: &str) -> Result<LoggingGuard>
+where
+    W: for<'w> MakeWriter<'w> + Send + Sync + 'static,
+{
     // let (chrome_layer, chrome_guard) = ChromeLayerBuilder::new()
     //     .include_args(true)
     //     .trace_style(TraceStyle::Async)
@@ -31,11 +39,12 @@ pub fn init() -> Result<LoggingGuard> {
 
     // send our >=info to the stdout
     let fmt_layer = Layer::new()
+        .with_writer(writer)
         .with_timer(LocalTime::rfc_3339())
         .with_filter(EnvFilter::new(
             env::var(tracing_subscriber::EnvFilter::DEFAULT_ENV)
                 .as_deref()
-                .unwrap_or("limatoukka=info"),
+                .unwrap_or(default_filter),
         ));
 
     tracing_subscriber::registry()

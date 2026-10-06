@@ -24,9 +24,19 @@ it is not made to be simple to run by other people.
   one `twitch_types` is in the build. Change both back to crates.io versions
   when a release has these types.
 - Binaries: `limatoukka` (default, the bot), `docgen` (prints YAML docs of all
-  commands to stdout), `mock_chat` (a REPL that writes lines to
-  `/tmp/tpn-bot.fifo`, read by `messaging::connect_to_mock`, which is not
-  connected in `main.rs` at the moment).
+  commands to stdout), `mock_chat` (`src/bin/mock_chat/`: the bot with the
+  chat in the terminal, see below).
+- `mock_chat`: a `reedline` line editor; the lines are chat messages of the
+  current user (the caster at start). Lines that start with `/` are
+  terminal commands (`/help`): `/as <login> [level]` and simulated
+  EventSub, Noita and Ko-fi events. All services are real (Twitch reads,
+  Valkey, Elastic, Jev, Noita, sounds, TTS, music), except: chat I/O is the
+  terminal, Twitch writes (title, shoutout, fulfill) only print, there is
+  no EventSub/ntfy/`bot-restart`, and the HTTP servers use other ports
+  (`--browser-source-bind`, `--music-player-bind`). `--valkey <url>`
+  selects another Valkey, `--in-memory` keeps the state in memory (no music
+  player). Logs go above the prompt, default filter `limatoukka=warn`.
+  History: `target/mock-chat-history.txt`.
 - Tests: `direnv exec . cargo test`. Tests marked `#[ignore = "manual test"]`
   need real config/credentials.
 - Logging: `tracing`; filter from `RUST_LOG`, default `limatoukka=info`.
@@ -58,11 +68,11 @@ it is not made to be simple to run by other people.
 ## Architecture (`src/`)
 
 - `main.rs`: connects Valkey/Twitch, subscribes to EventSub events, builds
-  the `Injector` with all services, and starts the main `select!` loop:
-  chat messages → `Runner::process_message`; Noita events, EventSub events
-  (rewards, subs, raids, ads, stream on/off) and Ko-fi events → handler
-  functions in this file. Redemption reward titles (e.g. `"Buy 5 charges"`)
-  are matched as strings.
+  the `Injector` (`bot::services`, shared with `mock_chat`), and starts the
+  main `select!` loop: chat messages → `Runner::process_message`; Noita
+  events, EventSub events (converted to `events::ChannelEvent`) and Ko-fi
+  events → the handlers in `events.rs`. Redemption reward titles (e.g.
+  `"Buy 5 charges"`) are matched as strings.
 - Hot restart: at start, a new instance publishes `bot-restart` over Valkey
   pub/sub (`services/ipc.rs`), and the old instance stops. Interrupts go
   across instances on the `interrupt` channel.
