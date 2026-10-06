@@ -1,7 +1,8 @@
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::Result;
 use async_trait::async_trait;
+use dashmap::DashMap;
 use rustis::{
     client::{BatchPreparedCommand, Client as ValkeyClient},
     commands::{GenericCommands, SetExpiration, StringCommands},
@@ -85,6 +86,44 @@ impl BanishService for BanishServiceValkey {
             }
         };
         Ok(res)
+    }
+}
+
+/// Keeps the banishes in memory.
+#[derive(Default)]
+pub struct BanishServiceInMemory {
+    /// user id -> the end of a temporary banish, `None` for a permanent one
+    banishes: DashMap<String, Option<Instant>>,
+}
+
+#[async_trait]
+impl BanishService for BanishServiceInMemory {
+    async fn banish(&self, user_id: &str, duration: Option<Duration>) -> Result<bool> {
+        let existed = self.status(user_id).await?.is_banished();
+        self.banishes
+            .insert(user_id.to_owned(), duration.map(|d| Instant::now() + d));
+        Ok(!existed)
+    }
+
+    async fn unbanish(&self, user_id: &str) -> Result<bool> {
+        let existed = self.status(user_id).await?.is_banished();
+        self.banishes.remove(user_id);
+        Ok(existed)
+    }
+
+    async fn status(&self, user_id: &str) -> Result<BanishStatus> {
+        let Some(until) = self.banishes.get(user_id).map(|e| *e) else {
+            return Ok(BanishStatus::Good);
+        };
+        let Some(until) = until else {
+            return Ok(BanishStatus::Banished);
+        };
+        let now = Instant::now();
+        if until <= now {
+            self.banishes.remove(user_id);
+            return Ok(BanishStatus::Good);
+        }
+        Ok(BanishStatus::Temporary(until - now))
     }
 }
 

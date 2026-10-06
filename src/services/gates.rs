@@ -1,7 +1,8 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use async_trait::async_trait;
+use dashmap::{DashMap, mapref::entry::Entry};
 use rustis::{
     client::Client as ValkeyClient,
     commands::{GenericCommands, SetCondition, SetExpiration, StringCommands},
@@ -102,6 +103,45 @@ impl GateService for GateServiceValkey {
         if !keys.is_empty() {
             self.client.del(keys).await?;
         }
+        Ok(())
+    }
+}
+
+/// Keeps the gates in memory.
+#[derive(Default)]
+pub struct GateServiceInMemory {
+    /// `user:key` → the time when the gate opens again
+    gates: DashMap<String, Instant>,
+}
+
+#[async_trait]
+impl GateService for GateServiceInMemory {
+    async fn gate(&self, user: &str, key: &str, period: Duration) -> Result<bool> {
+        let now = Instant::now();
+        match self.gates.entry(format!("{user}:{key}")) {
+            Entry::Occupied(o) if *o.get() > now => {
+                tracing::trace!(?period, key, "gated");
+                Ok(false)
+            }
+            Entry::Occupied(mut o) => {
+                o.insert(now + period);
+                Ok(true)
+            }
+            Entry::Vacant(v) => {
+                v.insert(now + period);
+                Ok(true)
+            }
+        }
+    }
+
+    async fn ungate(&self, user: &str, key: &str) -> Result<()> {
+        self.gates.remove(&format!("{user}:{key}"));
+        Ok(())
+    }
+
+    async fn ungate_all(&self, user: &str) -> Result<()> {
+        let prefix = format!("{user}:");
+        self.gates.retain(|k, _| !k.starts_with(&prefix));
         Ok(())
     }
 }

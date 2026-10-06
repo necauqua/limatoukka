@@ -556,6 +556,70 @@ impl MusicService for YouTubeMusicPlayer {
     }
 }
 
+/// For when there is no music player: every call fails.
+pub struct MusicServiceUnavailable(pub &'static str);
+
+impl MusicServiceUnavailable {
+    fn error(&self) -> anyhow::Error {
+        anyhow!("no music player: {}", self.0)
+    }
+}
+
+#[async_trait]
+impl MusicService for MusicServiceUnavailable {
+    async fn get_volume(&self) -> Result<Volume> {
+        Err(self.error())
+    }
+
+    async fn set_volume(&self, _volume: u32) -> Result<()> {
+        Err(self.error())
+    }
+
+    async fn set_global_volume(&self, _volume: u32) -> Result<()> {
+        Err(self.error())
+    }
+
+    async fn is_paused(&self) -> Result<bool> {
+        Err(self.error())
+    }
+
+    async fn set_pause(&self, _paused: bool) -> Result<()> {
+        Err(self.error())
+    }
+
+    async fn current(&self) -> Result<Option<(Song, SongSource)>> {
+        Err(self.error())
+    }
+
+    async fn last(&self) -> Result<Option<(Song, SongSource)>> {
+        Err(self.error())
+    }
+
+    async fn request(&self, _query: SongQuery<'_>, _requester: &str) -> Result<Song, MusicError> {
+        Err(MusicError::Internal(self.error()))
+    }
+
+    async fn cancel_last(&self, _requester: &str) -> Result<Option<Song>> {
+        Err(self.error())
+    }
+
+    async fn skip(&self) -> Result<bool> {
+        Err(self.error())
+    }
+
+    async fn unskip(&self) -> Result<bool> {
+        Err(self.error())
+    }
+
+    async fn queue(&self) -> Result<Vec<(Song, SongSource)>> {
+        Err(self.error())
+    }
+
+    async fn clear(&self) -> Result<()> {
+        Err(self.error())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{config::Config, logging, services::display::DisplayServiceNoop};

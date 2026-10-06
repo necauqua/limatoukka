@@ -1,7 +1,8 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, collections::HashMap, sync::Mutex};
 
 use anyhow::Result;
 use async_trait::async_trait;
+use indexmap::IndexMap;
 use rustis::{
     client::{BatchPreparedCommand, Client as ValkeyClient},
     commands::{GenericCommands, HashCommands},
@@ -159,6 +160,77 @@ impl VariableStorage for VariableStorageValkey {
 
     async fn clear(&self, tpe: VarType, scope: VarScope<'_>) -> Result<()> {
         self.client.del(&*key(tpe, scope)).await?;
+        Ok(())
+    }
+}
+
+/// Keeps the variables in memory, with the same limits as
+/// [`VariableStorageValkey`].
+#[derive(Default)]
+pub struct VariableStorageInMemory {
+    hashes: Mutex<HashMap<String, IndexMap<String, String>>>,
+}
+
+#[async_trait]
+impl VariableStorage for VariableStorageInMemory {
+    async fn set(
+        &self,
+        tpe: VarType,
+        scope: VarScope<'_>,
+        name: &str,
+        value: &str,
+    ) -> Result<(), SetVarError> {
+        let mut hashes = self.hashes.lock().unwrap();
+        let hash = hashes.entry(key(tpe, scope).into_owned()).or_default();
+        if let VarScope::Personal(_) = scope
+            && !hash.contains_key(name)
+            && hash.len() + 1 >= 1000
+        {
+            return Err(SetVarError::TooManyVars);
+        }
+        hash.insert(name.to_owned(), value.to_owned());
+        Ok(())
+    }
+
+    async fn get(&self, tpe: VarType, scope: VarScope<'_>, name: &str) -> Result<Option<String>> {
+        let hashes = self.hashes.lock().unwrap();
+        Ok(hashes
+            .get(&*key(tpe, scope))
+            .and_then(|hash| hash.get(name))
+            .cloned())
+    }
+
+    async fn resolve(&self, tpe: VarType, owner: &str, name: &str) -> Result<VarResolution> {
+        if let Some(script) = self.get(tpe, VarScope::Personal(owner), name).await? {
+            Ok(VarResolution::Personal(script))
+        } else if let Some(script) = self.get(tpe, VarScope::Global, name).await? {
+            Ok(VarResolution::Global(script))
+        } else {
+            Ok(VarResolution::None)
+        }
+    }
+
+    async fn delete(&self, tpe: VarType, scope: VarScope<'_>, names: &[&str]) -> Result<usize> {
+        let mut hashes = self.hashes.lock().unwrap();
+        let Some(hash) = hashes.get_mut(&*key(tpe, scope)) else {
+            return Ok(0);
+        };
+        Ok(names
+            .iter()
+            .filter(|name| hash.shift_remove(**name).is_some())
+            .count())
+    }
+
+    async fn list(&self, tpe: VarType, scope: VarScope<'_>) -> Result<Vec<(String, String)>> {
+        let hashes = self.hashes.lock().unwrap();
+        Ok(hashes
+            .get(&*key(tpe, scope))
+            .map(|hash| hash.clone().into_iter().collect())
+            .unwrap_or_default())
+    }
+
+    async fn clear(&self, tpe: VarType, scope: VarScope<'_>) -> Result<()> {
+        self.hashes.lock().unwrap().remove(&*key(tpe, scope));
         Ok(())
     }
 }
