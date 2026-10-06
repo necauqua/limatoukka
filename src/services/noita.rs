@@ -81,6 +81,7 @@ pub enum NoitaEvent {
         killed_by: String,
         run_duration: String,
         had_ambro: bool,
+        win_state: WinState,
     },
     Polymorphed,
     LowOxygen,
@@ -180,11 +181,15 @@ impl NoitaHandle {
 
                 let (killed_by, run_duration) = death_data.unwrap_or_default();
 
-                self.send(NoitaEvent::PlayerDeath {
-                    killed_by,
-                    run_duration,
-                    had_ambro: state.current.contains(NoitaFlags::AMBROSIA),
-                });
+                match self.get_win_state().await {
+                    Ok(win_state) => self.send(NoitaEvent::PlayerDeath {
+                        killed_by,
+                        run_duration,
+                        had_ambro: state.current.contains(NoitaFlags::AMBROSIA),
+                        win_state,
+                    }),
+                    Err(error) => tracing::error!(?error, "failed to read the win state"),
+                }
 
                 state = NoitaState {
                     previous: NoitaFlags::DEAD,
