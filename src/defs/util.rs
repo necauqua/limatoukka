@@ -22,7 +22,7 @@ use crate::{
 use humantime_serde::re::humantime;
 use indexmap::IndexMap;
 use maud::html;
-use serde_json::{Value, json};
+use serde_json::json;
 use tokio::time::sleep;
 
 /// A building block for basic static text commands.
@@ -292,21 +292,30 @@ const ASK_CONTEXT_SIZE: u64 = 150;
 /// The max age of the chat messages to give to `ask` as context.
 const ASK_CONTEXT_AGE: Duration = Duration::from_secs(30 * 60);
 
-/// The `ask` answers, in the order of the reply, with descriptions for the
-/// model.
-const ASK_ANSWERS: [(&str, &str); 3] = [
-    ("Yes", "the chat shows that the answer is yes"),
-    (
-        "Undetermined",
-        "the chat does not give enough information to answer, \
-         the chat shows both answers equally, \
-         or the question is not a yes/no question",
-    ),
-    ("No", "the chat shows that the answer is no"),
+/// Below this probability that the question is a yes/no question, `ask`
+/// refuses to answer it.
+const ASK_MIN_YES_NO: f64 = 0.5;
+
+/// The `ask` answers, each with the minimum probability of yes, highest
+/// first.
+const ASK_ANSWERS: [(f64, &str); 5] = [
+    (0.8, "Yes"),
+    (0.6, "Probably yes"),
+    (0.4, "Undetermined"),
+    (0.2, "Probably no"),
+    (0.0, "No"),
 ];
 
-/// The last chat messages before the current one, without the command-only
-/// messages and the messages of the bot, oldest first.
+/// What the state of the `ask` request is, for the question about the answer.
+const ASK_STATE_INFO: &str = "`asked_by` asked `question` in a Twitch chat. \
+    `chat` is the recent chat before it, oldest message first. \
+    \"you\" in `question` is the chat bot, \"I\" is `asked_by`.";
+/// How the `ask` answer uses the state.
+const ASK_HOW: &str = "Use `chat` when `question` is about the chat or its people; \
+    else use general knowledge.";
+
+/// The last chat messages before the current one, without the messages of
+/// the bot, oldest first.
 async fn ask_chat_context(ctx: &CommandContext) -> anyhow::Result<Vec<ChatLine>> {
     let exclude: &[&str] = match ctx.bot_id() {
         Some(bot_id) => &[bot_id],
@@ -322,7 +331,8 @@ async fn ask_chat_context(ctx: &CommandContext) -> anyhow::Result<Vec<ChatLine>>
         .await
 }
 
-/// Ask a yes/no question about what is going on in the chat.
+/// Ask a yes/no question. The answer comes from the recent chat or from
+/// general knowledge.
 #[command(sender_gate = 3s, cost = 0.25)]
 async fn ask(ctx: CommandContext, question: String, extra: RestOfArgs) -> CommandResult {
     let question = if extra.is_empty() {
@@ -339,63 +349,70 @@ async fn ask(ctx: CommandContext, question: String, extra: RestOfArgs) -> Comman
     }
 
     let chat = ask_chat_context(&ctx).await?;
-    let answer = answer_question(&*ctx.jev(), &chat, &ctx.message().sender.name, question).await?;
+    let Some(yes) = answer_question(&*ctx.jev(), &chat, &ctx.message().sender.name, question).await?
+    else {
+        fail!("that's not a yes/no question Stare");
+    };
 
-    ctx.reply(answer).await?;
+    ctx.reply(format_answer(yes)).await?;
     Ok(())
 }
 
-/// Ask Jev to pick one of the [`ASK_ANSWERS`] for the question, and format
-/// the reply.
+/// Ask Jev if the question is a yes/no question and how probable a yes is,
+/// in one request. Gives the probability of yes, or `None` if it is not a
+/// yes/no question.
 async fn answer_question(
     jev: &dyn JevService,
     chat: &[ChatLine],
     asked_by: &str,
     question: &str,
-) -> anyhow::Result<String> {
-    let instructions = json!({
+) -> anyhow::Result<Option<f64>> {
+    let state = json!({
         "question": question,
         "asked_by": asked_by,
-        "task": "You analyze a Twitch chat. \
-            `asked_by` asks you `question` about the chat. \
-            The state is the recent chat before the question, oldest message first. \
-            Answer the question only from what the chat shows.",
+        "chat": chat,
     });
-    let criteria: IndexMap<String, Value> = ASK_ANSWERS
-        .iter()
-        .map(|(answer, desc)| ((*answer).to_owned(), (*desc).into()))
-        .collect();
-
-    let answer = jev
-        .ask(
-            json!(chat),
-            Question::Choice {
-                instructions,
-                criteria,
+    let questions = IndexMap::from([
+        (
+            "is_yes_no".to_owned(),
+            Question::Noul {
+                instructions: "Is `question` a question that can be answered with yes or no?"
+                    .into(),
+                criteria: None,
             },
-        )
-        .await?;
+        ),
+        (
+            "yes".to_owned(),
+            Question::Noul {
+                instructions: json!({
+                    "question": "Is the answer to `question` yes?",
+                    "context": ASK_STATE_INFO,
+                    "how": ASK_HOW,
+                }),
+                criteria: None,
+            },
+        ),
+    ]);
 
-    let Answer::Choice {
-        choice,
-        probabilities,
-        confidence,
-    } = answer
-    else {
-        anyhow::bail!("unexpected answer type: {answer:?}");
+    let answers = jev.evaluate(state, questions).await?;
+    let noul = |id: &str| match answers.get(id) {
+        Some(Answer::Noul { noul }) => Ok(*noul),
+        other => Err(anyhow::anyhow!("unexpected answer for {id}: {other:?}")),
     };
-    tracing::debug!(choice, confidence, ?probabilities, "ask answer");
+    let is_yes_no = noul("is_yes_no")?;
+    let yes = noul("yes")?;
+    tracing::debug!(is_yes_no, yes, "ask answer");
 
-    let percentages = ASK_ANSWERS
+    Ok((is_yes_no >= ASK_MIN_YES_NO).then_some(yes))
+}
+
+/// The reply to `ask` for the probability of yes.
+fn format_answer(yes: f64) -> String {
+    let answer = ASK_ANSWERS
         .iter()
-        .map(|(answer, _)| {
-            let p = probabilities.get(*answer).copied().unwrap_or(0.0);
-            format!("{:.0}%", p * 100.0)
-        })
-        .collect::<Vec<_>>()
-        .join(" · ");
-
-    Ok(format!("{choice} ({percentages})"))
+        .find(|(min, _)| yes >= *min)
+        .map_or("No", |(_, answer)| answer);
+    format!("{answer} ({:.0}%)", yes * 100.0)
 }
 
 #[cfg(test)]
@@ -432,6 +449,7 @@ mod tests {
 
         let question = std::env::var("ASK_QUESTION").unwrap_or_else(|_| "is chat happy?".into());
         let answer = answer_question(&jev, &chat, "necauqua", &question).await?;
+        let answer = answer.map_or_else(|| "not a yes/no question".into(), format_answer);
         println!("Q: {question}\nA: {answer}");
         Ok(())
     }

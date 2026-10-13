@@ -55,9 +55,12 @@ it is not made to be simple to run by other people.
 - YouTube Data API v3 (music player), ntfy (Ko-fi webhooks as topic `kofi`).
 - TypeSafe API (the Jev model, `[jev]`, `services/jev.rs`): typed
   noul/choice/score questions about a state. It only classifies and does
-  not generate text. Used by `ask` (`defs/util.rs`, a yes/undetermined/no
-  question about the chat), with the recent chat from Elasticsearch as the
-  state.
+  not generate text. Used by `ask` (`defs/util.rs`): one request with
+  the question, the asker and the recent chat from Elasticsearch (without
+  the bot's messages) as the state, and two nouls: "is it a yes/no
+  question" and "is the answer yes". Code maps the probability of yes to
+  5 bands (Yes … No). Jev reads unknown claims as more likely false, so
+  most answers to subjective or future questions are "Probably no".
 - `justfile` recipes that the bot calls through `setsid just <recipe>`
   (`src/integration/justfile.rs`): `is-game-running`, `aws-tts` (AWS Polly +
   `pw-play`), `upload-large-reply` (rsync to necauq.ua), `play-sound`.

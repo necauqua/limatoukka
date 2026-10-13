@@ -55,8 +55,7 @@ pub trait ChatLogService: Service {
     async fn rank(&self, user_id: &str, exclude: &[&str]) -> Result<Rank>;
 
     /// The last `limit` chat messages of the last `max_age`, oldest first,
-    /// without command-only messages, the given message and the messages of
-    /// the given users.
+    /// without the given message and the messages of the given users.
     async fn recent(
         &self,
         limit: u64,
@@ -296,11 +295,7 @@ impl ChatLogService for ChatLogServiceElastic {
         exclude_message_id: Option<&str>,
         exclude_users: &[&str],
     ) -> Result<Vec<ChatLine>> {
-        let mut must_not = vec![
-            // set by the archiver for messages that have only commands
-            json!({ "term": { "commands.only": true } }),
-            json!({ "terms": { "tags.user-id": exclude_users } }),
-        ];
+        let mut must_not = vec![json!({ "terms": { "tags.user-id": exclude_users } })];
         if let Some(id) = exclude_message_id {
             must_not.push(json!({ "term": { "_id": id } }));
         }
