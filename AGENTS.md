@@ -132,10 +132,10 @@ it is not made to be simple to run by other people.
 - `services/noita.rs`: polls the Noita process with `noita-engine-reader`
   and emits `NoitaEvent`s (death, win, items, pillars from
   `data/pillar-names.yml`, etc.).
-- `services/display.rs`, `status_wall.rs`, `music.rs` (+ `music-player.html`):
+- `services/display.rs`, `status_wall.rs`, `music/` (+ `music-player.css`/`.js`):
   axum/maud HTTP servers for OBS browser sources, on `browser-source-bind`
   and `music-player-bind`.
-- `services/event_list.rs` (+ `event-list.css`/`.js`): the event list
+- `services/event_list/` (+ `event-list.css`/`.js`): the event list
   browser source at `/event-list` on `browser-source-bind` (follows, subs,
   gift subs, cheers, Power-ups, raids, charity and Ko-fi donations). It
   replaces a Streamlabs widget. `handle_channel_event`/`handle_kofi_event`
@@ -189,6 +189,10 @@ it is not made to be simple to run by other people.
   (`1.2⚡︎`). The `top-charges` recipe copies this format. The bot account
   (`Limatoukka`) is the burn destination and is not part of the economy.
 - `PermissionLevel` is ordered, `Caster` (7) is the highest.
+- A module that has non-Rust files (JS, CSS, data for `include_str!`) is a
+  folder, `<module>/mod.rs`, with these files beside `mod.rs` (as
+  `chat_box/`, `event_list/`, `music/`, `live/`). Do not put them
+  loose in `services/`.
 - Chat text is intentionally informal/memey (Twitch emotes such as `ICANT`,
   `POGGIES`). Keep this tone for new bot messages.
 

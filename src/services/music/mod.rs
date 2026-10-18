@@ -7,10 +7,10 @@ use axum::{
     body::Body,
     extract::{Path, Query, State},
     http::Response,
-    response::{Html, IntoResponse, Sse, sse::Event},
+    response::{IntoResponse, Sse, sse::Event},
     routing::{get, post},
 };
-use maud::html;
+use maud::{DOCTYPE, Markup, PreEscaped, html};
 use rand::seq::SliceRandom;
 use reqwest::StatusCode;
 use rustis::{
@@ -257,7 +257,7 @@ impl YouTubeMusicPlayer {
 
     pub fn start(self: &Arc<Self>, bind_addr: &str) -> impl Future<Output = Result<()>> + use<> {
         let app = Router::new()
-            .route("/", get(Html(include_str!("./music-player.html"))))
+            .route("/", get(page()))
             .route(
                 "/events",
                 get(async |State(s): State<Arc<Self>>| {
@@ -358,6 +358,47 @@ impl YouTubeMusicPlayer {
             tracing::info!("listening on {}", listener.local_addr()?);
             axum::serve(listener, app).await?;
             Ok(())
+        }
+    }
+}
+
+fn page() -> Markup {
+    html! {
+        (DOCTYPE)
+        html lang="en" {
+            head {
+                meta charset="utf-8";
+                meta name="viewport" content="width=device-width, initial-scale=1.0";
+                title { "YouTube Queue Player" }
+                style { (PreEscaped(include_str!("music-player.css"))) }
+            }
+            body {
+                div #player {}
+                div .controls {
+                    h4 { "YouTube Queue Player" }
+                    span #currentTitle {}
+                    div .row {
+                        button onclick="reset().catch(console.error)" { "↺" }
+                        button onclick="playPrev().catch(console.error)" { "<<" }
+                        button #pause onclick="togglePause()" { "▶\u{fe0e}" }
+                        button onclick="playNext().catch(console.error)" { ">>" }
+                        input #seek type="range" min="0" max="1000" value="0" oninput="updateSeek()";
+                    }
+                    div .row {
+                        span #volumeDisplay {}
+                        input #volume type="range" min="0" max="100"
+                            oninput="volumeInput()" onchange="volumeChange()";
+                        label {
+                            input #localVolume type="checkbox";
+                            " local volume"
+                        }
+                    }
+                }
+                script { (PreEscaped(include_str!("music-player.js"))) }
+                // after the script above, which defines onYouTubeIframeAPIReady:
+                // the API can call it as soon as it loads (e.g. from the cache)
+                script src="https://www.youtube.com/iframe_api" {}
+            }
         }
     }
 }
