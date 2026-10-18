@@ -349,7 +349,8 @@ async fn ask(ctx: CommandContext, question: String, extra: RestOfArgs) -> Comman
     }
 
     let chat = ask_chat_context(&ctx).await?;
-    let Some(yes) = answer_question(&*ctx.jev(), &chat, &ctx.message().sender.name, question).await?
+    let Some(yes) =
+        answer_question(&*ctx.jev(), &chat, &ctx.message().sender.name, question).await?
     else {
         fail!("that's not a yes/no question Stare");
     };

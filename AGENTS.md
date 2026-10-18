@@ -31,7 +31,8 @@ it is not made to be simple to run by other people.
   terminal commands (`/help`): `/as <login> [level]` and simulated
   EventSub, Noita and Ko-fi events. All services are real (Twitch reads,
   Valkey, Elastic, Jev, Noita, sounds, TTS, music), except: chat I/O is the
-  terminal, Twitch writes (title, shoutout, fulfill) only print, there is
+  terminal, Twitch writes (title, shoutout, fulfill) only print, the chat
+  box clear does not store `storage:chat-box:cleared-at`, there is
   no EventSub/ntfy/`bot-restart`, and the HTTP servers use other ports
   (`--browser-source-bind`, `--music-player-bind`). `--valkey <url>`
   selects another Valkey, `--in-memory` keeps the state in memory (no music
@@ -45,9 +46,12 @@ it is not made to be simple to run by other people.
 
 - Valkey (Redis) at `config.valkey`: all persistent state.
 - Elasticsearch: chat log (`[elastic]`) and command stats (`[stats]`).
-  The chat log is written by an external archiver (twitch-archiver). It
-  sets `commands.count`, and `commands.only: true` for messages that have
-  only commands; `_id` is the message id.
+  The chat log is written by our own archiver (twitch-archiver,
+  `../twitch-archiver`). It stores each IRC message with its tags
+  (`badges`/`badge-info` as objects, numbers as numbers, `display-name` as
+  `name`, `/me` as `action: true`; empty tags are left out), and it sets
+  `commands.count`, and `commands.only: true` for messages that have only
+  commands; `_id` is the message id, `@timestamp` is `tmi-sent-ts`.
 - Twitch: IRC (`twitch-irc`) for chat, Helix + EventSub websocket
   (`twitch_api`). User tokens are in the system keyring (service
   `limatoukka-the-twitch-bot`). If there is no token, an OAuth flow starts
@@ -137,6 +141,39 @@ it is not made to be simple to run by other people.
   replaces a Streamlabs widget. `handle_channel_event`/`handle_kofi_event`
   add the entries. The page shows the 3 newest; each SSE message has the
   full shown list, so a reloaded or reconnected page is always correct.
+- `services/chat_box/` (+ `chat-box.css`/`.js`): the chat browser sources
+  `/chat` (the chat) and `/chat/last` (only the last message), on
+  `browser-source-bind`. They replace the Streamlabs chat box and use its
+  HTML structure and custom CSS. The messages come from a separate
+  anonymous IRC connection (so the bot's own messages are there), with
+  `CLEARMSG`/`CLEARCHAT` deletions. The last 100 are in memory; at start
+  they come from the chat log (`ChatLogService::recent_irc` rebuilds the
+  IRC messages), after `storage:chat-box:cleared-at`, which
+  `ChatBoxService::clear` sets at stream start. The pages get the full list
+  on each (re)connect (SSE `reset`), then `message`/`replace`/`delete`/
+  `delete-user`/`clear`. Emotes, badges and cheermotes: Twitch (Helix), 7TV
+  (REST v3 for the sets, EventAPI v3 for live set and cosmetic changes,
+  GraphQL v4 for the badges, paints and personal emotes of each chatter,
+  cached for 1 h),
+  BTTV, FFZ (with the global sets of some users) and Chatterino badges; all
+  refreshed every 30 min and at stream start. A message never waits for
+  the data of its chatter (7TV) or shared chat channel (`cache.rs`): it is
+  shown with the cached data, and when the data was not fresh, it is
+  fetched in the background and the message is sent again as `replace`.
+  Failed fetches are kept for 1 min. Also: replies (the leading
+  mention is removed), mentions, `USERNOTICE`s (parsed as a `PRIVMSG`
+  with the same tags in `message.rs`, because twitch-irc drops the
+  notices with unusual `msg-param-*` tags), highlights and Power-ups,
+  shared chat (badges and avatar of the source channel), Twemoji, BTTV/FFZ
+  modifiers. `chat-box.js` sizes the emote layers, so that zero-width
+  emotes are as high as the emote. Images go through
+  `/chat/img/<host>/<path>`, a disk cache in
+  `$XDG_CACHE_HOME/limatoukka/chat-images` (`images.rs`). In `mock_chat`
+  the chat box shows the terminal chat. Manual tests: `real_preview`
+  writes `target/chat-box-preview.html` from the real data and backlog,
+  `edge_cases_preview` writes `target/chat-box-edge-cases.html` from fake
+  messages with edge cases, `live_channel` serves the chat of any channel
+  (`CHAT_BOX_CHANNEL`, on `localhost:7458`) until it is stopped.
 
 ## Data and conventions
 

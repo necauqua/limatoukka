@@ -58,6 +58,7 @@ async fn run() -> Result<()> {
         injector,
         display_server,
         event_list,
+        chat_box,
         noita: noita_handle,
         music_player,
     } = bot::services(&config, &state, &twitch_api).await?;
@@ -73,7 +74,11 @@ async fn run() -> Result<()> {
     let runner = bot::runner(&ctx);
 
     tokio::spawn(eventsub.run(ctx.clone()));
-    tokio::spawn(display_server.start(&config.browser_source_bind, event_list.router()));
+    tokio::spawn(display_server.start(
+        &config.browser_source_bind,
+        event_list.router().merge(chat_box.router()),
+    ));
+    tokio::spawn(chat_box.run(true));
     if let Some(music_player) = &music_player {
         tokio::spawn(music_player.start(&config.music_player_bind));
     }

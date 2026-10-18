@@ -21,6 +21,7 @@ use limatoukka::{
     integration::twitch_api::TwitchApi,
     logging,
     services::{
+        chat_box::{ChatBox, ChatBoxService, ChatMessage},
         messaging::{Message, MessagingService, PermissionLevel, Sender},
         names::NamesServiceExt,
         storage::StorageServiceExt,
@@ -29,10 +30,11 @@ use limatoukka::{
 };
 use neca_cmd::Statement;
 use tokio::{task::JoinSet, time::timeout};
+use twitch_irc::message::Badge;
 
 use crate::{
     meta::{Action, HELP},
-    terminal::{MessagingServiceTerminal, Output, TwitchServicePrinting},
+    terminal::{ChatBoxTerminal, MessagingServiceTerminal, Output, TwitchServicePrinting},
 };
 
 /// Run the bot with the chat in this terminal instead of a Twitch channel.
@@ -61,9 +63,33 @@ fn prompt(sender: &Sender) -> String {
     format!("{} [{}]", sender.name, level.to_lowercase())
 }
 
+/// A chat box message of the terminal user, with the badge of the level.
+fn chat_box_message(message: &Message) -> ChatMessage {
+    let sender = &message.sender;
+    let badge = match sender.level {
+        PermissionLevel::Caster => Some(("broadcaster", "1")),
+        PermissionLevel::Moderator => Some(("moderator", "1")),
+        PermissionLevel::Vip => Some(("vip", "1")),
+        PermissionLevel::Subscriber => Some(("subscriber", "0")),
+        _ => None,
+    };
+    ChatMessage {
+        id: message.id.clone(),
+        badges: badge
+            .map(|(name, version)| Badge {
+                name: name.into(),
+                version: version.into(),
+            })
+            .into_iter()
+            .collect(),
+        ..ChatMessage::new(&sender.id, &sender.login, &sender.name, &message.text)
+    }
+}
+
 struct Chat {
     ctx: AppContext,
     runner: Runner,
+    chat_box: Arc<ChatBox>,
     output: Output,
     caster_login: String,
     sender: Sender,
@@ -163,7 +189,9 @@ impl Chat {
         let ctx = self.ctx.clone();
         let runner = self.runner.clone();
         let output = self.output.clone();
+        let chat_box = self.chat_box.clone();
         self.spawn(async move {
+            chat_box.push(chat_box_message(&message));
             runner.process_message(ctx.clone(), message).await?;
             // the chat sees no errors, but here they are useful
             if has_commands && let Some(error) = ctx.storage().get(&error_key).await? {
@@ -193,6 +221,7 @@ async fn run(
         injector,
         display_server,
         event_list,
+        chat_box,
         noita: noita_handle,
         music_player,
     } = bot::services(&config, &state, &twitch_api).await?;
@@ -201,12 +230,15 @@ async fn run(
     let services = injector
         .with::<dyn MessagingService>(Arc::new(MessagingServiceTerminal {
             output: output.clone(),
+            bot_id: twitch_api.bot_id().to_owned(),
             bot_name,
+            chat_box: chat_box.clone(),
         }))
         .with::<dyn TwitchService>(Arc::new(TwitchServicePrinting {
             inner: TwitchServiceImpl::new(twitch_api.clone()),
             output: output.clone(),
-        }));
+        }))
+        .with::<dyn ChatBoxService>(Arc::new(ChatBoxTerminal(chat_box.clone())));
 
     let ctx = AppContext::new(services)
         .with_caster_id(twitch_api.caster_id().to_owned())
@@ -215,7 +247,12 @@ async fn run(
     let runner = bot::runner(&ctx);
 
     let server_output = output.clone();
-    let display = display_server.start(&args.browser_source_bind, event_list.router());
+    let display = display_server.start(
+        &args.browser_source_bind,
+        event_list.router().merge(chat_box.router()),
+    );
+    // the chat box shows the terminal chat, not the Twitch one
+    tokio::spawn(chat_box.clone().run(false));
     tokio::spawn(async move {
         if let Err(error) = display.await {
             server_output.error(&format!("browser sources are off: {error:#}"));
@@ -243,6 +280,7 @@ async fn run(
     let mut chat = Chat {
         ctx: ctx.clone(),
         runner,
+        chat_box,
         output: output.clone(),
         sender: Sender {
             id: twitch_api.caster_id().to_owned(),

@@ -15,6 +15,7 @@ use std::{
 use anyhow::Result;
 use async_trait::async_trait;
 use limatoukka::services::{
+    chat_box::{ChatBox, ChatBoxService, ChatMessage},
     messaging::{Message, MessagingService},
     twitch::{TwitchService, TwitchServiceImpl, UserIdResponse},
 };
@@ -178,16 +179,38 @@ pub fn start(history: PathBuf) -> (Output, impl FnOnce(String) -> Result<Repl>) 
     (output, start)
 }
 
-/// Writes the chat messages of the bot to the terminal.
+/// Clears the chat box, but does not store the time of the clear: the
+/// backlog of the bot (which can use the same storage) stays as it is.
+pub struct ChatBoxTerminal(pub Arc<ChatBox>);
+
+#[async_trait]
+impl ChatBoxService for ChatBoxTerminal {
+    async fn clear(&self) -> Result<()> {
+        self.0.clear_shown();
+        Ok(())
+    }
+}
+
+/// Writes the chat messages of the bot to the terminal and to the chat box.
 pub struct MessagingServiceTerminal {
     pub output: Output,
+    pub bot_id: String,
     pub bot_name: String,
+    pub chat_box: Arc<ChatBox>,
+}
+
+impl MessagingServiceTerminal {
+    fn to_chat_box(&self, text: &str) {
+        let message = ChatMessage::new(&self.bot_id, &self.bot_name, &self.bot_name, text);
+        self.chat_box.push(message);
+    }
 }
 
 #[async_trait]
 impl MessagingService for MessagingServiceTerminal {
     async fn send(&self, text: String) -> Result<()> {
         self.output.chat(&self.bot_name, &text);
+        self.to_chat_box(&text);
         Ok(())
     }
 
@@ -196,6 +219,7 @@ impl MessagingService for MessagingServiceTerminal {
             &self.bot_name,
             &format!("{DIM}(@{}){RESET} {text}", message.sender.name),
         );
+        self.to_chat_box(&text);
         Ok(())
     }
 }

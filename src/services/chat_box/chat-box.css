@@ -1,0 +1,426 @@
+/* the custom CSS of the Streamlabs chat box (text color #FAFAFA, no
+   message animations; the text size is 24px for a 1080p browser source);
+   each message is a table row group of a reply or notice line and the line
+   of the message */
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+}
+
+body {
+    text-shadow: 0 0 1px #000, 0 0 2px #000;
+    background: transparent;
+    /* emoji etc. come from a normal font */
+    font-family: 'NoitaPixel', sans-serif;
+    font-weight: 400;
+    font-smooth: never;
+    font-size: 24px;
+    line-height: 1.5em;
+    color: #FAFAFA;
+}
+
+#log {
+    display: table;
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    padding: 0 10px 10px;
+    width: 100%;
+    table-layout: fixed;
+}
+
+#log>div {
+    display: table-row-group;
+}
+
+#log .line,
+#log .above-row {
+    display: table-row;
+}
+
+#log .message,
+#log .meta,
+#log .above {
+    vertical-align: top;
+    display: table-cell;
+    padding-bottom: 0.1em;
+}
+
+#log .meta {
+    width: 35%;
+    text-align: right;
+    padding-right: 0.5em;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+}
+
+#log .message {
+    word-wrap: break-word;
+    width: 65%;
+}
+
+/* the reply and notice lines above a message */
+#log .above {
+    font-size: 0.5em;
+    line-height: 1.4em;
+    padding-bottom: 0;
+    opacity: 0.8;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#log .above.system {
+    white-space: normal;
+}
+
+/* from the message below to the parent message */
+#log .reply-arrow {
+    display: inline-block;
+    scale: 1 -1;
+}
+
+#log .message.system {
+    font-size: 0.6em;
+    line-height: 1.5em;
+}
+
+/* emotes: the invisible spacer images give the size of the box; the
+   layers are the visible images (see chat-box.js) */
+#log .emote {
+    padding: 0.4em 0.2em;
+    position: relative;
+}
+
+#log .emote img.spacer {
+    display: inline-block;
+    height: 1em;
+    opacity: 0;
+}
+
+/* the gigantify Power-up: the box is the image, so that it fits all of it;
+   the text is at its middle (the height is also in chat-box.js) */
+#log .emote.giant {
+    display: inline-block;
+    padding: 0 0.2em;
+    line-height: 0;
+    vertical-align: middle;
+}
+
+#log .emote.giant img.spacer {
+    height: 7em;
+}
+
+/* the name at the middle too */
+#log>div.gigantified .line>.meta {
+    vertical-align: middle;
+}
+
+#log .emote .layers,
+#log .emote .fx,
+#log .emote .base {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+#log .emote .base {
+    background: no-repeat center / contain;
+}
+
+/* the size of the emote image, from chat-box.js */
+#log .emote.sized .layers {
+    inset: auto;
+    left: 50%;
+    top: 50%;
+    width: var(--w);
+    height: var(--h);
+    margin-left: calc(var(--w) / -2);
+    margin-top: calc(var(--h) / -2);
+}
+
+#log .emote.sized .base {
+    background-size: 100% 100%;
+}
+
+/* zero-width emotes: as high as the emote, in its center, wider ones go
+   over the sides (as in 7TV) */
+#log .emote .zw {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    height: 100%;
+    translate: -50% -50%;
+}
+
+#log .emoji {
+    height: 1em;
+    vertical-align: -0.15em;
+}
+
+.badge {
+    display: inline-block;
+    margin-right: 0.2em;
+    position: relative;
+    height: 1em;
+    vertical-align: middle;
+    top: -0.1em;
+}
+
+.shared-chat-icon {
+    border-radius: 50%;
+}
+
+.name {
+    margin-left: 0.2em;
+}
+
+.mention {
+    font-weight: bold;
+}
+
+/* BTTV and FFZ modifiers; the static changes are on .fx, the color
+   animations on .layers, the moving ones on .fx */
+#log .emote .fx {
+    scale: var(--sx, 1) var(--sy, 1);
+    rotate: var(--rot, 0deg);
+    filter: var(--cursed,) var(--red,);
+}
+
+.mod-flip-x {
+    --sx: -1;
+}
+
+.mod-flip-y {
+    --sy: -1;
+}
+
+.mod-rotate-left {
+    --rot: -90deg;
+}
+
+.mod-rotate-right {
+    --rot: 90deg;
+}
+
+.mod-cursed {
+    --cursed: grayscale(1) brightness(0.7) contrast(2.5);
+}
+
+.mod-hyper-red {
+    --red: sepia(1) saturate(8) hue-rotate(-40deg) brightness(0.9);
+}
+
+#log .mod-rainbow .layers {
+    animation: mod-rainbow 2s linear infinite;
+}
+
+#log .mod-shake .fx,
+#log .mod-hyper-red .fx {
+    animation: mod-shake 0.15s linear infinite;
+}
+
+#log .mod-jam .fx {
+    animation: mod-jam 0.6s ease-in-out infinite alternate;
+}
+
+#log .mod-bounce .fx {
+    animation: mod-bounce 0.5s ease-in-out infinite alternate;
+}
+
+#log .mod-spin .fx {
+    animation: mod-spin 1s linear infinite;
+}
+
+#log .mod-slide .fx {
+    animation: mod-slide 2s linear infinite;
+}
+
+#log .mod-arrive .fx {
+    animation: mod-arrive 2s ease-out infinite;
+}
+
+#log .mod-leave .fx {
+    animation: mod-leave 2s ease-in infinite;
+}
+
+@keyframes mod-rainbow {
+    from {
+        filter: hue-rotate(0deg) saturate(2);
+    }
+
+    to {
+        filter: hue-rotate(360deg) saturate(2);
+    }
+}
+
+@keyframes mod-shake {
+    0% {
+        translate: 0.03em 0.03em;
+    }
+
+    25% {
+        translate: -0.03em 0.02em;
+    }
+
+    50% {
+        translate: 0.02em -0.03em;
+    }
+
+    75% {
+        translate: -0.02em -0.02em;
+    }
+
+    100% {
+        translate: 0.03em 0.03em;
+    }
+}
+
+@keyframes mod-jam {
+    from {
+        rotate: -12deg;
+        translate: -0.05em 0;
+    }
+
+    to {
+        rotate: 12deg;
+        translate: 0.05em 0;
+    }
+}
+
+@keyframes mod-bounce {
+    from {
+        translate: 0 0;
+    }
+
+    to {
+        translate: 0 -0.25em;
+    }
+}
+
+@keyframes mod-spin {
+    to {
+        rotate: 360deg;
+    }
+}
+
+@keyframes mod-slide {
+    0% {
+        translate: -100% 0;
+        opacity: 0;
+    }
+
+    20%,
+    80% {
+        opacity: 1;
+    }
+
+    100% {
+        translate: 100% 0;
+        opacity: 0;
+    }
+}
+
+@keyframes mod-arrive {
+    from {
+        translate: -100% 0;
+        opacity: 0;
+    }
+
+    50%,
+    to {
+        translate: 0 0;
+        opacity: 1;
+    }
+}
+
+@keyframes mod-leave {
+    from,
+    50% {
+        translate: 0 0;
+        opacity: 1;
+    }
+
+    to {
+        translate: 100% 0;
+        opacity: 0;
+    }
+}
+
+/* the first message of a user in the channel */
+#log>div.first {
+    background: rgba(255, 105, 180, 0.3);
+}
+
+/* "Highlight My Message" */
+#log>div.highlighted {
+    background: rgba(117, 94, 188, 0.5);
+}
+
+/* subs, raids, announcements etc. */
+#log>div.notice {
+    --notice-color: #9147FF;
+}
+
+#log>div.notice .message {
+    border-left: 0.1em solid var(--notice-color);
+    padding-left: 0.3em;
+}
+
+/* the same sizes at the smaller font sizes */
+#log>div.notice .above {
+    border-left: 0.2em solid var(--notice-color);
+    padding-left: 0.6em;
+}
+
+#log>div.notice .message.system {
+    border-left-width: calc(0.1em / 0.6);
+    padding-left: 0.5em;
+}
+
+/* Power-up message effects */
+#log>div.effect {
+    background: linear-gradient(90deg, #9147FF, #FF75E6, #9147FF) 0 0 / 200% 100%;
+    animation: effect-pan 3s linear infinite;
+}
+
+#log>div.effect-simmer {
+    background-image: linear-gradient(90deg, #FF4F00, #FFB800, #FF2D55, #FF4F00);
+}
+
+#log>div.effect-rainbow-eclipse {
+    background-image: linear-gradient(90deg, #FF4545, #FFB545, #45FF7A, #45C8FF, #B545FF, #FF4545);
+}
+
+#log>div.effect-cosmic-abyss {
+    background-image: linear-gradient(90deg, #0B0B3B, #3A1C71, #0F4C81, #0B0B3B);
+}
+
+@keyframes effect-pan {
+    to {
+        background-position: 200% 0;
+    }
+}
+
+/* /chat: the deleted messages go away */
+#log>div.deleted {
+    display: none;
+}
+
+/* /chat/last: only the last message; it is hidden when it is deleted */
+body.last-only #log>div:not(:last-child) {
+    display: none;
+}
+
+body.last-only #log>div.deleted {
+    display: table-row-group;
+    visibility: hidden;
+}

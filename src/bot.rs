@@ -15,6 +15,7 @@ use crate::{
         banishes::{BanishService, BanishServiceInMemory, BanishServiceValkey},
         caches::{CacheService, CacheServiceInMemory, CacheServiceValkey},
         charges::{ChargesService, ChargesServiceInMemory, ChargesServiceValkey},
+        chat_box::{ChatBox, ChatBoxService},
         chat_log::{ChatLogService, ChatLogServiceElastic},
         display::{DisplayServer, DisplayService, DisplayServiceAux},
         event_list::{EventList, EventListService},
@@ -59,6 +60,9 @@ pub struct BotServices {
     pub display_server: Arc<DisplayServer>,
     /// Serve [`EventList::router`] with the display server.
     pub event_list: Arc<EventList>,
+    /// Serve [`ChatBox::router`] with the display server, and spawn
+    /// [`ChatBox::run`].
+    pub chat_box: Arc<ChatBox>,
     pub noita: Arc<NoitaHandle>,
     /// `None` with [`StateStore::InMemory`]
     pub music_player: Option<Arc<YouTubeMusicPlayer>>,
@@ -72,9 +76,11 @@ pub async fn services(
     let display_server = Arc::new(DisplayServer::default());
     let noita = Arc::new(NoitaHandle::default());
 
-    let (injector, caches, event_list, music_player) = match state {
+    let (injector, caches, storage, event_list, music_player) = match state {
         StateStore::Valkey(valkey) => {
             let caches: Arc<dyn CacheService> = Arc::new(CacheServiceValkey::new(valkey.clone()));
+            let storage: Arc<dyn StorageService> =
+                Arc::new(StorageServiceValkey::new(valkey.clone()));
             let music_player = Arc::new(
                 YouTubeMusicPlayer::new(
                     YouTubeMusic::new(
@@ -88,7 +94,7 @@ pub async fn services(
                 .await?,
             );
             let injector = Injector::new()
-                .with::<dyn StorageService>(Arc::new(StorageServiceValkey::new(valkey.clone())))
+                .with::<dyn StorageService>(storage.clone())
                 .with::<dyn VariableStorage>(Arc::new(VariableStorageValkey::new(valkey.clone())))
                 .with::<dyn IpcService>(Arc::new(IpcServiceValkey::new(valkey.clone())))
                 .with::<dyn BanishService>(Arc::new(BanishServiceValkey::new(valkey.clone())))
@@ -96,12 +102,13 @@ pub async fn services(
                 .with::<dyn GateService>(Arc::new(GateServiceValkey::new(valkey.clone())))
                 .with::<dyn MusicService>(music_player.clone());
             let event_list = Arc::new(EventList::valkey(valkey.clone()));
-            (injector, caches, event_list, Some(music_player))
+            (injector, caches, storage, event_list, Some(music_player))
         }
         StateStore::InMemory => {
             let caches: Arc<dyn CacheService> = Arc::new(CacheServiceInMemory::default());
+            let storage: Arc<dyn StorageService> = Arc::new(InMemoryStorageService::default());
             let injector = Injector::new()
-                .with::<dyn StorageService>(Arc::new(InMemoryStorageService::default()))
+                .with::<dyn StorageService>(storage.clone())
                 .with::<dyn VariableStorage>(Arc::new(VariableStorageInMemory::default()))
                 .with::<dyn IpcService>(Arc::new(IpcServiceInMemory::default()))
                 .with::<dyn BanishService>(Arc::new(BanishServiceInMemory::default()))
@@ -110,9 +117,22 @@ pub async fn services(
                 .with::<dyn MusicService>(Arc::new(MusicServiceUnavailable(
                     "the state is in memory",
                 )));
-            (injector, caches, Arc::new(EventList::in_memory()), None)
+            (
+                injector,
+                caches,
+                storage,
+                Arc::new(EventList::in_memory()),
+                None,
+            )
         }
     };
+
+    let chat_log: Arc<dyn ChatLogService> = Arc::new(ChatLogServiceElastic::new(
+        &config.elastic.url,
+        &config.elastic.api_key,
+        &config.elastic.index,
+    )?);
+    let chat_box = Arc::new(ChatBox::new(twitch_api, storage, chat_log.clone()));
 
     let injector = injector
         .with::<dyn CacheService>(caches.clone())
@@ -121,17 +141,14 @@ pub async fn services(
             &config.stats.api_key,
             &config.stats.index,
         )?))
-        .with::<dyn ChatLogService>(Arc::new(ChatLogServiceElastic::new(
-            &config.elastic.url,
-            &config.elastic.api_key,
-            &config.elastic.index,
-        )?))
+        .with::<dyn ChatLogService>(chat_log)
         .with::<dyn SoundService>(Arc::new(SoundServiceImpl::default()))
         .with::<dyn TtsService>(Arc::new(TtsServiceImpl::default()))
         .with::<dyn JevService>(Arc::new(JevServiceTypeSafe::new(&config.jev)))
         .with::<dyn StatusService>(Arc::new(StatusWall::new(display_server.wrap("status"))))
         .with::<dyn DisplayService>(display_server.clone())
         .with::<dyn EventListService>(event_list.clone())
+        .with::<dyn ChatBoxService>(chat_box.clone())
         .with::<dyn NoitaService>(noita.clone())
         .with::<dyn NamesService>(Arc::new(NamesServiceImpl::new(caches, twitch_api.clone())));
 
@@ -139,6 +156,7 @@ pub async fn services(
         injector,
         display_server,
         event_list,
+        chat_box,
         noita,
         music_player,
     })

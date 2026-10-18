@@ -62,6 +62,8 @@ dashmap = "6.2.1"
 tracing-chrome = "0.7.2"
 parse_duration = "2.1.1"
 jiff = "0.2.37"
+unicode-segmentation = "1.13.3"
+emojis = "0.9.1"
 
 [dev-dependencies]
 insta = "1.48.0"

@@ -9,6 +9,7 @@ use dashmap::{DashMap, mapref::entry::Entry};
 pub mod banishes;
 pub mod caches;
 pub mod charges;
+pub mod chat_box;
 pub mod chat_log;
 pub mod display;
 pub mod event_list;

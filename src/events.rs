@@ -22,6 +22,7 @@ use crate::{
     services::{
         caches::CacheServiceExt,
         charges::{Charges, ChargesServiceExt},
+        chat_box::ChatBoxServiceExt,
         event_list::{EventListServiceExt, KofiKind, ListedEvent, PowerUp, format_money},
         noita::{ItemFound, NoitaEvent, WinState},
         sounds::SoundServiceExt,
@@ -671,6 +672,9 @@ pub async fn handle_channel_event(ctx: AppContext, event: ChannelEvent) -> Resul
         ChannelEvent::StreamOnline => {
             tracing::info!("stream online");
             ctx.storage().set("stream-online", "1").await?;
+            if let Err(error) = ctx.chat_box().clear().await {
+                tracing::error!(?error, "failed to clear the chat box");
+            }
             ctx.send("→ stream start cutoff ←".into()).await?
         }
         ChannelEvent::StreamOffline => {
