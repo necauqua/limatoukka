@@ -1,0 +1,61 @@
+html,
+body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    background: transparent;
+    overflow: hidden;
+}
+
+body {
+    padding: 20px 20px 0 20px;
+    box-sizing: border-box;
+}
+
+.widget-EventList {
+    font-weight: 400;
+    font-size: 48px;
+    font-family: NoitaPixel;
+    font-smooth: never;
+    color: #FFFFFF;
+    background: transparent;
+    padding: 0;
+}
+
+.entry {
+    width: 100%;
+    display: flex;
+}
+
+/* all entries slide down by one line together when a new one comes */
+.entry.slide {
+    animation: slideInDown 250ms forwards;
+    animation-timing-function: linear;
+}
+
+.date {
+    white-space: nowrap;
+    padding-right: 0.5em;
+}
+
+.message {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.user {
+    color: #E38AF0;
+}
+
+/* from animate.css 3.4.0 */
+@keyframes slideInDown {
+    from {
+        transform: translate3d(0, -100%, 0);
+        visibility: visible;
+    }
+
+    to {
+        transform: translate3d(0, 0, 0);
+    }
+}

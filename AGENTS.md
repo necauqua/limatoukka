@@ -131,13 +131,21 @@ it is not made to be simple to run by other people.
 - `services/display.rs`, `status_wall.rs`, `music.rs` (+ `music-player.html`):
   axum/maud HTTP servers for OBS browser sources, on `browser-source-bind`
   and `music-player-bind`.
+- `services/event_list.rs` (+ `event-list.css`/`.js`): the event list
+  browser source at `/event-list` on `browser-source-bind` (follows, subs,
+  gift subs, cheers, Power-ups, raids, charity and Ko-fi donations). It
+  replaces a Streamlabs widget. `handle_channel_event`/`handle_kofi_event`
+  add the entries. The page shows the 3 newest; each SSE message has the
+  full shown list, so a reloaded or reconnected page is always correct.
 
 ## Data and conventions
 
 - Valkey key prefixes: `storage:<key>`, `caches:<cache>:<key>` (TTL, e.g.
   `caches:names:<uid>` for display names), `charges:<uid>`,
   `gate:<user>:<key>`, `macros:<owner>`, `vars:<owner>`,
-  `kick:begone:<uid>`. Settings are storage keys such as
+  `kick:begone:<uid>`, `event-list` (JSON entries, newest first, at most
+  50; follows of one user are listed once per 24 h with
+  `caches:event-list-follow:<uid>`). Settings are storage keys such as
   `storage:setting:stop`.
 - `Charges` are stored as integer thousandths (`Charges::whole(1)` = 1000).
   The display format drops trailing fraction zeroes and adds `⚡︎`

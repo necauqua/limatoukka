@@ -40,8 +40,13 @@ impl DisplayServer {
             .clone()
     }
 
-    pub fn start(self: &Arc<Self>, bind_addr: &str) -> impl Future<Output = Result<()>> + use<> {
-        let app = Router::new()
+    /// Serves the display pages and the other `routes`.
+    pub fn start(
+        self: &Arc<Self>,
+        bind_addr: &str,
+        routes: Router,
+    ) -> impl Future<Output = Result<()>> + use<> {
+        let app = routes
             .route(
                 "/{key}",
                 get({
@@ -163,7 +168,7 @@ mod tests {
         let server = Arc::new(DisplayServer::default());
         let bind_addr = "localhost:12312";
 
-        tokio::spawn(server.start(bind_addr));
+        tokio::spawn(server.start(bind_addr, Router::new()));
 
         let client = reqwest::Client::new();
         let key = "my-service";

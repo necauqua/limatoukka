@@ -35,6 +35,9 @@ async fn run() -> Result<()> {
 
     let id = twitch_api.caster_id();
     eventsub.listen_to(ChannelAdBreakBeginV1::broadcaster_user_id(id));
+    eventsub.listen_to(ChannelFollowV2::new(id, id));
+    eventsub.listen_to(ChannelBitsUseV1::broadcaster_user_id(id));
+    eventsub.listen_to(ChannelCharityCampaignDonateV1::broadcaster_user_id(id));
     eventsub.listen_to(ChannelPointsCustomRewardRedemptionAddV1::broadcaster_user_id(id));
     eventsub.listen_to(ChannelSubscribeV1::broadcaster_user_id(id));
     eventsub.listen_to(ChannelSubscriptionGiftV1::broadcaster_user_id(id));
@@ -54,6 +57,7 @@ async fn run() -> Result<()> {
     let BotServices {
         injector,
         display_server,
+        event_list,
         noita: noita_handle,
         music_player,
     } = bot::services(&config, &state, &twitch_api).await?;
@@ -69,7 +73,7 @@ async fn run() -> Result<()> {
     let runner = bot::runner(&ctx);
 
     tokio::spawn(eventsub.run(ctx.clone()));
-    tokio::spawn(display_server.start(&config.browser_source_bind));
+    tokio::spawn(display_server.start(&config.browser_source_bind, event_list.router()));
     if let Some(music_player) = &music_player {
         tokio::spawn(music_player.start(&config.music_player_bind));
     }

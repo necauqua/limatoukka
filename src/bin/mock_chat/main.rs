@@ -192,6 +192,7 @@ async fn run(
     let BotServices {
         injector,
         display_server,
+        event_list,
         noita: noita_handle,
         music_player,
     } = bot::services(&config, &state, &twitch_api).await?;
@@ -214,7 +215,7 @@ async fn run(
     let runner = bot::runner(&ctx);
 
     let server_output = output.clone();
-    let display = display_server.start(&args.browser_source_bind);
+    let display = display_server.start(&args.browser_source_bind, event_list.router());
     tokio::spawn(async move {
         if let Err(error) = display.await {
             server_output.error(&format!("browser sources are off: {error:#}"));

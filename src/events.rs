@@ -8,7 +8,10 @@ use lazy_regex::regex_replace;
 use tokio::time::sleep;
 use tracing::instrument;
 use twitch_api::{
-    eventsub::{Event, Message, Payload},
+    eventsub::{
+        Event, Message, Payload,
+        channel::bits::{BitsPowerUpType, BitsType},
+    },
     types::SubscriptionTier,
 };
 
@@ -17,7 +20,9 @@ use crate::{
     defs::betting::{BetCancelError, BetCloseError, close_bet, do_cancel_bet},
     integration::kofi::{KofiPayload, KofiType},
     services::{
+        caches::CacheServiceExt,
         charges::{Charges, ChargesServiceExt},
+        event_list::{EventListServiceExt, KofiKind, ListedEvent, PowerUp, format_money},
         noita::{ItemFound, NoitaEvent, WinState},
         sounds::SoundServiceExt,
         storage::StorageServiceExt,
@@ -118,6 +123,9 @@ pub enum ChannelEvent {
         duration_seconds: i32,
         automatic: bool,
     },
+    Follow {
+        user: EventUser,
+    },
     Sub {
         user: EventUser,
         tier: SubscriptionTier,
@@ -142,6 +150,18 @@ pub enum ChannelEvent {
         user: Option<EventUser>,
         bits: i64,
         message: String,
+    },
+    /// Bits used on a Power-up. Cheers are [`ChannelEvent::Cheer`].
+    PowerUp {
+        user: EventUser,
+        bits: i64,
+        power_up: PowerUp,
+    },
+    CharityDonation {
+        user: EventUser,
+        /// Formatted, e.g. `$5`
+        amount: String,
+        charity: String,
     },
     Raid {
         from: EventUser,
@@ -179,6 +199,67 @@ impl ChannelEvent {
             }) => ChannelEvent::AdBreak {
                 duration_seconds: data.duration_seconds,
                 automatic: data.is_automatic,
+            },
+            Event::ChannelFollowV2(Payload {
+                message: Message::Notification(data),
+                ..
+            }) => ChannelEvent::Follow {
+                user: EventUser {
+                    id: data.user_id.to_string(),
+                    login: data.user_login.to_string(),
+                    name: data.user_name.to_string(),
+                },
+            },
+            Event::ChannelBitsUseV1(Payload {
+                message: Message::Notification(data),
+                ..
+            }) => ChannelEvent::PowerUp {
+                power_up: match data.type_ {
+                    // channel.cheer has these, with the message
+                    BitsType::Cheer => return None,
+                    BitsType::PowerUp => match data.power_up.map(|p| p.type_) {
+                        Some(BitsPowerUpType::MessageEffect) => PowerUp::MessageEffect,
+                        Some(BitsPowerUpType::Celebration) => PowerUp::Celebration,
+                        Some(BitsPowerUpType::GigantifyAnEmote) => PowerUp::GigantifyEmote,
+                        Some(BitsPowerUpType::Unknown(name)) => PowerUp::Other { name },
+                        other => PowerUp::Other {
+                            name: format!("{other:?}"),
+                        },
+                    },
+                    BitsType::CustomPowerUp => PowerUp::Custom {
+                        title: data
+                            .custom_power_up
+                            .map_or_else(|| "a custom Power-up".into(), |p| p.title),
+                    },
+                    other => PowerUp::Other {
+                        name: format!("{other:?}"),
+                    },
+                },
+                user: EventUser {
+                    id: data.user_id.to_string(),
+                    login: data.user_login.to_string(),
+                    name: data.user_name.to_string(),
+                },
+                bits: data.bits as i64,
+            },
+            Event::ChannelCharityCampaignDonateV1(Payload {
+                message: Message::Notification(data),
+                ..
+            }) => ChannelEvent::CharityDonation {
+                user: EventUser {
+                    id: data.user_id.to_string(),
+                    login: data.user_login.to_string(),
+                    name: data.user_name.to_string(),
+                },
+                amount: format_money(
+                    &format!(
+                        "{:.*}",
+                        data.amount.decimal_places.max(0) as usize,
+                        data.amount.value as f64 / 10f64.powi(data.amount.decimal_places.max(0)),
+                    ),
+                    &data.amount.currency,
+                ),
+                charity: data.charity_name,
             },
             Event::ChannelSubscribeV1(Payload {
                 message: Message::Notification(data),
@@ -270,8 +351,94 @@ fn optional_user(
     })
 }
 
+/// How long a repeated follow of the same user is not listed again.
+const REFOLLOW_COOLDOWN: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// The event list entry of a channel event, `None` for the events that are
+/// not listed.
+async fn listed_event(ctx: &AppContext, event: &ChannelEvent) -> Result<Option<ListedEvent>> {
+    let name = |user: &Option<EventUser>| user.as_ref().map(|u| u.name.clone());
+    Ok(Some(match event {
+        ChannelEvent::Follow { user } => {
+            let new = ctx
+                .caches()
+                .set("event-list-follow", REFOLLOW_COOLDOWN, &user.id, "1")
+                .await?;
+            if !new {
+                return Ok(None);
+            }
+            ListedEvent::Follow {
+                user: user.name.clone(),
+            }
+        }
+        // the gifter has the entry
+        ChannelEvent::Sub { gifted: true, .. } => return Ok(None),
+        ChannelEvent::Sub { user, tier, .. } => ListedEvent::Sub {
+            user: user.name.clone(),
+            tier: tier.clone(),
+        },
+        ChannelEvent::Resub {
+            user,
+            cumulative_months,
+            ..
+        } => ListedEvent::Resub {
+            user: user.name.clone(),
+            months: *cumulative_months,
+        },
+        ChannelEvent::SubGift { user, total, .. } => ListedEvent::SubGift {
+            user: name(user),
+            count: *total,
+        },
+        ChannelEvent::Cheer { user, bits, .. } => ListedEvent::Cheer {
+            user: name(user),
+            bits: *bits,
+        },
+        ChannelEvent::PowerUp {
+            user,
+            bits,
+            power_up,
+        } => ListedEvent::PowerUp {
+            user: user.name.clone(),
+            bits: *bits,
+            power_up: power_up.clone(),
+        },
+        ChannelEvent::CharityDonation {
+            user,
+            amount,
+            charity,
+        } => ListedEvent::Charity {
+            user: user.name.clone(),
+            amount: amount.clone(),
+            charity: charity.clone(),
+        },
+        ChannelEvent::Raid { from, viewers } => ListedEvent::Raid {
+            user: from.name.clone(),
+            viewers: *viewers,
+        },
+        ChannelEvent::Redemption { .. }
+        | ChannelEvent::AdBreak { .. }
+        | ChannelEvent::HypeTrainBegin
+        | ChannelEvent::HypeTrainEnd { .. }
+        | ChannelEvent::StreamOnline
+        | ChannelEvent::StreamOffline => return Ok(None),
+    }))
+}
+
+async fn add_to_event_list(ctx: &AppContext, event: Result<Option<ListedEvent>>) {
+    let result = match event {
+        Ok(Some(event)) => ctx.event_list().push(event).await,
+        Ok(None) => Ok(()),
+        Err(error) => Err(error),
+    };
+    if let Err(error) = result {
+        tracing::error!(?error, "failed to add to the event list");
+    }
+}
+
 #[instrument(skip_all)]
 pub async fn handle_channel_event(ctx: AppContext, event: ChannelEvent) -> Result<()> {
+    add_to_event_list(&ctx, listed_event(&ctx, &event).await).await;
+
     match event {
         ChannelEvent::Redemption {
             user,
@@ -339,6 +506,35 @@ pub async fn handle_channel_event(ctx: AppContext, event: ChannelEvent) -> Resul
             }
             sleep(Duration::from_secs(duration_seconds as _)).await;
             ctx.send("ADS over".into()).await?;
+        }
+        ChannelEvent::Follow { user } => {
+            tracing::info!(user.id = user.id, user.login = user.login, "follow");
+        }
+        ChannelEvent::PowerUp {
+            user,
+            bits,
+            power_up,
+        } => {
+            tracing::info!(
+                user.id = user.id,
+                user.login = user.login,
+                amount = bits,
+                ?power_up,
+                "power-up"
+            );
+        }
+        ChannelEvent::CharityDonation {
+            user,
+            amount,
+            charity,
+        } => {
+            tracing::info!(
+                user.id = user.id,
+                user.login = user.login,
+                amount,
+                charity,
+                "charity donation"
+            );
         }
         ChannelEvent::Sub { user, tier, gifted } => {
             tracing::info!(
@@ -499,6 +695,19 @@ pub async fn handle_kofi_event(ctx: AppContext, event: KofiPayload) -> Result<()
     if !event.is_public {
         return Ok(());
     }
+
+    let kind = match event.event_type {
+        KofiType::Donation => KofiKind::Donation,
+        KofiType::Subscription if event.is_first_subscription_payment => KofiKind::Sub,
+        KofiType::Subscription => KofiKind::Resub,
+        KofiType::ShopOrder => KofiKind::ShopOrder,
+    };
+    let listed = ListedEvent::Kofi {
+        user: event.from_name.clone(),
+        amount: format_money(&event.amount, &event.currency),
+        kind,
+    };
+    add_to_event_list(&ctx, Ok(Some(listed))).await;
 
     if event.is_first_subscription_payment {
         tracing::info!(

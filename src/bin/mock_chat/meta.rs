@@ -4,6 +4,7 @@ use limatoukka::{
     events::{ChannelEvent, EventUser},
     integration::kofi::{KofiPayload, KofiType},
     services::{
+        event_list::{PowerUp, format_money},
         messaging::PermissionLevel,
         noita::{ItemFound, NoitaEvent, WinState},
     },
@@ -16,10 +17,14 @@ Terminal commands (events come from the current user):
   /as <login> [level]           chat as another Twitch user; level: viewer, sub,
                                 verified, vip, staff, admin, mod, caster
   /redeem <reward title>        channel point redemption, e.g. /redeem Buy 5 charges
+  /follow                       follow
   /sub [1|2|3|prime]            new sub
   /gift [count] [1|2|3] [anon]  gifted subs
   /resub <months> [text]        resub with a message
   /cheer <bits> [text]          cheer
+  /powerup [bits] [effect|celebration|gigantify|<custom title>]
+                                bits used on a Power-up (default 100, gigantify)
+  /charity <dollars> [charity]  charity campaign donation
   /raid [viewers]               raid from the channel of the current user
   /ad [seconds] [manual]        ad break (default 30 s, automatic)
   /hype start|end               hype train
@@ -106,6 +111,33 @@ pub fn parse(line: &str, user: &EventUser) -> Result<Action, String> {
                 reward_title: rest(0),
                 reward_id: fake_id(),
                 redemption_id: fake_id(),
+            })
+        }
+        "follow" => Action::Channel(ChannelEvent::Follow { user: user.clone() }),
+        "powerup" => {
+            let bits = number(args.first().copied(), 100, "bits")?;
+            Action::Channel(ChannelEvent::PowerUp {
+                user: user.clone(),
+                bits,
+                power_up: match args.get(1).copied() {
+                    None | Some("gigantify") => PowerUp::GigantifyEmote,
+                    Some("effect") => PowerUp::MessageEffect,
+                    Some("celebration") => PowerUp::Celebration,
+                    Some(_) => PowerUp::Custom { title: rest(1) },
+                },
+            })
+        }
+        "charity" => {
+            let amount = args.first().ok_or("usage: /charity <dollars> [charity]")?;
+            let charity = rest(1);
+            Action::Channel(ChannelEvent::CharityDonation {
+                user: user.clone(),
+                amount: format_money(amount, "USD"),
+                charity: if charity.is_empty() {
+                    "Doctors Without Borders".into()
+                } else {
+                    charity
+                },
             })
         }
         "sub" => Action::Channel(ChannelEvent::Sub {
