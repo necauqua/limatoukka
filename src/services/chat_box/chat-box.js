@@ -61,36 +61,37 @@ const byAttr = (name, value) => log.querySelectorAll(`[${name}="${CSS.escape(val
 
 sizeEmotes(log);
 
-const events = new EventSource('/chat/events');
-// the full list, sent on each (re)connect
-events.addEventListener('reset', e => {
-  log.replaceChildren(...parse(e.data));
-  sizeEmotes(log);
-});
-events.addEventListener('message', e => {
-  for (const message of parse(e.data)) {
-    byAttr('data-id', message.dataset.id).forEach(old => old.remove());
-    log.append(message);
-    sizeEmotes(message);
-  }
-  while (log.children.length > KEPT) {
-    log.firstElementChild.remove();
-  }
-});
-// a shown message again, with the chatter data that came after it
-events.addEventListener('replace', e => {
-  for (const message of parse(e.data)) {
-    const [old] = byAttr('data-id', message.dataset.id);
-    if (old) {
-      old.replaceWith(message);
+live('/chat/events', {
+  // the full list, sent on each (re)connect
+  reset: html => {
+    log.replaceChildren(...parse(html));
+    sizeEmotes(log);
+  },
+  message: html => {
+    for (const message of parse(html)) {
+      byAttr('data-id', message.dataset.id).forEach(old => old.remove());
+      log.append(message);
       sizeEmotes(message);
     }
-  }
+    while (log.children.length > KEPT) {
+      log.firstElementChild.remove();
+    }
+  },
+  // a shown message again, with the chatter data that came after it
+  replace: html => {
+    for (const message of parse(html)) {
+      const [old] = byAttr('data-id', message.dataset.id);
+      if (old) {
+        old.replaceWith(message);
+        sizeEmotes(message);
+      }
+    }
+  },
+  delete: id => {
+    byAttr('data-id', id).forEach(message => message.classList.add('deleted'));
+  },
+  'delete-user': id => {
+    byAttr('data-user-id', id).forEach(message => message.classList.add('deleted'));
+  },
+  clear: () => log.replaceChildren(),
 });
-events.addEventListener('delete', e => {
-  byAttr('data-id', e.data).forEach(message => message.classList.add('deleted'));
-});
-events.addEventListener('delete-user', e => {
-  byAttr('data-user-id', e.data).forEach(message => message.classList.add('deleted'));
-});
-events.addEventListener('clear', () => log.replaceChildren());

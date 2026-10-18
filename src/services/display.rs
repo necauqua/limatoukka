@@ -3,15 +3,20 @@ use std::sync::Arc;
 use anyhow::{Ok, Result};
 use axum::{
     Router,
-    extract::Path,
-    response::{Sse, sse::Event},
+    extract::{Path, ws::WebSocketUpgrade},
     routing::get,
 };
 use dashmap::{DashMap, mapref::entry::Entry};
 use maud::{Markup, PreEscaped, Render, html};
 use tokio::sync::broadcast::Sender;
 
-use crate::{injector_getter, services::Service};
+use crate::{
+    injector_getter,
+    services::{
+        Service,
+        live::{self, LiveEvent},
+    },
+};
 
 pub trait DisplayService: Service {
     fn set(&self, key: &str, html: Markup);
@@ -21,7 +26,7 @@ injector_getter!(DisplayService::display { DisplayServiceNoop });
 
 #[derive(Default)]
 pub struct DisplayServer {
-    sources: DashMap<String, (Markup, Sender<Event>)>,
+    sources: DashMap<String, (Markup, Sender<LiveEvent>)>,
 }
 
 impl DisplayServer {
@@ -32,7 +37,7 @@ impl DisplayServer {
             .unwrap_or_default()
     }
 
-    fn sender(&self, key: &str) -> Sender<Event> {
+    fn sender(&self, key: &str) -> Sender<LiveEvent> {
         self.sources
             .entry(key.to_owned())
             .or_insert_with(|| (html! {}, Sender::new(16)))
@@ -40,7 +45,8 @@ impl DisplayServer {
             .clone()
     }
 
-    /// Serves the display pages and the other `routes`.
+    /// Serves the display pages `/{key}` (each with its live updates at
+    /// `/{key}/events`) and the other `routes`.
     pub fn start(
         self: &Arc<Self>,
         bind_addr: &str,
@@ -53,8 +59,9 @@ impl DisplayServer {
                     let handle = self.clone();
                     async move |Path(key): Path<String>| {
                         html! {
+                            (live::script())
                             script {
-                                (PreEscaped(format!(r#"new EventSource("/{key}/events").onmessage = (e) => text.innerHTML = e.data"#)))
+                                (PreEscaped("live(location.pathname + '/events', { html: data => text.innerHTML = data });"))
                             }
                             div #text style="
                                 position: absolute;
@@ -74,13 +81,16 @@ impl DisplayServer {
                 "/{key}/events",
                 get({
                     let handle = self.clone();
-                    async move |Path(key): Path<String>| {
-                    let rx = handle.sender(&key).subscribe();
-                    let s = futures::stream::try_unfold(rx, |mut rx| async {
-                        Ok(Some((rx.recv().await?, rx)))
-                    });
-                    Sse::new(s).keep_alive(Default::default())
-                }}),
+                    async move |Path(key): Path<String>, ws: WebSocketUpgrade| {
+                        let rx = handle.sender(&key).subscribe();
+                        let handle = handle.clone();
+                        let snapshot = move || {
+                            let html = handle.html(&key);
+                            async move { Some(LiveEvent::new("html", &html.0)) }
+                        };
+                        live::serve(ws, live::with_snapshot(rx, snapshot, Some))
+                    }
+                }),
             );
 
         let bind_addr = bind_addr.to_owned(); // meh
@@ -133,10 +143,7 @@ impl DisplayServiceAux for Arc<dyn DisplayService> {
 
 impl DisplayService for DisplayServer {
     fn set(&self, key: &str, html: Markup) {
-        let event = Event::default().data(match &*html.0 {
-            "" => " ".to_owned(),
-            x => x.into(),
-        });
+        let event = LiveEvent::new("html", &html.0);
         match self.sources.entry(key.to_owned()) {
             Entry::Occupied(mut o) => {
                 o.get_mut().0 = html.clone();
@@ -169,11 +176,8 @@ pub(crate) async fn wait_until_listening(addr: &str) {
 
 #[cfg(test)]
 mod tests {
-    use anyhow::anyhow;
-    use futures::StreamExt;
-    use reqwest_sse::EventSource;
-
     use super::*;
+    use crate::services::live::TestClient;
 
     #[tokio::test]
     async fn display_server() -> Result<()> {
@@ -187,23 +191,23 @@ mod tests {
         let key = "my-service";
 
         let url = format!("http://{bind_addr}/{key}");
-        let mut events = client
-            .get(format!("{url}/events"))
-            .send()
-            .await?
-            .events()
-            .await
-            .map_err(|e| anyhow!(e))?;
+        server.set(key, html! { "before" });
+        let mut events = TestClient::connect(bind_addr, &format!("/{key}/events")).await?;
+        // the current HTML first
+        let (event, data) = events.next().await?;
+        assert_eq!(event, "html");
+        assert!(data.contains("before"));
 
         server.set(key, html! { "Hello, world!" });
-        let event = events.next().await.unwrap().map_err(|e| anyhow!(e))?;
-        assert!(event.data.contains("Hello, world!"));
+        let (event, data) = events.next().await?;
+        assert_eq!(event, "html");
+        assert!(data.contains("Hello, world!"));
         let body = client.get(&url).send().await?.text().await?;
         assert!(body.contains("Hello, world!"));
 
         server.set(key, html! { "second" });
-        let event = events.next().await.unwrap().map_err(|e| anyhow!(e))?;
-        assert!(event.data.contains("second"));
+        let (_, data) = events.next().await?;
+        assert!(data.contains("second"));
         let body = client.get(&url).send().await?.text().await?;
         assert!(body.contains("second"));
 

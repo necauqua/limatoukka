@@ -11,8 +11,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use axum::{
     Router,
-    extract::State,
-    response::{Sse, sse::Event},
+    extract::{State, ws::WebSocketUpgrade},
     routing::get,
 };
 use jiff::{Timestamp, tz::TimeZone};
@@ -22,10 +21,16 @@ use rustis::{
     commands::ListCommands,
 };
 use serde::{Deserialize, Serialize};
-use tokio::sync::broadcast::{self, error::RecvError};
+use tokio::sync::broadcast;
 use twitch_api::types::SubscriptionTier;
 
-use crate::{injector_getter, services::Service};
+use crate::{
+    injector_getter,
+    services::{
+        Service,
+        live::{self, LiveEvent},
+    },
+};
 
 const VALKEY_KEY: &str = "event-list";
 /// The number of entries that Valkey keeps.
@@ -301,8 +306,8 @@ impl EventList {
         }
     }
 
-    /// The routes of the page, `/event-list` and its SSE stream
-    /// `/event-list/events`. Each SSE message has all the shown entries.
+    /// The routes of the page, `/event-list` and its live updates
+    /// `/event-list/events`. Each `list` event has all the shown entries.
     pub fn router(self: &Arc<Self>) -> Router {
         Router::new()
             .route(
@@ -317,22 +322,25 @@ impl EventList {
             )
             .route(
                 "/event-list/events",
-                get(async |State(s): State<Arc<Self>>| {
+                get(async |State(s): State<Arc<Self>>, ws: WebSocketUpgrade| {
                     let rx = s.updates.subscribe();
-                    // the first message is the current list, so that a
-                    // reconnected page gets what it missed
-                    let stream =
-                        futures::stream::try_unfold((s, rx, true), async |(s, mut rx, first)| {
-                            if !first {
-                                match rx.recv().await {
-                                    Ok(()) | Err(RecvError::Lagged(_)) => {}
-                                    Err(RecvError::Closed) => return anyhow::Ok(None),
+                    // each update is the current list again
+                    let list = move || {
+                        let s = s.clone();
+                        async move {
+                            match s.recent(SHOWN).await {
+                                Ok(entries) => {
+                                    Some(LiveEvent::new("list", &render_entries(&entries).0))
+                                }
+                                Err(error) => {
+                                    // the page connects again
+                                    tracing::error!(?error, "failed to read the event list");
+                                    None
                                 }
                             }
-                            let html = render_entries(&s.recent(SHOWN).await?);
-                            Ok(Some((Event::default().data(html.0), (s, rx, false))))
-                        });
-                    Sse::new(stream).keep_alive(Default::default())
+                        }
+                    };
+                    live::serve(ws, live::with_snapshot(rx, list, |()| None))
                 }),
             )
             .with_state(self.clone())
@@ -350,6 +358,7 @@ fn page(entries: &[Entry]) -> Markup {
             }
             body {
                 div #list .widget-EventList { (render_entries(entries)) }
+                (live::script())
                 script { (PreEscaped(include_str!("event-list.js"))) }
             }
         }
@@ -440,11 +449,10 @@ mod tests {
 
     #[tokio::test]
     async fn served_with_display_server() -> Result<()> {
-        use anyhow::anyhow;
-        use futures::StreamExt;
-        use reqwest_sse::EventSource;
-
-        use crate::services::display::{DisplayServer, wait_until_listening};
+        use crate::services::{
+            display::{DisplayServer, wait_until_listening},
+            live::TestClient,
+        };
 
         let list = Arc::new(EventList::in_memory());
         list.push(ListedEvent::Follow {
@@ -464,24 +472,19 @@ mod tests {
         assert!(body.contains("widget-EventList"));
         assert!(body.contains("first"));
 
-        let mut events = client
-            .get(format!("{url}/events"))
-            .send()
-            .await?
-            .events()
-            .await
-            .map_err(|e| anyhow!(e))?;
-        let event = events.next().await.unwrap().map_err(|e| anyhow!(e))?;
-        assert!(event.data.contains("first"));
+        let mut events = TestClient::connect(bind_addr, "/event-list/events").await?;
+        let (event, data) = events.next().await?;
+        assert_eq!(event, "list");
+        assert!(data.contains("first"));
 
         list.push(ListedEvent::Raid {
             user: "second".into(),
             viewers: 5,
         })
         .await?;
-        let event = events.next().await.unwrap().map_err(|e| anyhow!(e))?;
-        assert!(event.data.contains("second"));
-        assert!(event.data.find("second") < event.data.find("first"));
+        let (_, data) = events.next().await?;
+        assert!(data.contains("second"));
+        assert!(data.find("second") < data.find("first"));
 
         Ok(())
     }

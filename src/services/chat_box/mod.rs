@@ -20,7 +20,6 @@ mod seventv;
 
 use std::{
     collections::VecDeque,
-    convert::Infallible,
     sync::{Arc, Mutex, RwLock},
     time::Duration,
 };
@@ -29,15 +28,14 @@ use anyhow::Result;
 use async_trait::async_trait;
 use axum::{
     Router,
-    extract::State,
-    response::{Sse, sse::Event},
+    extract::{State, ws::WebSocketUpgrade},
     routing::get,
 };
 use dashmap::DashMap;
 use futures::{FutureExt as _, StreamExt as _, future::BoxFuture};
 use jiff::Timestamp;
 use maud::{DOCTYPE, Markup, PreEscaped, html};
-use tokio::sync::broadcast::{self, error::RecvError};
+use tokio::sync::broadcast;
 use twitch_irc::{
     ClientConfig, MetricsConfig, SecureTCPTransport, TwitchIRCClient,
     login::StaticLoginCredentials,
@@ -54,7 +52,12 @@ use self::{
 use crate::{
     injector_getter,
     integration::twitch_api::TwitchApi,
-    services::{Service, chat_log::ChatLogService, storage::StorageService},
+    services::{
+        Service,
+        chat_log::ChatLogService,
+        live::{self, LiveEvent},
+        storage::StorageService,
+    },
 };
 
 /// The number of messages that the pages get
@@ -99,21 +102,14 @@ enum Update {
     Clear,
 }
 
-/// EventSource does not dispatch events with empty data.
-fn sse(event: &str, data: &str) -> Event {
-    Event::default()
-        .event(event)
-        .data(if data.is_empty() { " " } else { data })
-}
-
 impl Update {
-    fn event(&self) -> Event {
+    fn event(&self) -> LiveEvent {
         match self {
-            Update::Message(html) => sse("message", html),
-            Update::Replace(html) => sse("replace", html),
-            Update::Delete(id) => sse("delete", id),
-            Update::DeleteUser(id) => sse("delete-user", id),
-            Update::Clear => sse("clear", ""),
+            Update::Message(html) => LiveEvent::new("message", html),
+            Update::Replace(html) => LiveEvent::new("replace", html),
+            Update::Delete(id) => LiveEvent::new("delete", id),
+            Update::DeleteUser(id) => LiveEvent::new("delete-user", id),
+            Update::Clear => LiveEvent::new("clear", ""),
         }
     }
 }
@@ -601,7 +597,7 @@ impl ChatBox {
         tokio::join!(updates, chat);
     }
 
-    /// The routes of the pages, their SSE stream `/chat/events`, and the
+    /// The routes of the pages, their live updates `/chat/events`, and the
     /// images at `/chat/img/...`.
     pub fn router(self: &Arc<Self>) -> Router {
         Router::new()
@@ -615,24 +611,15 @@ impl ChatBox {
             )
             .route(
                 "/chat/events",
-                get(async |State(s): State<Arc<Self>>| {
+                get(async |State(s): State<Arc<Self>>, ws: WebSocketUpgrade| {
                     let rx = s.updates.subscribe();
-                    // the first event is the full list, so that a
-                    // reconnected page (e.g. after a restart) is correct
-                    let stream =
-                        futures::stream::unfold((s, rx, true), async |(s, mut rx, first)| {
-                            let event = if first {
-                                sse("reset", &s.render_all())
-                            } else {
-                                match rx.recv().await {
-                                    Ok(update) => update.event(),
-                                    Err(RecvError::Lagged(_)) => sse("reset", &s.render_all()),
-                                    Err(RecvError::Closed) => return None,
-                                }
-                            };
-                            Some((Ok::<_, Infallible>(event), (s, rx, false)))
-                        });
-                    Sse::new(stream).keep_alive(Default::default())
+                    let reset = move || {
+                        let event = LiveEvent::new("reset", &s.render_all());
+                        async move { Some(event) }
+                    };
+                    let events =
+                        live::with_snapshot(rx, reset, |update: Update| Some(update.event()));
+                    live::serve(ws, events)
                 }),
             )
             .with_state(self.clone())
@@ -677,6 +664,7 @@ fn page(entries: &str, last_only: bool) -> Markup {
             }
             body class=[last_only.then_some("last-only")] {
                 div #log .sl__chat__layout data-kept=(KEPT) { (PreEscaped(entries)) }
+                (live::script())
                 script { (PreEscaped(include_str!("chat-box.js"))) }
             }
         }
@@ -701,8 +689,6 @@ impl ChatBoxService for ChatBox {
 
 #[cfg(test)]
 mod tests {
-    use anyhow::anyhow;
-    use reqwest_sse::EventSource;
     use twitch_irc::message::IRCMessage;
 
     use super::*;
@@ -1269,26 +1255,21 @@ mod tests {
             .await?;
         assert!(body.contains(r#"class="last-only""#));
 
-        let mut events = client
-            .get(format!("{url}/events"))
-            .send()
-            .await?
-            .events()
-            .await
-            .map_err(|e| anyhow!(e))?;
-        let event = events.next().await.unwrap().map_err(|e| anyhow!(e))?;
-        assert_eq!(event.event_type, "reset");
-        assert!(event.data.contains("first"));
+        let mut events =
+            crate::services::live::TestClient::connect(bind_addr, "/chat/events").await?;
+        let (event, data) = events.next().await?;
+        assert_eq!(event, "reset");
+        assert!(data.contains("first"));
 
         chat_box.handle_irc(privmsg("b", "2", "second"));
-        let event = events.next().await.unwrap().map_err(|e| anyhow!(e))?;
-        assert_eq!(event.event_type, "message");
-        assert!(event.data.contains("second"));
-        assert!(!event.data.contains("first"));
+        let (event, data) = events.next().await?;
+        assert_eq!(event, "message");
+        assert!(data.contains("second"));
+        assert!(!data.contains("first"));
 
         chat_box.clear_shown();
-        let event = events.next().await.unwrap().map_err(|e| anyhow!(e))?;
-        assert_eq!(event.event_type, "clear");
+        let (event, _) = events.next().await?;
+        assert_eq!(event, "clear");
 
         // the image route exists; this host is not cached, so it is a 404
         let status = client

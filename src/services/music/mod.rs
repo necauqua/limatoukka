@@ -5,9 +5,9 @@ use async_trait::async_trait;
 use axum::{
     Json, Router,
     body::Body,
-    extract::{Path, Query, State},
+    extract::{Path, Query, State, ws::WebSocketUpgrade},
     http::Response,
-    response::{IntoResponse, Sse, sse::Event},
+    response::IntoResponse,
     routing::{get, post},
 };
 use maud::{DOCTYPE, Markup, PreEscaped, html};
@@ -24,7 +24,11 @@ use tokio::sync::broadcast::Sender;
 use crate::{
     injector_getter,
     integration::yt_music_api::{Restricted, Song, YouTubeMusic},
-    services::{Service, display::DisplayService},
+    services::{
+        Service,
+        display::DisplayService,
+        live::{self, LiveEvent},
+    },
 };
 
 #[derive(Debug, Error)]
@@ -116,7 +120,7 @@ pub struct YouTubeMusicPlayer {
     ytm: YouTubeMusic,
     playlist_id: String,
     valkey: ValkeyClient,
-    broadcast: Sender<Event>,
+    broadcast: Sender<LiveEvent>,
     display: Arc<dyn DisplayService>,
 }
 
@@ -260,12 +264,12 @@ impl YouTubeMusicPlayer {
             .route("/", get(page()))
             .route(
                 "/events",
-                get(async |State(s): State<Arc<Self>>| {
+                get(async |State(s): State<Arc<Self>>, ws: WebSocketUpgrade| {
                     let rx = s.broadcast.subscribe();
-                    let stream = futures::stream::try_unfold(rx, |mut rx| async {
-                        anyhow::Ok(Some((rx.recv().await?, rx)))
-                    });
-                    Sse::new(stream).keep_alive(Default::default())
+                    // the page loads the state (on connect and when it
+                    // missed updates)
+                    let state = || async { Some(LiveEvent::new("state", "")) };
+                    live::serve(ws, live::with_snapshot(rx, state, Some))
                 }),
             )
             .route(
@@ -394,6 +398,7 @@ fn page() -> Markup {
                         }
                     }
                 }
+                (live::script())
                 script { (PreEscaped(include_str!("music-player.js"))) }
                 // after the script above, which defines onYouTubeIframeAPIReady:
                 // the API can call it as soon as it loads (e.g. from the cache)
@@ -429,11 +434,9 @@ impl MusicService for YouTubeMusicPlayer {
 
     async fn set_volume(&self, volume: u32) -> Result<()> {
         let volume = self.store_song_volume(volume).await?;
-        _ = self.broadcast.send(
-            Event::default()
-                .event("song-volume")
-                .data(volume.to_string()),
-        );
+        _ = self
+            .broadcast
+            .send(LiveEvent::new("song-volume", &volume.to_string()));
         Ok(())
     }
 
@@ -441,7 +444,7 @@ impl MusicService for YouTubeMusicPlayer {
         let volume = self.store_global_volume(volume).await?;
         _ = self
             .broadcast
-            .send(Event::default().event("volume").data(volume.to_string()));
+            .send(LiveEvent::new("volume", &volume.to_string()));
         Ok(())
     }
 
@@ -450,12 +453,9 @@ impl MusicService for YouTubeMusicPlayer {
     }
 
     async fn set_pause(&self, paused: bool) -> Result<()> {
-        _ = self.broadcast.send(
-            Event::default()
-                .event(if paused { "pause" } else { "play" })
-                // browsers ignore SSE events without data
-                .data("1"),
-        );
+        _ = self
+            .broadcast
+            .send(LiveEvent::new(if paused { "pause" } else { "play" }, ""));
         Ok(())
     }
 
@@ -553,9 +553,7 @@ impl MusicService for YouTubeMusicPlayer {
         if self.is_paused().await? {
             return Ok(false);
         }
-        _ = self
-            .broadcast
-            .send(Event::default().event("next").data("1"));
+        _ = self.broadcast.send(LiveEvent::new("next", ""));
         Ok(true)
     }
 
@@ -563,9 +561,7 @@ impl MusicService for YouTubeMusicPlayer {
         if self.is_paused().await? {
             return Ok(false);
         }
-        _ = self
-            .broadcast
-            .send(Event::default().event("prev").data("1"));
+        _ = self.broadcast.send(LiveEvent::new("prev", ""));
         Ok(true)
     }
 

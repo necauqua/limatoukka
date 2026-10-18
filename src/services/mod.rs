@@ -16,6 +16,7 @@ pub mod event_list;
 pub mod gates;
 pub mod ipc;
 pub mod jev;
+pub mod live;
 pub mod messaging;
 pub mod music;
 pub mod names;

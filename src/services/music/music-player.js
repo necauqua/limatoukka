@@ -245,26 +245,21 @@ async function reset() {
     await fetch("/reset", { method: "POST" });
 }
 
-const events = new EventSource("/events");
-// also after a reconnect, to get the changes that were missed
-events.addEventListener("open", () =>
-    loadState().catch(console.error),
-);
-// the server already stored the values of these two events
-events.addEventListener("volume", (e) => {
-    globalVolume = parseInt(e.data);
-    songVolume = null;
-    applyVolume();
+live("/events", {
+    // on each (re)connect, and when the page missed changes
+    state: () => loadState().catch(console.error),
+    // the server already stored the values of these two events
+    volume: (data) => {
+        globalVolume = parseInt(data);
+        songVolume = null;
+        applyVolume();
+    },
+    "song-volume": (data) => {
+        songVolume = parseInt(data);
+        applyVolume();
+    },
+    next: () => playNext().catch(console.error),
+    prev: () => playPrev().catch(console.error),
+    pause: () => player.pauseVideo(),
+    play: () => player.playVideo(),
 });
-events.addEventListener("song-volume", (e) => {
-    songVolume = parseInt(e.data);
-    applyVolume();
-});
-events.addEventListener("next", () =>
-    playNext().catch(console.error),
-);
-events.addEventListener("prev", () =>
-    playPrev().catch(console.error),
-);
-events.addEventListener("pause", () => player.pauseVideo());
-events.addEventListener("play", () => player.playVideo());

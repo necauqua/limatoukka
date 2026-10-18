@@ -2,10 +2,10 @@ const list = document.getElementById('list');
 const shown = root => [...root.children].filter(entry => !entry.classList.contains('leaving'));
 const ids = root => shown(root).map(entry => entry.dataset.id).join(' ');
 
-// each message has all the shown entries, the first one is sent on (re)connect
-new EventSource('/event-list/events').onmessage = e => {
+// each list has all the shown entries, the first one is sent on (re)connect
+const update = html => {
   const next = document.createElement('div');
-  next.innerHTML = e.data;
+  next.innerHTML = html;
   if (ids(next) === ids(list)) {
     return;
   }
@@ -26,3 +26,4 @@ new EventSource('/event-list/events').onmessage = e => {
   }
   list.replaceChildren(...entries);
 };
+live('/event-list/events', { list: update });

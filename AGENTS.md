@@ -134,12 +134,22 @@ it is not made to be simple to run by other people.
   `data/pillar-names.yml`, etc.).
 - `services/display.rs`, `status_wall.rs`, `music/` (+ `music-player.css`/`.js`):
   axum/maud HTTP servers for OBS browser sources, on `browser-source-bind`
-  and `music-player-bind`.
+  and `music-player-bind`. All the pages on `browser-source-bind`
+  (display keys, event list, chat box) use one server.
+- `services/live/` (+ `live.js`): the live updates of all the pages, over
+  a WebSocket at `<page>/events` (JSON `{event, data}`; `live(path,
+  handlers)` in the page connects again after a disconnect).
+  `live::with_snapshot` gives each page its full state first and after it
+  lags behind (display keys: `html`, event list: `list`, chat box: `reset`,
+  music player: `state`, which makes the page load `/state`). Do not use
+  SSE: Chromium (also OBS) has a maximum of 6 HTTP/1.1 connections to one
+  host for all the browser sources, and each SSE stream holds one, so with
+  6 pages other requests (e.g. the chat box images) wait forever.
 - `services/event_list/` (+ `event-list.css`/`.js`): the event list
   browser source at `/event-list` on `browser-source-bind` (follows, subs,
   gift subs, cheers, Power-ups, raids, charity and Ko-fi donations). It
   replaces a Streamlabs widget. `handle_channel_event`/`handle_kofi_event`
-  add the entries. The page shows the 3 newest; each SSE message has the
+  add the entries. The page shows the 3 newest; each `list` event has the
   full shown list, so a reloaded or reconnected page is always correct.
 - `services/chat_box/` (+ `chat-box.css`/`.js`): the chat browser sources
   `/chat` (the chat) and `/chat/last` (only the last message), on
@@ -150,7 +160,7 @@ it is not made to be simple to run by other people.
   they come from the chat log (`ChatLogService::recent_irc` rebuilds the
   IRC messages), after `storage:chat-box:cleared-at`, which
   `ChatBoxService::clear` sets at stream start. The pages get the full list
-  on each (re)connect (SSE `reset`), then `message`/`replace`/`delete`/
+  on each (re)connect (`reset`), then `message`/`replace`/`delete`/
   `delete-user`/`clear`. Emotes, badges and cheermotes: Twitch (Helix), 7TV
   (REST v3 for the sets, EventAPI v3 for live set and cosmetic changes,
   GraphQL v4 for the badges, paints and personal emotes of each chatter,
