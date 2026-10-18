@@ -444,7 +444,7 @@ mod tests {
         use futures::StreamExt;
         use reqwest_sse::EventSource;
 
-        use crate::services::display::DisplayServer;
+        use crate::services::display::{DisplayServer, wait_until_listening};
 
         let list = Arc::new(EventList::in_memory());
         list.push(ListedEvent::Follow {
@@ -455,7 +455,7 @@ mod tests {
         let bind_addr = "localhost:12313";
         let server = Arc::new(DisplayServer::default());
         tokio::spawn(server.start(bind_addr, list.router()));
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        wait_until_listening(bind_addr).await;
 
         let client = reqwest::Client::new();
         let url = format!("http://{bind_addr}/event-list");

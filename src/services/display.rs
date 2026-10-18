@@ -155,6 +155,18 @@ impl DisplayService for DisplayServiceNoop {
     fn set(&self, _key: &str, _html: Markup) {}
 }
 
+/// Waits until a server that was spawned on `addr` accepts connections.
+#[cfg(test)]
+pub(crate) async fn wait_until_listening(addr: &str) {
+    for _ in 0..200 {
+        if tokio::net::TcpStream::connect(addr).await.is_ok() {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    panic!("nothing listens on {addr}");
+}
+
 #[cfg(test)]
 mod tests {
     use anyhow::anyhow;
@@ -169,6 +181,7 @@ mod tests {
         let bind_addr = "localhost:12312";
 
         tokio::spawn(server.start(bind_addr, Router::new()));
+        wait_until_listening(bind_addr).await;
 
         let client = reqwest::Client::new();
         let key = "my-service";
