@@ -1,13 +1,19 @@
 //! The event list browser source: the most recent follows, subs, cheers,
 //! raids, donations etc. The entries are in Valkey, so that a reload of the
 //! page or a restart of the bot does not clear the list.
+//!
+//! Valkey keeps the entries as the page shows them. When a new event can
+//! merge with a shown entry of the same user and kind (bits, gift subs,
+//! Ko-fi and charity donations), that entry gets the sum and moves to the
+//! top, and no new entry is added. Thus one user cannot fill the list.
 
 use std::{
     collections::VecDeque,
+    fmt,
     sync::{Arc, Mutex},
 };
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use async_trait::async_trait;
 use axum::{
     Router,
@@ -35,7 +41,7 @@ use crate::{
 const VALKEY_KEY: &str = "event-list";
 /// The number of entries that Valkey keeps.
 const KEPT: usize = 50;
-/// The number of entries on the page.
+/// The number of entries on the page. A new event merges only with these.
 const SHOWN: usize = 3;
 
 /// The name that is shown for anonymous gifts and cheers.
@@ -48,23 +54,6 @@ pub trait EventListService: Service {
 
 injector_getter!(EventListService::event_list { EventList::in_memory() });
 
-/// A Power-up that bits were used on.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
-pub enum PowerUp {
-    MessageEffect,
-    Celebration,
-    GigantifyEmote,
-    /// A custom Power-up of the channel
-    Custom {
-        title: String,
-    },
-    /// A Power-up that Twitch added after this code was written
-    Other {
-        name: String,
-    },
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum KofiKind {
@@ -72,6 +61,101 @@ pub enum KofiKind {
     Sub,
     Resub,
     ShopOrder,
+}
+
+/// An amount of money in one currency.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Money {
+    /// The amount in units of `10^-scale`
+    units: i64,
+    scale: u32,
+    currency: String,
+}
+
+/// The maximum number of digits after the decimal point.
+const MAX_SCALE: u32 = 9;
+
+impl Money {
+    pub fn new(units: i64, scale: u32, currency: impl Into<String>) -> Self {
+        Self {
+            units,
+            scale,
+            currency: currency.into(),
+        }
+    }
+
+    /// Parses a decimal amount, e.g. `4.50`.
+    pub fn parse(amount: &str, currency: &str) -> Result<Self> {
+        let (whole, fraction) = amount.split_once('.').unwrap_or((amount, ""));
+        let digits = |s: &str| s.bytes().all(|b| b.is_ascii_digit());
+        if whole.is_empty() || !digits(whole) || !digits(fraction) {
+            bail!("bad amount {amount:?}");
+        }
+        if fraction.len() > MAX_SCALE as usize {
+            bail!("too many decimals in {amount:?}");
+        }
+        Ok(Self {
+            units: format!("{whole}{fraction}").parse()?,
+            scale: fraction.len() as u32,
+            currency: currency.into(),
+        })
+    }
+
+    fn rescaled(&self, scale: u32) -> Option<i64> {
+        self.units.checked_mul(10i64.pow(scale - self.scale))
+    }
+
+    /// Adds `other` when it has the same currency. Returns `false` (and
+    /// does not change `self`) when it cannot.
+    fn add(&mut self, other: &Self) -> bool {
+        if self.currency != other.currency {
+            return false;
+        }
+        let scale = self.scale.max(other.scale);
+        let sum = (self.rescaled(scale))
+            .zip(other.rescaled(scale))
+            .and_then(|(a, b)| a.checked_add(b));
+        let Some(units) = sum else {
+            return false;
+        };
+        self.units = units;
+        self.scale = scale;
+        true
+    }
+
+    /// The amount without the currency, without a fraction of zeroes:
+    /// `5`, `4.50`.
+    fn amount(&self) -> String {
+        let divisor = 10i64.pow(self.scale);
+        let (whole, fraction) = (self.units / divisor, self.units % divisor);
+        if fraction == 0 {
+            whole.to_string()
+        } else {
+            format!("{whole}.{fraction:0width$}", width = self.scale as usize)
+        }
+    }
+
+    /// The amount is a number that the page counts up.
+    fn render(&self) -> Markup {
+        let amount = self.amount();
+        let number = html! { span.number data-value=(amount) { (amount) } };
+        html! {
+            @if self.currency == "USD" {
+                "$" (number)
+            } @else {
+                (number) " " (self.currency)
+            }
+        }
+    }
+}
+
+impl fmt::Display for Money {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.currency.as_str() {
+            "USD" => write!(f, "${}", self.amount()),
+            currency => write!(f, "{} {currency}", self.amount()),
+        }
+    }
 }
 
 /// An event in the list. The user fields are display names; `None` is an
@@ -94,14 +178,10 @@ pub enum ListedEvent {
         user: Option<String>,
         count: i64,
     },
+    /// Bits: cheers, and bits used on Power-ups
     Cheer {
         user: Option<String>,
         bits: i64,
-    },
-    PowerUp {
-        user: String,
-        bits: i64,
-        power_up: PowerUp,
     },
     Raid {
         user: String,
@@ -109,33 +189,32 @@ pub enum ListedEvent {
     },
     Charity {
         user: String,
-        /// Formatted, e.g. `$5` or `4.50 EUR`
-        amount: String,
+        amount: Money,
         charity: String,
     },
     /// Only public ones
     Kofi {
         user: String,
-        /// Formatted, e.g. `$5` or `4.50 EUR`
-        amount: String,
+        amount: Money,
         kind: KofiKind,
     },
 }
 
-/// Formats an amount of money: `$5`, `$4.50`, `5 EUR`.
-pub fn format_money(amount: &str, currency: &str) -> String {
-    let amount = match amount.split_once('.') {
-        Some((whole, fraction)) if fraction.bytes().all(|b| b == b'0') => whole,
-        _ => amount,
-    };
-    match currency {
-        "USD" => format!("${amount}"),
-        _ => format!("{amount} {currency}"),
-    }
-}
-
 fn plural(n: i64) -> &'static str {
     if n == 1 { "" } else { "s" }
+}
+
+/// The Twitch cheermote tier of an amount of bits; it sets the color.
+fn bits_tier(bits: i64) -> i64 {
+    [100_000, 10_000, 5_000, 1_000, 100]
+        .into_iter()
+        .find(|&tier| bits >= tier)
+        .unwrap_or(1)
+}
+
+/// A number that the page counts up when it changes.
+fn number(n: i64) -> Markup {
+    html! { span.number data-value=(n) { (n) } }
 }
 
 impl ListedEvent {
@@ -147,7 +226,6 @@ impl ListedEvent {
             Self::Resub { .. } => "resub",
             Self::SubGift { .. } => "sub-gift",
             Self::Cheer { .. } => "cheer",
-            Self::PowerUp { .. } => "power-up",
             Self::Raid { .. } => "raid",
             Self::Charity { .. } => "charity",
             Self::Kofi { .. } => "kofi",
@@ -159,7 +237,6 @@ impl ListedEvent {
             Self::Follow { user }
             | Self::Sub { user, .. }
             | Self::Resub { user, .. }
-            | Self::PowerUp { user, .. }
             | Self::Raid { user, .. }
             | Self::Charity { user, .. }
             | Self::Kofi { user, .. } => user,
@@ -169,47 +246,90 @@ impl ListedEvent {
         }
     }
 
-    /// The text after the user name.
-    fn text(&self) -> String {
-        match self {
-            Self::Follow { .. } => "followed the channel".into(),
-            Self::Sub { tier, .. } => match tier {
-                SubscriptionTier::Tier2 => "subscribed to the channel at Tier 2!".into(),
-                SubscriptionTier::Tier3 => "subscribed to the channel at Tier 3!".into(),
-                SubscriptionTier::Prime => "subscribed to the channel with Prime!".into(),
-                _ => "subscribed to the channel!".into(),
-            },
-            Self::Resub { months, .. } => {
-                format!("resubscribed for {months} month{}", plural(*months))
+    /// Adds `new` to this event when they are of the same user and kind
+    /// and can have a sum: bits, gift subs, Ko-fi donations and charity
+    /// donations (to the same charity) in the same currency. All the
+    /// anonymous events are of one user. Returns `false` (and does not
+    /// change `self`) when they do not merge.
+    fn merge(&mut self, new: &Self) -> bool {
+        match (self, new) {
+            (Self::Cheer { user, bits }, Self::Cheer { user: u, bits: b }) if user == u => {
+                *bits += b;
+                true
             }
-            Self::SubGift { count: 1, .. } => "gifted a sub".into(),
-            Self::SubGift { count, .. } => format!("gifted {count} subs"),
-            Self::Cheer { bits, .. } => format!("cheered with {bits} bit{}", plural(*bits)),
-            Self::PowerUp { bits, power_up, .. } => {
-                let bits = format!("{bits} bit{}", plural(*bits));
-                match power_up {
-                    PowerUp::MessageEffect => format!("used {bits} on a message effect"),
-                    PowerUp::Celebration => format!("used {bits} on an on-screen celebration"),
-                    PowerUp::GigantifyEmote => format!("used {bits} to gigantify an emote"),
-                    PowerUp::Custom { title } => format!("used {bits} on {title}"),
-                    PowerUp::Other { name } => format!("used {bits} on a Power-up ({name})"),
+            (Self::SubGift { user, count }, Self::SubGift { user: u, count: c }) if user == u => {
+                *count += c;
+                true
+            }
+            (
+                Self::Kofi {
+                    user,
+                    amount,
+                    kind: KofiKind::Donation,
+                },
+                Self::Kofi {
+                    user: u,
+                    amount: a,
+                    kind: KofiKind::Donation,
+                },
+            ) if user == u => amount.add(a),
+            (
+                Self::Charity {
+                    user,
+                    amount,
+                    charity,
+                },
+                Self::Charity {
+                    user: u,
+                    amount: a,
+                    charity: c,
+                },
+            ) if user == u && charity == c => amount.add(a),
+            _ => false,
+        }
+    }
+
+    /// The text after the user name.
+    fn render_text(&self) -> Markup {
+        html! {
+            @match self {
+                Self::Follow { .. } => "followed the channel",
+                Self::Sub { tier, .. } => {
+                    @match tier {
+                        SubscriptionTier::Tier2 => "subscribed to the channel at Tier 2!",
+                        SubscriptionTier::Tier3 => "subscribed to the channel at Tier 3!",
+                        SubscriptionTier::Prime => "subscribed to the channel with Prime!",
+                        _ => "subscribed to the channel!",
+                    }
+                }
+                Self::Resub { months, .. } => {
+                    "resubscribed for " (months) " month" (plural(*months))
+                }
+                // "a" is 1 for the count-up when more gifts merge
+                Self::SubGift { count: 1, .. } => {
+                    "gifted " span.number data-value="1" { "a" } " sub"
+                }
+                Self::SubGift { count, .. } => { "gifted " (number(*count)) " subs" }
+                Self::Cheer { bits, .. } => {
+                    "cheered with "
+                    span class={ "number bits-" (bits_tier(*bits)) } data-value=(bits) { (bits) }
+                    " bit" (plural(*bits))
+                }
+                Self::Raid { viewers, .. } => {
+                    "raided the stream with " (viewers) " viewer" (plural(*viewers))
+                }
+                Self::Charity { amount, charity, .. } => {
+                    "donated " (amount.render()) " to " (charity)
+                }
+                Self::Kofi { amount, kind, .. } => {
+                    @match kind {
+                        KofiKind::Donation => { "donated " (amount.render()) " on Ko-fi" }
+                        KofiKind::Sub => { "subscribed on Ko-fi (" (amount.render()) ")" }
+                        KofiKind::Resub => { "continued the Ko-fi sub (" (amount.render()) ")" }
+                        KofiKind::ShopOrder => "bought some merch",
+                    }
                 }
             }
-            Self::Raid { viewers, .. } => {
-                format!(
-                    "raided the stream with {viewers} viewer{}",
-                    plural(*viewers)
-                )
-            }
-            Self::Charity {
-                amount, charity, ..
-            } => format!("donated {amount} to {charity}"),
-            Self::Kofi { amount, kind, .. } => match kind {
-                KofiKind::Donation => format!("donated {amount} on Ko-fi"),
-                KofiKind::Sub => format!("subscribed on Ko-fi ({amount})"),
-                KofiKind::Resub => format!("continued the Ko-fi sub ({amount})"),
-                KofiKind::ShopOrder => "bought some merch".into(),
-            },
         }
     }
 }
@@ -217,13 +337,21 @@ impl ListedEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Entry {
     id: String,
-    /// Unix time in milliseconds
+    /// Unix time in milliseconds of the last event
     at: i64,
     #[serde(flatten)]
     event: ListedEvent,
 }
 
 impl Entry {
+    fn new(event: ListedEvent, at: i64) -> Self {
+        Self {
+            id: uuid::Uuid::now_v7().to_string(),
+            at,
+            event,
+        }
+    }
+
     fn render(&self) -> Markup {
         let date = Timestamp::from_millisecond(self.at)
             .map(|at| {
@@ -232,12 +360,13 @@ impl Entry {
                     .to_string()
             })
             .unwrap_or_default();
+        // a merge keeps the id and changes `at`
         html! {
-            div class={ "entry " (self.event.class()) } data-id=(self.id) {
+            div class={ "entry " (self.event.class()) } data-id=(self.id) data-at=(self.at) {
                 span.date style="display:none" { (date) }
                 span.message {
                     span.user { (self.event.user()) }
-                    " " (self.event.text())
+                    " " (self.event.render_text())
                 }
             }
         }
@@ -260,6 +389,8 @@ enum Store {
 
 pub struct EventList {
     store: Store,
+    /// A push reads and then writes the list, so only one push at a time.
+    push_lock: tokio::sync::Mutex<()>,
     /// Notifies the open pages that the list changed.
     updates: broadcast::Sender<()>,
 }
@@ -268,6 +399,7 @@ impl EventList {
     fn new(store: Store) -> Self {
         Self {
             store,
+            push_lock: Default::default(),
             updates: broadcast::Sender::new(16),
         }
     }
@@ -368,20 +500,35 @@ fn page(entries: &[Entry]) -> Markup {
 #[async_trait]
 impl EventListService for EventList {
     async fn push(&self, event: ListedEvent) -> Result<()> {
-        let entry = Entry {
-            id: uuid::Uuid::now_v7().to_string(),
-            at: Timestamp::now().as_millisecond(),
-            event,
-        };
+        let _lock = self.push_lock.lock().await;
+        let now = Timestamp::now().as_millisecond();
         match &self.store {
             Store::Valkey(client) => {
+                let shown: Vec<String> = client.lrange(VALKEY_KEY, 0, SHOWN as isize - 1).await?;
+                let merged = shown.iter().find_map(|raw| {
+                    let mut entry: Entry = serde_json::from_str(raw).ok()?;
+                    entry.event.merge(&event).then_some((raw, entry))
+                });
                 let mut t = client.create_transaction();
+                let entry = match merged {
+                    Some((raw, entry)) => {
+                        t.lrem(VALKEY_KEY, 1, raw).forget();
+                        Entry { at: now, ..entry }
+                    }
+                    None => Entry::new(event, now),
+                };
                 t.lpush(VALKEY_KEY, serde_json::to_string(&entry)?).forget();
                 t.ltrim(VALKEY_KEY, 0, KEPT as isize - 1).forget();
                 t.execute::<()>().await?;
             }
             Store::InMemory(entries) => {
                 let mut entries = entries.lock().unwrap();
+                let merged = (entries.iter_mut().take(SHOWN))
+                    .position(|entry| entry.event.merge(&event));
+                let entry = match merged.and_then(|index| entries.remove(index)) {
+                    Some(entry) => Entry { at: now, ..entry },
+                    None => Entry::new(event, now),
+                };
                 entries.push_front(entry);
                 entries.truncate(KEPT);
             }
@@ -395,12 +542,38 @@ impl EventListService for EventList {
 mod tests {
     use super::*;
 
+    /// `$5` or `3 EUR`
+    fn money(text: &str) -> Money {
+        match text.strip_prefix('$') {
+            Some(amount) => Money::parse(amount, "USD"),
+            None => {
+                let (amount, currency) = text.split_once(' ').unwrap();
+                Money::parse(amount, currency)
+            }
+        }
+        .unwrap()
+    }
+
     #[test]
-    fn money() {
-        assert_eq!(format_money("5.00", "USD"), "$5");
-        assert_eq!(format_money("4.50", "USD"), "$4.50");
-        assert_eq!(format_money("3", "EUR"), "3 EUR");
-        assert_eq!(format_money("3.10", "EUR"), "3.10 EUR");
+    fn money_text() {
+        assert_eq!(Money::parse("5.00", "USD").unwrap().to_string(), "$5");
+        assert_eq!(Money::parse("4.50", "USD").unwrap().to_string(), "$4.50");
+        assert_eq!(Money::parse("3", "EUR").unwrap().to_string(), "3 EUR");
+        assert_eq!(Money::parse("3.10", "EUR").unwrap().to_string(), "3.10 EUR");
+        assert_eq!(Money::new(1005, 2, "USD").to_string(), "$10.05");
+        assert!(Money::parse("-5", "USD").is_err());
+        assert!(Money::parse(".5", "USD").is_err());
+    }
+
+    #[test]
+    fn money_sum() {
+        let mut sum = money("$5");
+        assert!(sum.add(&money("$4.50")));
+        assert_eq!(sum.to_string(), "$9.50");
+        assert!(sum.add(&money("$0.50")));
+        assert_eq!(sum.to_string(), "$10");
+        assert!(!sum.add(&money("1 EUR")));
+        assert_eq!(sum.to_string(), "$10");
     }
 
     #[test]
@@ -408,17 +581,108 @@ mod tests {
         let entry = Entry {
             id: "x".into(),
             at: 0,
-            event: ListedEvent::PowerUp {
+            event: ListedEvent::Kofi {
                 user: "necauqua".into(),
-                bits: 100,
-                power_up: PowerUp::Custom {
-                    title: "Hydrate".into(),
-                },
+                amount: money("$4.50"),
+                kind: KofiKind::Donation,
             },
         };
         let json = serde_json::to_string(&entry).unwrap();
+        assert!(json.contains(r#""amount":{"units":450,"scale":2,"currency":"USD"}"#));
         let back: Entry = serde_json::from_str(&json).unwrap();
         assert_eq!(back.event, entry.event);
+    }
+
+    fn cheer(user: &str, bits: i64) -> ListedEvent {
+        ListedEvent::Cheer {
+            user: Some(user.into()),
+            bits,
+        }
+    }
+
+    fn follow(user: &str) -> ListedEvent {
+        ListedEvent::Follow { user: user.into() }
+    }
+
+    #[test]
+    fn merges() {
+        let mut bits = cheer("a", 1);
+        assert!(bits.merge(&cheer("a", 100)));
+        assert_eq!(bits, cheer("a", 101));
+        assert!(!bits.merge(&cheer("b", 1)));
+        assert!(!bits.merge(&follow("a")));
+
+        let mut anon = ListedEvent::SubGift {
+            user: None,
+            count: 1,
+        };
+        assert!(anon.merge(&ListedEvent::SubGift {
+            user: None,
+            count: 5
+        }));
+        assert_eq!(
+            anon,
+            ListedEvent::SubGift {
+                user: None,
+                count: 6
+            }
+        );
+
+        let kofi = |amount, kind| ListedEvent::Kofi {
+            user: "a".into(),
+            amount: money(amount),
+            kind,
+        };
+        let mut dono = kofi("$5", KofiKind::Donation);
+        assert!(dono.merge(&kofi("$3", KofiKind::Donation)));
+        assert_eq!(dono, kofi("$8", KofiKind::Donation));
+        assert!(!dono.merge(&kofi("3 EUR", KofiKind::Donation)));
+        assert!(!dono.merge(&kofi("$3", KofiKind::Resub)));
+        assert!(!kofi("$3", KofiKind::Sub).merge(&kofi("$3", KofiKind::Sub)));
+
+        let charity = |amount, charity: &str| ListedEvent::Charity {
+            user: "a".into(),
+            amount: money(amount),
+            charity: charity.into(),
+        };
+        let mut dono = charity("$5", "MSF");
+        assert!(dono.merge(&charity("$5", "MSF")));
+        assert_eq!(dono, charity("$10", "MSF"));
+        assert!(!dono.merge(&charity("$5", "other")));
+    }
+
+    async fn shown(list: &EventList) -> Vec<ListedEvent> {
+        let entries = list.recent(SHOWN).await.unwrap();
+        entries.into_iter().map(|entry| entry.event).collect()
+    }
+
+    #[tokio::test]
+    async fn merged_entry_moves_to_top() -> Result<()> {
+        let list = EventList::in_memory();
+        list.push(cheer("a", 1)).await?;
+        let id = list.recent(1).await?[0].id.clone();
+        list.push(cheer("a", 1)).await?;
+        assert_eq!(shown(&list).await, [cheer("a", 2)]);
+
+        list.push(follow("b")).await?;
+        list.push(follow("c")).await?;
+        list.push(cheer("a", 100)).await?;
+        assert_eq!(
+            shown(&list).await,
+            [cheer("a", 102), follow("c"), follow("b")]
+        );
+        assert_eq!(list.recent(1).await?[0].id, id);
+
+        // not shown any more: a new entry
+        list.push(follow("d")).await?;
+        list.push(follow("e")).await?;
+        list.push(follow("f")).await?;
+        list.push(cheer("a", 5)).await?;
+        assert_eq!(
+            shown(&list).await,
+            [cheer("a", 5), follow("f"), follow("e")]
+        );
+        Ok(())
     }
 
     #[tokio::test]
@@ -490,7 +754,7 @@ mod tests {
     }
 
     #[test]
-    fn render_escapes() {
+    fn render() {
         let entry = Entry {
             id: "x".into(),
             at: 0,
@@ -499,5 +763,10 @@ mod tests {
         let html = entry.render().0;
         assert!(html.contains("&lt;b&gt;"));
         assert!(html.contains("followed the channel"));
+
+        let html = Entry::new(cheer("a", 1500), 0).render().0;
+        assert!(html.contains(
+            r#"cheered with <span class="number bits-1000" data-value="1500">1500</span> bits"#
+        ));
     }
 }

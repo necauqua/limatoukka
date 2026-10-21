@@ -161,6 +161,12 @@ it is not made to be simple to run by other people.
   replaces a Streamlabs widget. `handle_channel_event`/`handle_kofi_event`
   add the entries. The page shows the 3 newest; each `list` event has the
   full shown list, so a reloaded or reconnected page is always correct.
+  Valkey keeps the entries as shown: a new event of the same user and kind
+  as a shown entry (bits, which include Power-ups; gift subs; Ko-fi
+  donations and charity donations in the same currency; anonymous users
+  are one user) merges into it. The entry keeps its id, gets the sum and
+  moves to the top; the page moves it there and counts the number up.
+  Bits have the color of the Twitch cheermote tier of the sum.
 - `services/chat_box/` (+ `chat-box.css`/`.js`): the chat browser sources
   `/chat` (the chat) and `/chat/last` (only the last message), on
   `browser-source-bind`. They replace the Streamlabs chat box and use its

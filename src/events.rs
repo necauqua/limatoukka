@@ -23,7 +23,7 @@ use crate::{
         caches::CacheServiceExt,
         charges::{Charges, ChargesServiceExt},
         chat_box::ChatBoxServiceExt,
-        event_list::{EventListServiceExt, KofiKind, ListedEvent, PowerUp, format_money},
+        event_list::{EventListServiceExt, KofiKind, ListedEvent, Money},
         noita::{ItemFound, NoitaEvent, WinState},
         sounds::SoundServiceExt,
         storage::StorageServiceExt,
@@ -110,6 +110,18 @@ pub struct EventUser {
     pub name: String,
 }
 
+/// A Power-up that bits were used on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PowerUp {
+    MessageEffect,
+    Celebration,
+    GigantifyEmote,
+    /// A custom Power-up of the channel
+    Custom { title: String },
+    /// A Power-up that Twitch added after this code was written
+    Other { name: String },
+}
+
 /// The channel events that the bot handles. Made from the EventSub events
 /// with [`ChannelEvent::from_eventsub`].
 #[derive(Debug, Clone)]
@@ -160,8 +172,7 @@ pub enum ChannelEvent {
     },
     CharityDonation {
         user: EventUser,
-        /// Formatted, e.g. `$5`
-        amount: String,
+        amount: Money,
         charity: String,
     },
     Raid {
@@ -252,13 +263,10 @@ impl ChannelEvent {
                     login: data.user_login.to_string(),
                     name: data.user_name.to_string(),
                 },
-                amount: format_money(
-                    &format!(
-                        "{:.*}",
-                        data.amount.decimal_places.max(0) as usize,
-                        data.amount.value as f64 / 10f64.powi(data.amount.decimal_places.max(0)),
-                    ),
-                    &data.amount.currency,
+                amount: Money::new(
+                    data.amount.value as i64,
+                    data.amount.decimal_places.max(0) as u32,
+                    data.amount.currency,
                 ),
                 charity: data.charity_name,
             },
@@ -394,14 +402,9 @@ async fn listed_event(ctx: &AppContext, event: &ChannelEvent) -> Result<Option<L
             user: name(user),
             bits: *bits,
         },
-        ChannelEvent::PowerUp {
-            user,
-            bits,
-            power_up,
-        } => ListedEvent::PowerUp {
-            user: user.name.clone(),
+        ChannelEvent::PowerUp { user, bits, .. } => ListedEvent::Cheer {
+            user: Some(user.name.clone()),
             bits: *bits,
-            power_up: power_up.clone(),
         },
         ChannelEvent::CharityDonation {
             user,
@@ -532,7 +535,7 @@ pub async fn handle_channel_event(ctx: AppContext, event: ChannelEvent) -> Resul
             tracing::info!(
                 user.id = user.id,
                 user.login = user.login,
-                amount,
+                %amount,
                 charity,
                 "charity donation"
             );
@@ -706,12 +709,14 @@ pub async fn handle_kofi_event(ctx: AppContext, event: KofiPayload) -> Result<()
         KofiType::Subscription => KofiKind::Resub,
         KofiType::ShopOrder => KofiKind::ShopOrder,
     };
-    let listed = ListedEvent::Kofi {
-        user: event.from_name.clone(),
-        amount: format_money(&event.amount, &event.currency),
-        kind,
-    };
-    add_to_event_list(&ctx, Ok(Some(listed))).await;
+    let listed = Money::parse(&event.amount, &event.currency).map(|amount| {
+        Some(ListedEvent::Kofi {
+            user: event.from_name.clone(),
+            amount,
+            kind,
+        })
+    });
+    add_to_event_list(&ctx, listed).await;
 
     if event.is_first_subscription_payment {
         tracing::info!(

@@ -1,10 +1,10 @@
 //! The terminal commands: the lines that start with `/`.
 
 use limatoukka::{
-    events::{ChannelEvent, EventUser},
+    events::{ChannelEvent, EventUser, PowerUp},
     integration::kofi::{KofiPayload, KofiType},
     services::{
-        event_list::{PowerUp, format_money},
+        event_list::Money,
         messaging::PermissionLevel,
         noita::{ItemFound, NoitaEvent, WinState},
     },
@@ -132,7 +132,7 @@ pub fn parse(line: &str, user: &EventUser) -> Result<Action, String> {
             let charity = rest(1);
             Action::Channel(ChannelEvent::CharityDonation {
                 user: user.clone(),
-                amount: format_money(amount, "USD"),
+                amount: Money::parse(amount, "USD").map_err(|e| e.to_string())?,
                 charity: if charity.is_empty() {
                     "Doctors Without Borders".into()
                 } else {

@@ -27,10 +27,10 @@ body {
     display: flex;
 }
 
-/* all entries slide down by one line together when a new one comes */
-.entry.slide {
-    animation: slideInDown 250ms forwards;
-    animation-timing-function: linear;
+/* a merged entry that moves up to the top goes over the others */
+.entry.rising {
+    position: relative;
+    z-index: 1;
 }
 
 .date {
@@ -48,14 +48,27 @@ body {
     color: #E38AF0;
 }
 
-/* from animate.css 3.4.0 */
-@keyframes slideInDown {
-    from {
-        transform: translate3d(0, -100%, 0);
-        visibility: visible;
-    }
+/* the colors of the Twitch cheermote tiers */
+.bits-1 {
+    color: #979797;
+}
 
-    to {
-        transform: translate3d(0, 0, 0);
-    }
+.bits-100 {
+    color: #9C3EE8;
+}
+
+.bits-1000 {
+    color: #1DB2A5;
+}
+
+.bits-5000 {
+    color: #0099FE;
+}
+
+.bits-10000 {
+    color: #F43021;
+}
+
+.bits-100000 {
+    color: #F3A71A;
 }
