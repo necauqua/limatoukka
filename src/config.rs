@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Display};
+use std::{collections::HashMap, fmt::Display, path::PathBuf};
 
 use anyhow::Result;
 use config::File;
@@ -40,8 +40,21 @@ pub struct YouTube {
     pub api_key: String,
     /// The country code to check for region restrictions
     pub country_code: String,
-    /// The ID of the default playlist to use when no songs are requested
+    /// The ID of the default playlist to use when no songs are requested.
+    /// Its first song is the intro, which plays first after a reset, also
+    /// when [`Music::folder`] replaces the playlist.
     pub playlist: String,
+}
+
+#[derive(Deserialize, Clone)]
+#[serde(rename_all = "kebab-case")]
+pub struct Music {
+    /// A folder with audio files (recursive) that replaces the YouTube
+    /// playlist when no songs are requested
+    pub folder: PathBuf,
+    /// What `now-playing` says about a song from the folder, e.g.
+    /// "from old phone backup"
+    pub folder_label: String,
 }
 
 #[derive(Deserialize, Clone)]
@@ -88,6 +101,8 @@ pub struct Config {
     pub stats: Elastic,
 
     pub youtube: YouTube,
+    /// Without this section, the YouTube playlist plays
+    pub music: Option<Music>,
     pub ntfy: Ntfy,
     pub jev: Jev,
 

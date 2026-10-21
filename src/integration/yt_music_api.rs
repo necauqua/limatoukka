@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, path::PathBuf, time::Duration};
 
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -21,9 +21,24 @@ pub enum Restricted {
 pub struct Song {
     pub title: String,
     pub author: String,
-    pub video_id: String,
+    #[serde(flatten)]
+    pub media: Media,
     pub length: Duration,
     pub restricted: Option<Restricted>,
+}
+
+/// What the song is. How the music player plays it (e.g. from a file in a
+/// cache) is a separate decision of the player.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged, rename_all_fields = "camelCase")]
+pub enum Media {
+    YouTube {
+        video_id: String,
+    },
+    /// A file in the music folder, relative to the folder
+    File {
+        file: PathBuf,
+    },
 }
 
 impl YouTubeMusic {
@@ -142,7 +157,9 @@ impl YouTubeMusic {
                 .channel_title
                 .trim_end_matches(" - Topic")
                 .into(),
-            video_id: video_id.to_string(),
+            media: Media::YouTube {
+                video_id: video_id.to_string(),
+            },
             length: parse_duration::parse(&item.content_details.duration)?,
             restricted: {
                 let age = item
@@ -259,7 +276,9 @@ impl YouTubeMusic {
                     author: video_owner_channel_title
                         .trim_end_matches(" - Topic")
                         .into(),
-                    video_id: item.snippet.resource_id.video_id,
+                    media: Media::YouTube {
+                        video_id: item.snippet.resource_id.video_id,
+                    },
                     length: Duration::ZERO, // can't get it and we don't care for playlists really
                     restricted: None,       // assume the playlist is manually curated
                 });
@@ -279,6 +298,30 @@ mod tests {
     use crate::{config::Config, logging};
 
     use super::*;
+
+    #[test]
+    fn song_json() -> Result<()> {
+        let youtube = r#"{"title":"T","author":"A","videoId":"x","length":{"secs":1,"nanos":0},"restricted":null}"#;
+        let song: Song = serde_json::from_str(youtube)?;
+        assert_eq!(
+            song.media,
+            Media::YouTube {
+                video_id: "x".into()
+            }
+        );
+        assert_eq!(serde_json::to_string(&song)?, youtube);
+
+        let file = r#"{"title":"T","author":"A","file":"a/b.mp3","length":{"secs":1,"nanos":0},"restricted":null}"#;
+        let song: Song = serde_json::from_str(file)?;
+        assert_eq!(
+            song.media,
+            Media::File {
+                file: "a/b.mp3".into()
+            }
+        );
+        assert_eq!(serde_json::to_string(&song)?, file);
+        Ok(())
+    }
 
     #[tokio::test]
     #[ignore = "manual test"]

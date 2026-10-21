@@ -5,7 +5,55 @@ let globalVolume = 15;
 // volume for the current song only, null for the global volume
 let songVolume = null;
 
-// show the volume and give it to the player; the slider shows
+// the two ways to play a song (the `kind` of a playback from the
+// server): the YouTube player and the audio element
+const backends = {
+    youtube: {
+        load({ videoId }, start, paused) {
+            const options = { videoId, startSeconds: start };
+            if (paused) {
+                player.cueVideoById(options);
+            } else {
+                player.loadVideoById(options);
+            }
+        },
+        stop: () => player?.stopVideo?.(),
+        play: () => player?.playVideo(),
+        pause: () => player?.pauseVideo(),
+        isPlaying: () =>
+            player?.getPlayerState?.() === YT.PlayerState.PLAYING,
+        time: () => player?.getCurrentTime?.() ?? 0,
+        duration: () => player?.getDuration?.() ?? 0,
+        seek: (time) => player?.seekTo(time, true),
+    },
+    file: {
+        load({ url }, start, paused) {
+            audio.src = url;
+            audio.currentTime = start;
+            if (paused) {
+                pause.innerText = "▶︎";
+            } else {
+                audio.play().catch(console.error);
+            }
+        },
+        stop() {
+            audio.pause();
+            audio.removeAttribute("src");
+            audio.load();
+        },
+        play: () => audio.play().catch(console.error),
+        pause: () => audio.pause(),
+        isPlaying: () => !audio.paused,
+        time: () => audio.currentTime,
+        duration: () => (Number.isFinite(audio.duration) ? audio.duration : 0),
+        seek: (time) => (audio.currentTime = time),
+    },
+};
+
+// the backend that plays the current song
+let backend = null;
+
+// show the volume and give it to the players; the slider shows
 // the volume that plays now
 function applyVolume() {
     const effective = songVolume ?? globalVolume;
@@ -14,7 +62,8 @@ function applyVolume() {
         songVolume === null
             ? globalVolume
             : globalVolume + " (" + songVolume + ")";
-    player?.setVolume(effective);
+    player?.setVolume?.(effective);
+    audio.volume = effective / 100;
 }
 
 // while the slider is dragged
@@ -49,7 +98,10 @@ function showTitle(current) {
         currentTitle.textContent = "";
         return;
     }
-    const [{ title, author }, source] = current;
+    const {
+        song: { title, author },
+        source,
+    } = current;
     currentTitle.textContent = title + " - " + author;
     if (source) {
         currentTitle.textContent +=
@@ -57,16 +109,20 @@ function showTitle(current) {
     }
 }
 
-// the video in the player, its position and duration, to resume
+// what the backend plays, its position and duration, to resume
 // after a reload of the page
-let currentVideoId = null;
+let currentKey = null;
 // a cued video has no duration in the player until it plays
 let currentDuration = 0;
 
+function playbackKey(playback) {
+    return playback.kind + ":" + (playback.videoId ?? playback.url);
+}
+
 function duration() {
-    const fromPlayer = player?.getDuration?.() ?? 0;
-    if (fromPlayer > 0) {
-        currentDuration = fromPlayer;
+    const fromBackend = backend?.duration() ?? 0;
+    if (fromBackend > 0) {
+        currentDuration = fromBackend;
     }
     return currentDuration;
 }
@@ -78,22 +134,22 @@ function showPosition(time) {
 }
 
 function savePosition() {
-    if (currentVideoId && player?.getCurrentTime) {
+    if (currentKey && backend) {
         localStorage.setItem(
             "position",
             JSON.stringify({
-                videoId: currentVideoId,
-                time: player.getCurrentTime(),
+                key: currentKey,
+                time: backend.time(),
                 duration: duration(),
             }),
         );
     }
 }
 
-function savedPosition(videoId) {
+function savedPosition(key) {
     try {
         const saved = JSON.parse(localStorage.getItem("position"));
-        if (saved?.videoId === videoId) {
+        if (saved?.key === key) {
             return {
                 time: saved.time,
                 duration: saved.duration ?? 0,
@@ -103,28 +159,36 @@ function savedPosition(videoId) {
     return { time: 0, duration: 0 };
 }
 
+// give the song to its backend, and stop the other one
+function load({ song, playback }, start, paused) {
+    const next = backends[playback.kind];
+    if (backend && backend !== next) {
+        backend.stop();
+    }
+    backend = next;
+    currentKey = playbackKey(playback);
+    // songs from a playlist have no length
+    currentDuration = song.length?.secs ?? 0;
+    backend.load(playback, start, paused);
+}
+
 let resolvePlayerReady;
 const playerReady = new Promise((r) => (resolvePlayerReady = r));
 
 // load the current song from the server, at the saved position
 async function resume(current, paused) {
-    await playerReady;
-    if (!current || currentVideoId) {
+    if (current?.playback.kind === "youtube") {
+        await playerReady;
+    }
+    if (!current || currentKey) {
         return;
     }
-    const [{ videoId, length }] = current;
-    currentVideoId = videoId;
-    const saved = savedPosition(videoId);
-    // songs from a playlist have no length
-    currentDuration =
-        saved.duration > 0 ? saved.duration : (length?.secs ?? 0);
-    showPosition(saved.time);
-    const options = { videoId, startSeconds: saved.time };
-    if (paused) {
-        player.cueVideoById(options);
-    } else {
-        player.loadVideoById(options);
+    const saved = savedPosition(playbackKey(current.playback));
+    load(current, saved.time, paused);
+    if (saved.duration > 0) {
+        currentDuration = saved.duration;
     }
+    showPosition(saved.time);
 }
 
 let firstLoad = true;
@@ -149,28 +213,40 @@ function setPaused(paused) {
     );
 }
 
-// only playing and paused change the state on the server;
-// unstarted, buffering and ended happen on each song change
-function updatePause(state) {
-    switch (state) {
-        case YT.PlayerState.PLAYING:
-            setPaused(false);
-            break;
-        case YT.PlayerState.PAUSED:
-            savePosition();
-            setPaused(true);
-            break;
-        case YT.PlayerState.CUED:
-            pause.innerText = "▶︎";
-            break;
+let seekUpdater = null;
+
+function stopSeekUpdater() {
+    if (seekUpdater) {
+        clearInterval(seekUpdater);
+        seekUpdater = null;
     }
 }
 
-function updateSeek() {
-    player?.seekTo((seek.value * duration()) / 1000, true);
+// only playing and paused change the state on the server;
+// the other states happen on each song change
+function onPlaying() {
+    setPaused(false);
+    stopSeekUpdater();
+    seekUpdater = setInterval(() => {
+        showPosition(backend.time());
+        savePosition();
+    }, 200);
 }
 
-let seekUpdater = null;
+function onPaused() {
+    stopSeekUpdater();
+    savePosition();
+    setPaused(true);
+}
+
+function onEnded() {
+    stopSeekUpdater();
+    playNext().catch(console.error);
+}
+
+function updateSeek() {
+    backend?.seek((seek.value * duration()) / 1000);
+}
 
 // called by the yt iframe api
 function onYouTubeIframeAPIReady() {
@@ -183,53 +259,81 @@ function onYouTubeIframeAPIReady() {
                 resolvePlayerReady();
             },
             onStateChange(e) {
-                updatePause(e.data);
-                applyVolume();
-
-                if (e.data == YT.PlayerState.ENDED) {
-                    playNext().catch(console.error);
+                // also when it stops because a file plays now
+                if (backend !== backends.youtube) {
+                    return;
                 }
-
-                if (e.data == YT.PlayerState.PLAYING) {
-                    seekUpdater = setInterval(() => {
-                        showPosition(player.getCurrentTime());
-                        savePosition();
-                    }, 200);
-                } else if (seekUpdater) {
-                    clearInterval(seekUpdater);
-                    seekUpdater = null;
+                applyVolume();
+                switch (e.data) {
+                    case YT.PlayerState.PLAYING:
+                        onPlaying();
+                        break;
+                    case YT.PlayerState.PAUSED:
+                        onPaused();
+                        break;
+                    case YT.PlayerState.CUED:
+                        pause.innerText = "▶︎";
+                        break;
+                    case YT.PlayerState.ENDED:
+                        onEnded();
+                        break;
                 }
             },
         },
     });
 }
 
+audio.addEventListener("playing", () => {
+    if (backend === backends.file) {
+        onPlaying();
+    }
+});
+audio.addEventListener("pause", () => {
+    // not at the end of a song, and not when the source changes
+    if (
+        backend === backends.file &&
+        !audio.ended &&
+        audio.readyState >= audio.HAVE_CURRENT_DATA
+    ) {
+        onPaused();
+    }
+});
+audio.addEventListener("ended", () => {
+    if (backend === backends.file) {
+        onEnded();
+    }
+});
+audio.addEventListener("error", () => {
+    if (backend === backends.file && audio.getAttribute("src")) {
+        console.error("cannot play", audio.src, audio.error);
+        // after a delay, in case no file plays
+        setTimeout(() => playNext().catch(console.error), 1000);
+    }
+});
+
 async function play(endpoint) {
     const res = await fetch(endpoint, { method: "POST" }).then(
         (res) => res.json(),
     );
-    if (seekUpdater) {
-        clearInterval(seekUpdater);
-        seekUpdater = null;
-    }
+    stopSeekUpdater();
     seek.value = 0;
     // the server removes the song volume on /next and /prev
     songVolume = null;
     applyVolume();
     showTitle(res);
     if (res) {
-        const [{ videoId, length }] = res;
-        currentVideoId = videoId;
-        currentDuration = length?.secs ?? 0;
-        player.loadVideoById(videoId);
+        if (res.playback.kind === "youtube") {
+            await playerReady;
+        }
+        load(res, 0, false);
     }
 }
 
 function togglePause() {
-    if (player.getPlayerState() === YT.PlayerState.PLAYING) {
-        player.pauseVideo();
+    if (backend?.isPlaying()) {
+        backend.pause();
     } else {
-        player.playVideo();
+        backend?.play();
     }
 }
 
@@ -260,6 +364,6 @@ live("/events", {
     },
     next: () => playNext().catch(console.error),
     prev: () => playPrev().catch(console.error),
-    pause: () => player.pauseVideo(),
-    play: () => player.playVideo(),
+    pause: () => backend?.pause(),
+    play: () => backend?.play(),
 });

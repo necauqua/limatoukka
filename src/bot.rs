@@ -22,7 +22,7 @@ use crate::{
         gates::{GateService, GateServiceInMemory, GateServiceValkey},
         ipc::{IpcService, IpcServiceInMemory, IpcServiceValkey},
         jev::{JevService, JevServiceTypeSafe},
-        music::{MusicService, MusicServiceUnavailable, YouTubeMusicPlayer},
+        music::{MusicService, MusicServiceUnavailable, YouTubeMusicPlayer, library::Library},
         names::{NamesService, NamesServiceImpl},
         noita::{NoitaHandle, NoitaService},
         sounds::{SoundService, SoundServiceImpl},
@@ -88,6 +88,10 @@ pub async fn services(
                         config.youtube.country_code.clone(),
                     ),
                     &config.youtube.playlist,
+                    config.music.clone().map(|m| Library {
+                        root: m.folder,
+                        label: m.folder_label,
+                    }),
                     valkey.clone(),
                     display_server.clone(),
                 )

@@ -20,16 +20,21 @@ use rustis::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::broadcast::Sender;
+use tower_http::services::ServeDir;
 
 use crate::{
     injector_getter,
-    integration::yt_music_api::{Restricted, Song, YouTubeMusic},
+    integration::yt_music_api::{Media, Restricted, Song, YouTubeMusic},
     services::{
         Service,
         display::DisplayService,
         live::{self, LiveEvent},
     },
 };
+
+pub mod library;
+
+use library::Library;
 
 #[derive(Debug, Error)]
 pub enum MusicError {
@@ -105,6 +110,9 @@ pub trait MusicService: Service {
     async fn queue(&self) -> Result<Vec<(Song, SongSource)>>;
 
     async fn clear(&self) -> Result<()>;
+
+    /// What `now-playing` says about a song from the music folder
+    fn folder_label(&self) -> Option<&str>;
 }
 
 injector_getter!(MusicService::music);
@@ -116,9 +124,29 @@ pub enum SongSource {
     Request { requester: String },
 }
 
+/// How the page plays a song.
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "kind", rename_all_fields = "camelCase")]
+enum Playback {
+    #[serde(rename = "youtube")]
+    YouTube { video_id: String },
+    #[serde(rename = "file")]
+    File { url: String },
+}
+
+/// A song for the page, with how to play it.
+#[derive(Clone, Debug, Serialize)]
+struct Playing {
+    song: Song,
+    source: SongSource,
+    playback: Playback,
+}
+
 pub struct YouTubeMusicPlayer {
     ytm: YouTubeMusic,
     playlist_id: String,
+    /// Replaces the YouTube playlist (but not its intro) when set
+    library: Option<Library>,
     valkey: ValkeyClient,
     broadcast: Sender<LiveEvent>,
     display: Arc<dyn DisplayService>,
@@ -135,6 +163,7 @@ impl YouTubeMusicPlayer {
     pub async fn new(
         ytm: YouTubeMusic,
         playlist_id: &str,
+        library: Option<Library>,
         valkey: ValkeyClient,
         display: Arc<dyn DisplayService>,
     ) -> Result<Self> {
@@ -145,6 +174,7 @@ impl YouTubeMusicPlayer {
         Ok(Self {
             ytm,
             playlist_id: playlist_id.to_string(),
+            library,
             valkey,
             broadcast: tokio::sync::broadcast::channel(16).0,
             display,
@@ -177,6 +207,24 @@ impl YouTubeMusicPlayer {
             );
         } else {
             self.display.set("now-playing", html! {});
+        }
+    }
+
+    /// The place of the future disk cache: a YouTube song with a cached
+    /// file gets a file URL.
+    fn playing(&self, (song, source): (Song, SongSource)) -> Playing {
+        let playback = match &song.media {
+            Media::YouTube { video_id } => Playback::YouTube {
+                video_id: video_id.clone(),
+            },
+            Media::File { file } => Playback::File {
+                url: library::url(file),
+            },
+        };
+        Playing {
+            song,
+            source,
+            playback,
         }
     }
 
@@ -238,9 +286,17 @@ impl YouTubeMusicPlayer {
         self.valkey.del([HISTORY, REQUESTS, PLAYLIST]).await?;
 
         let mut playlist = self.ytm.load_playlist(&self.playlist_id).await?;
-        let intro = playlist.swap_remove(0);
         if playlist.is_empty() {
-            return Err(anyhow!("playlist had a single song (intro)"));
+            return Err(anyhow!(
+                "the playlist is empty, it needs at least the intro"
+            ));
+        }
+        let intro = playlist.swap_remove(0);
+        if let Some(library) = &self.library {
+            playlist = library.scan().await?;
+        }
+        if playlist.is_empty() {
+            return Err(anyhow!("no songs besides the intro"));
         }
         playlist.shuffle(&mut rand::rng());
 
@@ -260,7 +316,11 @@ impl YouTubeMusicPlayer {
     }
 
     pub fn start(self: &Arc<Self>, bind_addr: &str) -> impl Future<Output = Result<()>> + use<> {
-        let app = Router::new()
+        let mut app = Router::new();
+        if let Some(library) = &self.library {
+            app = app.nest_service(library::ROUTE, ServeDir::new(&library.root));
+        }
+        let app = app
             .route("/", get(page()))
             .route(
                 "/events",
@@ -292,11 +352,15 @@ impl YouTubeMusicPlayer {
             )
             .route(
                 "/next",
-                post(async |State(s): State<Arc<Self>>| Ok::<_, MusicError>(Json(s.next().await?))),
+                post(async |State(s): State<Arc<Self>>| {
+                    Ok::<_, MusicError>(Json(s.playing(s.next().await?)))
+                }),
             )
             .route(
                 "/prev",
-                post(async |State(s): State<Arc<Self>>| Ok::<_, MusicError>(Json(s.prev().await?))),
+                post(async |State(s): State<Arc<Self>>| {
+                    Ok::<_, MusicError>(Json(s.prev().await?.map(|p| s.playing(p))))
+                }),
             )
             .route(
                 "/reset",
@@ -309,12 +373,12 @@ impl YouTubeMusicPlayer {
                 get(async |State(s): State<Arc<Self>>| {
                     #[derive(Serialize)]
                     struct PlayerState {
-                        current: Option<(Song, SongSource)>,
+                        current: Option<Playing>,
                         paused: bool,
                         volume: Volume,
                     }
                     Ok::<_, MusicError>(Json(PlayerState {
-                        current: s.current().await?,
+                        current: s.current().await?.map(|p| s.playing(p)),
                         paused: s.is_paused().await?,
                         volume: s.get_volume().await?,
                     }))
@@ -378,6 +442,7 @@ fn page() -> Markup {
             }
             body {
                 div #player {}
+                audio #audio {}
                 div .controls {
                     h4 { "YouTube Queue Player" }
                     span #currentTitle {}
@@ -500,7 +565,7 @@ impl MusicService for YouTubeMusicPlayer {
                 .filter_map(|s| serde_json::from_str::<(Song, SongSource)>(s).ok())
                 .collect::<Vec<_>>();
 
-            if queue.iter().any(|(s, _)| s.video_id == song.video_id) {
+            if queue.iter().any(|(s, _)| s.media == song.media) {
                 return Err(MusicError::SongAlreadyInQueue);
             }
             if queue
@@ -579,6 +644,10 @@ impl MusicService for YouTubeMusicPlayer {
         self.valkey.del(REQUESTS).await?;
         Ok(())
     }
+
+    fn folder_label(&self) -> Option<&str> {
+        self.library.as_ref().map(|l| l.label.as_str())
+    }
 }
 
 /// For when there is no music player: every call fails.
@@ -643,6 +712,10 @@ impl MusicService for MusicServiceUnavailable {
     async fn clear(&self) -> Result<()> {
         Err(self.error())
     }
+
+    fn folder_label(&self) -> Option<&str> {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -661,6 +734,10 @@ mod tests {
             YouTubeMusicPlayer::new(
                 YouTubeMusic::new(config.youtube.api_key, config.youtube.country_code),
                 &config.youtube.playlist,
+                config.music.map(|m| Library {
+                    root: m.folder,
+                    label: m.folder_label,
+                }),
                 ValkeyClient::connect(config.valkey).await?,
                 Arc::new(DisplayServiceNoop),
             )

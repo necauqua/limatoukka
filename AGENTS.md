@@ -136,6 +136,16 @@ it is not made to be simple to run by other people.
   axum/maud HTTP servers for OBS browser sources, on `browser-source-bind`
   and `music-player-bind`. All the pages on `browser-source-bind`
   (display keys, event list, chat box) use one server.
+- `services/music/`: the music player. The queue is in Valkey
+  (`music:requests`, then the rotating shuffled `music:playlist`;
+  `music:history` head is the current song). A `Song` has a `Media`
+  (what it is: a YouTube video or a file in the `[music] folder`); the
+  server picks a `Playback` for the page (YouTube player or `<audio>`
+  with a `/media/...` URL, from `ServeDir`). A disk cache of YouTube songs
+  can plug in there. `reset` (↺) takes the first song of the YouTube
+  playlist as the intro, and the folder (`library.rs`, tags with `lofty`,
+  else `Artist - Title` file names) or the rest of the YouTube playlist
+  as the playlist. Requests are always YouTube.
 - `services/live/` (+ `live.js`): the live updates of all the pages, over
   a WebSocket at `<page>/events` (JSON `{event, data}`; `live(path,
   handlers)` in the page connects again after a disconnect).

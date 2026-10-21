@@ -11,7 +11,7 @@ use crate::{
     },
     context::cmd::CommandContext,
     fail,
-    integration::yt_music_api::Song,
+    integration::yt_music_api::{Media, Song},
     services::{
         charges::{Charges, ChargesServiceExt},
         gates::GateServiceExt,
@@ -107,19 +107,26 @@ async fn play_sound(
     Ok(())
 }
 
+/// `author - title (where it is from)`
+fn describe_song(ctx: &CommandContext, song: &Song, source: &SongSource) -> String {
+    let Song { author, title, .. } = song;
+    let from = match (source, &song.media) {
+        (SongSource::Request { requester }, _) => format!("requested by {requester}"),
+        (SongSource::Playlist, Media::File { .. }) => {
+            ctx.music().folder_label().unwrap_or("from a folder").into()
+        }
+        (SongSource::Playlist, Media::YouTube { .. }) => "from !playlist".into(),
+    };
+    format!("{author} - {title} ({from})")
+}
+
 /// Get the title of the song that's currently playing on stream, if any.
 #[command(global_gate = 5s, shortcode = np)]
 async fn now_playing(ctx: CommandContext) -> CommandResult {
     match ctx.music().current().await? {
-        Some((Song { author, title, .. }, SongSource::Playlist)) => {
-            ctx.reply(format!("Now playing: {author} - {title} (from !playlist)",))
-                .await?
-        }
-        Some((Song { author, title, .. }, SongSource::Request { requester })) => {
-            ctx.reply(format!(
-                "Now playing: {author} - {title} (requested by {requester})",
-            ))
-            .await?
+        Some((song, source)) => {
+            let song = describe_song(&ctx, &song, &source);
+            ctx.reply(format!("Now playing: {song}")).await?
         }
         None => ctx.fail("Nothing is playing right now").await?,
     }
@@ -130,17 +137,9 @@ async fn now_playing(ctx: CommandContext) -> CommandResult {
 #[command(global_gate = 5s, shortcode = lp)]
 async fn last_playing(ctx: CommandContext) -> CommandResult {
     match ctx.music().last().await? {
-        Some((Song { author, title, .. }, SongSource::Playlist)) => {
-            ctx.reply(format!(
-                "Previous song was: {author} - {title} (from !playlist)",
-            ))
-            .await?
-        }
-        Some((Song { author, title, .. }, SongSource::Request { requester })) => {
-            ctx.reply(format!(
-                "Previous song was: {author} - {title} (requested by {requester})",
-            ))
-            .await?
+        Some((song, source)) => {
+            let song = describe_song(&ctx, &song, &source);
+            ctx.reply(format!("Previous song was: {song}")).await?
         }
         None => ctx.fail("No previous song?.").await?,
     }
@@ -314,7 +313,11 @@ async fn song_request(
     };
 
     match ctx.music().request(query, name).await {
-        Ok(Song { author, title, video_id, length, .. }) => {
+        Ok(Song { author, title, media, length, .. }) => {
+            let video_id = match media {
+                Media::YouTube { video_id } => video_id,
+                Media::File { file } => file.to_string_lossy().into_owned(),
+            };
             ctx.reply(format!("Added a song to the queue: {author} - {title}"))
                 .await?;
             let length = length.as_millis().to_string();

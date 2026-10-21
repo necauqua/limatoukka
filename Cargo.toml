@@ -64,6 +64,9 @@ parse_duration = "2.1.1"
 jiff = "0.2.37"
 unicode-segmentation = "1.13.3"
 emojis = "0.9.1"
+lofty = "0.25.4"
+walkdir = "2.5.0"
+tower-http = { version = "0.7.1", features = ["fs"] }
 
 [dev-dependencies]
 insta = "1.48.0"

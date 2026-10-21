@@ -41,3 +41,13 @@ music-player-bind = "localhost:35354"
 # [jev]
 # api-key = "<SECRET>"
 # model = "jev-latest" # optional
+
+#
+# Not secret
+#
+
+# the music player plays these files instead of the YouTube playlist;
+# the first song of the YouTube playlist is still the intro
+[music]
+folder = "/home/necauqua/music/old-phone"
+folder-label = "from old phone backup"
