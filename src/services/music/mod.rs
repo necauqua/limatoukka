@@ -236,15 +236,17 @@ impl YouTubeMusicPlayer {
             .lmove::<Option<String>>(REQUESTS, HISTORY, LMoveWhere::Left, LMoveWhere::Left)
             .await?;
 
-        if let Some(request) = request {
-            return Ok(serde_json::from_str(&request)?);
-        }
-
-        let next = self
-            .valkey
-            .lmove::<String>(PLAYLIST, PLAYLIST, LMoveWhere::Left, LMoveWhere::Right)
-            .await?;
-        self.valkey.lpush(HISTORY, &next).await?;
+        let next = match request {
+            Some(request) => request,
+            None => {
+                let next = self
+                    .valkey
+                    .lmove::<String>(PLAYLIST, PLAYLIST, LMoveWhere::Left, LMoveWhere::Right)
+                    .await?;
+                self.valkey.lpush(HISTORY, &next).await?;
+                next
+            }
+        };
 
         let (song, src) = serde_json::from_str::<(Song, SongSource)>(&next)?;
 
