@@ -5,6 +5,10 @@ let globalVolume = 15;
 // volume for the current song only, null for the global volume
 let songVolume = null;
 
+// local files are louder than most YouTube music: they play at this
+// part of the slider volume (slider 18 plays as 10)
+const FILE_VOLUME_SCALE = 10 / 18;
+
 // the two ways to play a song (the `kind` of a playback from the
 // server): the YouTube player and the audio element
 const backends = {
@@ -63,7 +67,7 @@ function applyVolume() {
             ? globalVolume
             : globalVolume + " (" + songVolume + ")";
     player?.setVolume?.(effective);
-    audio.volume = effective / 100;
+    audio.volume = (effective * FILE_VOLUME_SCALE) / 100;
 }
 
 // while the slider is dragged
