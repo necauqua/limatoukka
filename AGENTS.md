@@ -143,9 +143,10 @@ it is not made to be simple to run by other people.
   server picks a `Playback` for the page (YouTube player or `<audio>`
   with a `/media/...` URL, from `ServeDir`). A disk cache of YouTube songs
   can plug in there. `reset` (↺) takes the first song of the YouTube
-  playlist as the intro, and the folder (`library.rs`, tags with `lofty`,
-  else `Artist - Title` file names) or the rest of the YouTube playlist
-  as the playlist. Requests are always YouTube.
+  playlist as the intro. The playlist is the rest of the YouTube playlist,
+  the folder (`library.rs`, tags with `lofty`, else `Artist - Title` file
+  names) with `[music] mode = "replace"` (default), or both, shuffled
+  together, with `mode = "both"`. Requests are always YouTube.
 - `services/live/` (+ `live.js`): the live updates of all the pages, over
   a WebSocket at `<page>/events` (JSON `{event, data}`; `live(path,
   handlers)` in the page connects again after a disconnect).

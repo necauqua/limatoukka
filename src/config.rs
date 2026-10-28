@@ -46,15 +46,30 @@ pub struct YouTube {
     pub playlist: String,
 }
 
+/// How the songs of [`Music::folder`] go into the playlist
+#[derive(Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum FolderMode {
+    /// The folder replaces the YouTube playlist (but not its intro)
+    #[default]
+    Replace,
+    /// The folder and the YouTube playlist are shuffled together
+    Both,
+}
+
 #[derive(Deserialize, Clone)]
 #[serde(rename_all = "kebab-case")]
 pub struct Music {
-    /// A folder with audio files (recursive) that replaces the YouTube
-    /// playlist when no songs are requested
+    /// A folder with audio files (recursive) that the music player plays
+    /// when no songs are requested
     pub folder: PathBuf,
     /// What `now-playing` says about a song from the folder, e.g.
     /// "from old phone backup"
     pub folder_label: String,
+    /// Whether the folder replaces the YouTube playlist or plays together
+    /// with it, `replace` when not set
+    #[serde(default)]
+    pub mode: FolderMode,
 }
 
 #[derive(Deserialize, Clone)]

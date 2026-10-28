@@ -1,5 +1,5 @@
 //! A folder of audio files that the music player plays instead of the
-//! YouTube playlist.
+//! YouTube playlist or together with it.
 
 use std::{
     path::{Path, PathBuf},
@@ -11,7 +11,10 @@ use lofty::{file::TaggedFileExt, prelude::*};
 use reqwest::Url;
 use walkdir::WalkDir;
 
-use crate::integration::yt_music_api::{Media, Song};
+use crate::{
+    config::FolderMode,
+    integration::yt_music_api::{Media, Song},
+};
 
 /// The extensions of the audio files that Chromium (and thus OBS) can play.
 const EXTENSIONS: &[&str] = &[
@@ -25,6 +28,9 @@ pub struct Library {
     pub root: PathBuf,
     /// What `now-playing` says about a song from the folder
     pub label: String,
+    /// Whether the folder replaces the YouTube playlist or plays together
+    /// with it
+    pub mode: FolderMode,
 }
 
 impl Library {
@@ -133,6 +139,7 @@ mod tests {
         let library = Library {
             root: music.folder,
             label: music.folder_label,
+            mode: music.mode,
         };
         let songs = library.scan().await?;
         for song in &songs {

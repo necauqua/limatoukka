@@ -36,6 +36,8 @@ pub mod library;
 
 use library::Library;
 
+use crate::config::FolderMode;
+
 #[derive(Debug, Error)]
 pub enum MusicError {
     #[error("Not found")]
@@ -145,7 +147,8 @@ struct Playing {
 pub struct YouTubeMusicPlayer {
     ytm: YouTubeMusic,
     playlist_id: String,
-    /// Replaces the YouTube playlist (but not its intro) when set
+    /// Replaces the YouTube playlist (but not its intro) or plays together
+    /// with it when set
     library: Option<Library>,
     valkey: ValkeyClient,
     broadcast: Sender<LiveEvent>,
@@ -295,7 +298,11 @@ impl YouTubeMusicPlayer {
         }
         let intro = playlist.swap_remove(0);
         if let Some(library) = &self.library {
-            playlist = library.scan().await?;
+            let songs = library.scan().await?;
+            match library.mode {
+                FolderMode::Replace => playlist = songs,
+                FolderMode::Both => playlist.extend(songs),
+            }
         }
         if playlist.is_empty() {
             return Err(anyhow!("no songs besides the intro"));
@@ -739,6 +746,7 @@ mod tests {
                 config.music.map(|m| Library {
                     root: m.folder,
                     label: m.folder_label,
+                    mode: m.mode,
                 }),
                 ValkeyClient::connect(config.valkey).await?,
                 Arc::new(DisplayServiceNoop),

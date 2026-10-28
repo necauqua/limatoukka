@@ -91,6 +91,7 @@ pub async fn services(
                     config.music.clone().map(|m| Library {
                         root: m.folder,
                         label: m.folder_label,
+                        mode: m.mode,
                     }),
                     valkey.clone(),
                     display_server.clone(),
