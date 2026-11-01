@@ -7,7 +7,7 @@ default-run = "limatoukka"
 
 [dependencies]
 limatoukka-macros = { path = "macros" }
-noita-engine-reader = { path = "../noita/noita-utility-box/noita-engine-reader" }
+noita-engine-reader = { path = "../noita-utility-box/noita-engine-reader" }
 neca-cmd = "0.4.0"
 
 anyhow = "1.0.104"

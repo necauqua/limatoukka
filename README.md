@@ -1,3 +1,10 @@
+<!--
+tags:
+  - twitch
+  - app
+  - lang/rust
+-->
+
 ## limatoukka
 
 This is the source code of my Twitch bot, that initially was behind Twitch Plays
