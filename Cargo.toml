@@ -67,6 +67,10 @@ emojis = "0.9.1"
 lofty = "0.25.4"
 walkdir = "2.5.0"
 tower-http = { version = "0.7.1", features = ["fs"] }
+zbus = { version = "6.2.1", default-features = false, features = [
+    "proxy",
+    "tokio",
+] }
 
 [dev-dependencies]
 insta = "1.48.0"

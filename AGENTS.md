@@ -91,6 +91,12 @@ it is not made to be simple to run by other people.
 - Hot restart: at start, a new instance publishes `bot-restart` over Valkey
   pub/sub (`services/ipc.rs`), and the old instance stops. Interrupts go
   across instances on the `interrupt` channel.
+- Stop: Ctrl-C and `die` pause the channel point rewards (not on a hot
+  restart). A system shutdown, SIGTERM and SIGHUP also interrupt the
+  running commands first. For the shutdown, the bot holds a logind
+  `delay` inhibitor lock (`integration/logind.rs`, zbus): logind waits
+  for it (at most `InhibitDelayMaxSec`, 5 s) while Valkey and the network
+  still run; the lock is released after the deinitialization.
 - `services/`: one trait per service, with Valkey/Elastic/real
   implementations plus in-memory/Noop/Mock implementations.
   - `Injector` (`services/mod.rs`) is a `TypeId` → `Arc<dyn Trait>` map.

@@ -7,7 +7,13 @@ use limatoukka::{
     config::Config,
     context::app::{AppContext, InterruptKind},
     events::{ChannelEvent, handle_channel_event, handle_kofi_event, handle_noita_event},
-    integration::{eventsub::EventSub, kofi::KofiPayload, ntfy::NtfyTopic, twitch_api::TwitchApi},
+    integration::{
+        eventsub::EventSub,
+        kofi::KofiPayload,
+        logind::{ShutdownInhibitor, shutdown_requested},
+        ntfy::NtfyTopic,
+        twitch_api::TwitchApi,
+    },
     logging,
     services::{
         caches::CacheServiceExt,
@@ -16,7 +22,10 @@ use limatoukka::{
         twitch::{TwitchService, TwitchServiceImpl},
     },
 };
-use tokio::task::JoinSet;
+use tokio::{
+    signal::unix::{SignalKind, signal},
+    task::JoinSet,
+};
 
 use tracing::Instrument;
 use twitch_api::eventsub::{
@@ -91,6 +100,20 @@ async fn run() -> Result<()> {
     tokio::spawn(kofi.run());
 
     eventsub_init.await;
+
+    // before the rewards are unpaused, so that they are never left unpaused
+    let mut inhibitor = ShutdownInhibitor::new()
+        .await
+        .inspect_err(|error| {
+            tracing::warn!(
+                ?error,
+                "no logind inhibitor lock, a shutdown will not deinitialize the bot"
+            )
+        })
+        .ok();
+    let mut sigterm = signal(SignalKind::terminate())?;
+    let mut sighup = signal(SignalKind::hangup())?;
+
     // after eventsub init so we can receive redemptions
     twitch_api.unpause_rewards().await?;
 
@@ -99,12 +122,28 @@ async fn run() -> Result<()> {
 
     let mut restart_signal = ipc.listen("bot-restart");
     let mut restart_received = false;
+    let mut stop_tasks = false;
     let mut tasks = JoinSet::new();
 
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => break,
             _ = ctx.wait_for_quit() => break,
+            _ = shutdown_requested(&mut inhibitor) => {
+                tracing::info!("the system shuts down");
+                stop_tasks = true;
+                break;
+            }
+            _ = sigterm.recv() => {
+                tracing::info!("received SIGTERM");
+                stop_tasks = true;
+                break;
+            }
+            _ = sighup.recv() => {
+                tracing::info!("received SIGHUP");
+                stop_tasks = true;
+                break;
+            }
             _ = &mut restart_signal => {
                 tracing::info!("received a restart signal from new instance");
 
@@ -179,10 +218,18 @@ async fn run() -> Result<()> {
         };
     }
 
+    if stop_tasks {
+        ctx.interrupt(None, InterruptKind::Interrupt);
+    }
+
     // just pray nothing errored beforehand
     // where's my errdefer :(
     if !restart_received {
         twitch_api.pause_rewards().await?;
+    }
+
+    if let Some(inhibitor) = &mut inhibitor {
+        inhibitor.release();
     }
 
     tasks.join_all().await;
