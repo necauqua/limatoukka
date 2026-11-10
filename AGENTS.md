@@ -173,6 +173,9 @@ it is not made to be simple to run by other people.
   donations and charity donations in the same currency; anonymous users
   are one user) merges into it. The entry keeps its id, gets the sum and
   moves to the top; the page moves it there and counts the number up.
+  Twitch often sends a resub as a sub first: a resub replaces a shown sub
+  of the same user in the same way (the page crossfades the text, by
+  `data-kind`), and a sub of a user with a shown resub is not added.
   Bits have the color of the Twitch cheermote tier of the sum.
 - `services/chat_box/` (+ `chat-box.css`/`.js`): the chat browser sources
   `/chat` (the chat) and `/chat/last` (only the last message), on

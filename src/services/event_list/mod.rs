@@ -6,6 +6,11 @@
 //! merge with a shown entry of the same user and kind (bits, gift subs,
 //! Ko-fi and charity donations), that entry gets the sum and moves to the
 //! top, and no new entry is added. Thus one user cannot fill the list.
+//!
+//! Twitch often sends a resub as a sub first, and then as a resub with the
+//! months when the user shares the resub message. Thus a resub replaces a
+//! shown sub of the same user in the same way, and a sub of a user with a
+//! shown resub is not added.
 
 use std::{
     collections::VecDeque,
@@ -249,10 +254,15 @@ impl ListedEvent {
     /// Adds `new` to this event when they are of the same user and kind
     /// and can have a sum: bits, gift subs, Ko-fi donations and charity
     /// donations (to the same charity) in the same currency. All the
-    /// anonymous events are of one user. Returns `false` (and does not
-    /// change `self`) when they do not merge.
+    /// anonymous events are of one user. A resub replaces a sub of the
+    /// same user. Returns `false` (and does not change `self`) when they do
+    /// not merge.
     fn merge(&mut self, new: &Self) -> bool {
-        match (self, new) {
+        match (&mut *self, new) {
+            (Self::Sub { user, .. }, Self::Resub { user: u, .. }) if user == u => {
+                *self = new.clone();
+                true
+            }
             (Self::Cheer { user, bits }, Self::Cheer { user: u, bits: b }) if user == u => {
                 *bits += b;
                 true
@@ -287,6 +297,15 @@ impl ListedEvent {
             ) if user == u && charity == c => amount.add(a),
             _ => false,
         }
+    }
+
+    /// Whether `new` adds nothing to this event: a resub includes the sub
+    /// of the same user that Twitch can send with it.
+    fn covers(&self, new: &Self) -> bool {
+        matches!(
+            (self, new),
+            (Self::Resub { user, .. }, Self::Sub { user: u, .. }) if user == u
+        )
     }
 
     /// The text after the user name.
@@ -362,7 +381,8 @@ impl Entry {
             .unwrap_or_default();
         // a merge keeps the id and changes `at`
         html! {
-            div class={ "entry " (self.event.class()) } data-id=(self.id) data-at=(self.at) {
+            div class={ "entry " (self.event.class()) } data-id=(self.id) data-at=(self.at)
+                data-kind=(self.event.class()) {
                 span.date style="display:none" { (date) }
                 span.message {
                     span.user { (self.event.user()) }
@@ -505,10 +525,15 @@ impl EventListService for EventList {
         match &self.store {
             Store::Valkey(client) => {
                 let shown: Vec<String> = client.lrange(VALKEY_KEY, 0, SHOWN as isize - 1).await?;
-                let merged = shown.iter().find_map(|raw| {
-                    let mut entry: Entry = serde_json::from_str(raw).ok()?;
-                    entry.event.merge(&event).then_some((raw, entry))
-                });
+                let shown: Vec<(&String, Entry)> = (shown.iter())
+                    .filter_map(|raw| Some((raw, serde_json::from_str(raw).ok()?)))
+                    .collect();
+                if shown.iter().any(|(_, entry)| entry.event.covers(&event)) {
+                    return Ok(());
+                }
+                let merged = shown
+                    .into_iter()
+                    .find_map(|(raw, mut entry)| entry.event.merge(&event).then_some((raw, entry)));
                 let mut t = client.create_transaction();
                 let entry = match merged {
                     Some((raw, entry)) => {
@@ -523,6 +548,9 @@ impl EventListService for EventList {
             }
             Store::InMemory(entries) => {
                 let mut entries = entries.lock().unwrap();
+                if (entries.iter().take(SHOWN)).any(|entry| entry.event.covers(&event)) {
+                    return Ok(());
+                }
                 let merged = (entries.iter_mut().take(SHOWN))
                     .position(|entry| entry.event.merge(&event));
                 let entry = match merged.and_then(|index| entries.remove(index)) {
@@ -649,6 +677,51 @@ mod tests {
         assert!(dono.merge(&charity("$5", "MSF")));
         assert_eq!(dono, charity("$10", "MSF"));
         assert!(!dono.merge(&charity("$5", "other")));
+
+        let mut entry = sub("a");
+        assert!(!entry.merge(&resub("b", 5)));
+        assert!(!entry.merge(&sub("a")));
+        assert!(entry.merge(&resub("a", 5)));
+        assert_eq!(entry, resub("a", 5));
+        assert!(!entry.merge(&resub("a", 6)));
+        assert!(!entry.merge(&sub("a")));
+        assert!(entry.covers(&sub("a")));
+        assert!(!entry.covers(&sub("b")));
+        assert!(!sub("a").covers(&resub("a", 5)));
+    }
+
+    fn sub(user: &str) -> ListedEvent {
+        ListedEvent::Sub {
+            user: user.into(),
+            tier: SubscriptionTier::Tier1,
+        }
+    }
+
+    fn resub(user: &str, months: i64) -> ListedEvent {
+        ListedEvent::Resub {
+            user: user.into(),
+            months,
+        }
+    }
+
+    #[tokio::test]
+    async fn resub_replaces_sub() -> Result<()> {
+        let list = EventList::in_memory();
+        list.push(sub("a")).await?;
+        let id = list.recent(1).await?[0].id.clone();
+        list.push(follow("b")).await?;
+        list.push(resub("a", 5)).await?;
+        assert_eq!(shown(&list).await, [resub("a", 5), follow("b")]);
+        assert_eq!(list.recent(1).await?[0].id, id);
+
+        // the sub after the resub is not added
+        list.push(follow("c")).await?;
+        list.push(sub("a")).await?;
+        assert_eq!(
+            shown(&list).await,
+            [follow("c"), resub("a", 5), follow("b")]
+        );
+        Ok(())
     }
 
     async fn shown(list: &EventList) -> Vec<ListedEvent> {

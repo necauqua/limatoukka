@@ -23,13 +23,20 @@ body {
 }
 
 .entry {
+    position: relative;
     width: 100%;
     display: flex;
 }
 
+/* the old text of an entry that changes its kind fades out over the new */
+.message.fading {
+    position: absolute;
+    top: 0;
+    right: 0;
+}
+
 /* a merged entry that moves up to the top goes over the others */
 .entry.rising {
-    position: relative;
     z-index: 1;
 }
 

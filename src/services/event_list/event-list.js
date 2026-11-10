@@ -3,6 +3,8 @@ const list = document.getElementById('list');
 const MOVE_MS = 250;
 // the time to count a number up to its new value
 const COUNT_MS = 1000;
+// the time to fade from the old text to the new text
+const FADE_MS = 500;
 
 const shown = root => [...root.children].filter(entry => !entry.classList.contains('leaving'));
 // a merge keeps the id of the entry and changes its time
@@ -37,6 +39,18 @@ const countUp = (from, to) => {
   step(began);
 };
 
+// the old text fades out over the new text, which fades in
+const crossfade = (from, to) => {
+  const message = to.querySelector(':scope > .message');
+  const old = from.querySelector(':scope > .message:not(.fading)').cloneNode(true);
+  old.classList.add('fading');
+  old.style.left = `${message.offsetLeft}px`;
+  to.append(old);
+  old.animate([{ opacity: 1 }, { opacity: 0 }], { duration: FADE_MS, fill: 'forwards' })
+    .onfinish = () => old.remove();
+  message.animate([{ opacity: 0 }, { opacity: 1 }], { duration: FADE_MS });
+};
+
 // each list has all the shown entries, the first one is sent on (re)connect
 const update = html => {
   const next = document.createElement('div');
@@ -56,6 +70,8 @@ const update = html => {
     .map(entry => {
       const copy = entry.cloneNode(true);
       copy.classList.add('leaving');
+      // the copy does not have the animation of the fade
+      copy.querySelectorAll('.fading').forEach(old => old.remove());
       return copy;
     });
   const entries = [...next.children, ...leaving];
@@ -82,7 +98,10 @@ const update = html => {
     }
 
     const was = old.get(id);
-    if (was && !isLeaving) {
+    if (was && !isLeaving && was.dataset.kind !== entry.dataset.kind) {
+      // a resub that replaces a sub
+      crossfade(was, entry);
+    } else if (was && !isLeaving) {
       const wasNumbers = was.querySelectorAll('[data-value]');
       entry.querySelectorAll('[data-value]').forEach((number, i) => {
         if (wasNumbers[i]) {
